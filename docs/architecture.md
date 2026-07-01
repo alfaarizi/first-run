@@ -2,14 +2,13 @@
 
 Date: 2026-07-01
 
-At the highest level, FirstRun reads the event stream from a customer's product,
-finds users stalled in onboarding, and answers them with nudges and chat grounded
-in the product's own docs, running a setup action only after the user confirms. A
-Java modular monolith (`server/`) owns the product and a single Python service
-(`agent/`) owns the agent loop, with a vanilla TypeScript widget embedded in the
-customer's application and Redpanda carrying the event stream. Every structural choice
-traces to a decision in `docs/adr/`, so read those before you change anything
-structural.
+FirstRun reads the event stream from a customer's product, finds users stalled in
+onboarding, and answers them with nudges and chat grounded in the product's own
+docs, running a setup action only after the user confirms. A Java modular monolith
+(`server/`) owns the product logic, and a single Python service (`agent/`) owns the
+model loop. A vanilla TypeScript widget embeds in the customer's app, and Redpanda
+carries the event stream. Every structural choice traces to a decision in
+`docs/adr/`, so read those before changing one.
 
 ## System Context
 
@@ -44,11 +43,11 @@ flowchart LR
   style T fill:#FFFFFF,stroke:#FFFFFF,color:#000000
 ```
 
-Two kinds of people use FirstRun. End users only ever see FirstRun as the widget
-embedded in the product and never hold an account in our system, while founders
-sign in to the dashboard to define milestones and read activation lift. The other
-four systems are dependencies the platform calls out to for model inference,
-action webhooks, billing, and tracing.
+Two kinds of people use FirstRun. End users only ever see it as the widget embedded
+in the product and never hold an account with us, while founders sign in to the
+dashboard to define milestones and read activation lift. The other four systems are
+dependencies the platform calls out to for model inference, action webhooks,
+billing, and tracing.
 
 ## Containers
 
@@ -96,10 +95,10 @@ flowchart LR
   style FR fill:none,stroke:#444444,stroke-dasharray:5 5,color:#000000
 ```
 
-The split between the server and the agent follows runtime forces, instead of architectural
-layers. The server is a single deployable that owns every piece of stateful product logic,
-and the agent is separate only because its model work needs Python (See ADR-001).
-Each boundary uses the cheapest protocol that fits its load (See ADR-003):
+The split between the server and the agent follows runtime forces, not architectural
+layers. The server is a single deployable that owns every piece of stateful product
+logic, and the agent is separate only because its model work needs Python (ADR-001).
+Each boundary then uses the cheapest protocol that fits its load (ADR-003):
 
 - REST carries high-volume ingest and outbound webhooks.
 - GraphQL serves the dashboard's nested reads.
@@ -165,22 +164,22 @@ flowchart LR
 
 Inside the server, modules see each other only through published interfaces or
 domain events, and ArchUnit with `ApplicationModules.verify()` enforces that in
-CI, where a broken boundary is a design defect. Three constraints carry the most
-weight:
+continuous integration, where a broken boundary is a design defect. Three
+constraints carry the most weight:
 
 - The `ledger` is append-only, so no repository method may update or delete its
   rows.
 - Only `analytics` and the API layer may import `billing`.
 - `ingestion` stays allocation-light and never touches GraphQL types.
 
-The Agent group shows the other deployable. Its policy node uses a small model
+The Agent group is the other deployable, where the policy node uses a small model
 and the answer node the stronger one, both at the external provider and swappable by
-configuration. Because the agent holds the only provider access point, it also
-owns the document index: on `Reindex` it crawls, chunks, and embeds a customer's
-docs into pgvector, and retrieval reads them back at answer time. It parses every
-output into a Pydantic model before returning it, so a malformed response or a
-provider outage becomes a hold, and the product degrades to silence rather than
-to a wrong answer.
+configuration. Because the agent holds the only provider access point, it also owns
+the document index. On `Reindex` it crawls, chunks, and embeds a customer's docs
+into pgvector, and retrieval reads them back at answer time. It parses every output
+into a Pydantic model before returning it, so a malformed response or a provider
+outage becomes a hold, and the product degrades to silence rather than a wrong
+answer.
 
 ## Runtime
 
@@ -229,12 +228,11 @@ sequenceDiagram
   end
 ```
 
-A deterministic gate, not the model, decides which events are worth a policy
-call, which keeps cost tied to stuck users instead of raw traffic (See ADR-005).
-Every candidate that clears the gate produces exactly one ledgered decision,
-intervene or hold, and no webhook fires until the user clicks Confirm. Four
-budgets bound the path, and the README publishes them while `make load` and the
-eval harness check them:
+A deterministic gate, not the model, decides which events are worth a policy call,
+so cost stays tied to stuck users instead of raw traffic (ADR-005). Every candidate
+that clears the gate produces exactly one ledgered decision, intervene or hold, and
+no webhook fires until the user clicks Confirm. Four budgets bound the path, and the
+README publishes them while `make load` and the eval harness check them:
 
 - The ingest gateway responds within 250ms at p99.
 - The stuck gate runs under 50ms, in-stream.
@@ -250,7 +248,7 @@ with its own dead-letter queue:
 |---|---|---|---|
 | `events.raw` | ingestion | stream-processor, archival, eval-capture | `hash(tenant_id, end_user_id)`, for per-user ordering |
 | `events.enriched` | stream processor | analytics | adds session and milestone context |
-| `intervention.candidates` | stuck gate | decisioning | only gated events, so model calls stay rare (See ADR-005) |
+| `intervention.candidates` | stuck gate | decisioning | only gated events, so model calls stay rare (ADR-005) |
 | `intervention.outcomes` | server | analytics, billing-metering | engaged, dismissed, ignored, or attributed |
 | `*.dlq` | each consumer | replay tooling | one per consumer |
 
@@ -339,14 +337,14 @@ classDef default fill:#438DD5,stroke:#3C7FC0,color:#000000
 ```
 
 The whole schema lives in one Postgres instance, embeddings included, to avoid a
-second datastore (See ADR-004). A few conventions hold throughout:
+second datastore (ADR-004). A few conventions hold throughout:
 
 - Keys are UUIDv7 (RFC 9562), and timestamps are UTC `timestamptz`.
 - The `events` table is partitioned by day.
 - Every tenant-scoped table carries a row-level security (RLS) policy,
   `USING (tenant_id = current_setting('app.tenant_id')::uuid)`.
 - The `end_users.holdout` flag is a deterministic 10% hash bucket, set once at
-  first sight and never changed (See ADR-009).
+  first sight and never changed (ADR-009).
 
 ## Deployment
 
@@ -397,7 +395,7 @@ The same code runs in two places:
 - In production, ECS Fargate runs the server and agent beside RDS Postgres,
   Redis, and a single Redpanda node, while CloudFront and S3 serve the widget
   and dashboard bundles. `infra/` Terraform defines it all, and GitHub Actions
-  ships from main.
+  deploys from main.
 
 A request keeps one trace from the widget through to the agent over W3C Trace
 Context in Kafka headers, and Prometheus and Grafana run in both environments.
