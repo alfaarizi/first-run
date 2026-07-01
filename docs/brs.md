@@ -36,8 +36,8 @@ Seven criteria define a successful v1:
 3. All 30 planted-instruction attacks fail.
 4. A registered action runs only after the user clicks Confirm.
 5. No customer can read another customer's data.
-6. A public dashboard is live by 2026-08-21.
-7. A design partner installs FirstRun by 2026-09-18.
+6. A public dashboard is live by 2026-09-10.
+7. A design partner installs FirstRun by 2026-10-08.
 
 ## Constraints
 
