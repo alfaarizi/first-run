@@ -1,0 +1,28 @@
+name: Spike
+description: Time-boxed research to reduce uncertainty
+title: "SPIKE-XXX: "
+labels: ["kind/design"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Spike
+      placeholder: What we need to find out and why it matters.
+    validations:
+      required: true
+  - type: input
+    id: timebox
+    attributes:
+      label: Time-box
+      placeholder: "X hours"
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      placeholder: |
+        - [ ] First thing we expect to learn
+        - [ ] Findings posted as a comment on this issue
+    validations:
+      required: true
