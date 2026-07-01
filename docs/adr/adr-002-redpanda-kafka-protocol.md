@@ -7,8 +7,8 @@ Date: 2026-06-11
 Accepted
 
 ## Context
--
-The event stream is Kafka-shaped, with unbounded multi-tenant input, several independent consumer groups (state, analytics, archival, eval capture), and replay required by the eval harness. Managed Kafka (MSK) costs more per month than this product's entire infrastructure budget, and ZooKeeper-era self-hosting is an operations tax a solo builder should not pay.
+
+The event stream is Kafka-shaped, with unbounded multi-tenant input, several independent consumer groups (state, analytics, archival, eval capture), and replay required by the eval harness. Amazon Managed Streaming for Apache Kafka (MSK) costs more per month than this product's entire infrastructure budget, and ZooKeeper-era self-hosting is an operations tax a solo builder should not pay.
 
 ## Decision
 
@@ -16,7 +16,7 @@ Speak the Kafka protocol everywhere and run Redpanda as the broker, a single bin
 
 ## Consequences
 
-This buys replay, consumer groups, and per-user ordering (keyed partitions) for about the cost of one container. A single node has no broker high availability in v1, which is acceptable because ingest is buffered client-side, dedupe makes redelivery safe, and the runbook documents recovery. Move to MSK or a multi-node cluster when throughput exceeds one node, a paying tenant needs a durability SLA, or compliance demands managed infrastructure.
+This buys replay, consumer groups, and per-user ordering (keyed partitions) for about the cost of one container. A single node has no broker high availability in v1, which is acceptable because ingest is buffered client-side, dedupe makes redelivery safe, and the runbook documents recovery. Move to MSK or a multi-node cluster when throughput exceeds one node, a paying tenant needs a durability service-level agreement (SLA), or compliance demands managed infrastructure.
 
 The rejected alternatives were:
 

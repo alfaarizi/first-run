@@ -16,7 +16,7 @@ Versioned REST (`POST /v1/e`, defined in OpenAPI) serves ingest and outbound web
 
 ## Consequences
 
-Each surface gets the cheapest adequate tool. Ingest carries no GraphQL runtime or client weight, the web app avoids over-fetching and under-fetching across nested reads, and the agent boundary gets generated types in both languages plus bidirectional streaming for chat. The cost is three toolchains, paid once in `make generate` and CI, which is why the `api/` directory exists.
+Each surface gets the cheapest adequate tool. Ingest carries no GraphQL runtime or client weight, the web app avoids over-fetching and under-fetching across nested reads, and the agent boundary gets generated types in both languages plus bidirectional streaming for chat. The cost is three toolchains, paid once in `make generate` and continuous integration, which is why the `api/` directory exists.
 
 The rejected alternatives were:
 

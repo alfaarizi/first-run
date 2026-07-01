@@ -12,7 +12,7 @@ The repo is public and the revenue is the hosted service, so readable code costs
 
 ## Decision
 
-License the repository AGPL-3.0-only. The one exception is `widget/`, which is MIT. The hosted deployment is the commercial offering, with no open-core split, no dual licensing, and no CLA.
+License the repository AGPL-3.0-only. The one exception is `widget/`, which is MIT. The hosted deployment is the commercial offering, with no open-core split, no dual licensing, and no Contributor License Agreement (CLA).
 
 ## Consequences
 
@@ -22,5 +22,5 @@ The rejected alternatives were:
 
 - MIT everywhere: invites a closed hosted clone with no recourse.
 - Open core under `/ee`: licensing machinery with no enterprise buyer to gate features for.
-- Source-available licenses such as BSL or FSL: block the same threat but are not OSI-approved open source, which weakens the open-audit claim.
+- Source-available licenses such as the Business Source License (BSL) or Functional Source License (FSL): block the same threat but are not approved by the Open Source Initiative (OSI), which weakens the open-audit claim.
 - No license: all rights reserved, which contradicts the MIT promise already in the docs.

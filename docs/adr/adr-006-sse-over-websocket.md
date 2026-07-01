@@ -16,7 +16,7 @@ Server-Sent Events (SSE) carry all server-to-widget push. Plain batched POST car
 
 ## Consequences
 
-The channel is one-directional plain HTTP, so it is proxy-friendly, auto-reconnecting, small in client code, and easy to bridge to the agent's gRPC stream server-side. The cost is no client-to-server multiplexing on one socket, which this product does not need. Revisit only if a feature needs sustained bidirectional traffic, none of which is planned (See ADR-010).
+The channel is one-directional plain HTTP, so it is proxy-friendly, auto-reconnecting, small in client code, and easy to bridge to the agent's gRPC stream server-side. The cost is no client-to-server multiplexing on one socket, which this product does not need. Revisit only if a feature needs sustained bidirectional traffic, none of which is planned (ADR-010).
 
 The rejected alternatives were:
 

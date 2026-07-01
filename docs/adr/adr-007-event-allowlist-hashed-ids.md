@@ -8,7 +8,7 @@ Accepted
 
 ## Context
 
-A third-party script inside other companies' products is one bad default away from collecting PII. Trust is the adoption blocker for the buyer, and a system that cannot hold sensitive payloads is a stronger claim than a promise not to look.
+A third-party script inside other companies' products is one bad default away from collecting personally identifiable information (PII). Trust is the adoption blocker for the buyer, and a system that cannot hold sensitive payloads is a stronger claim than a promise not to look.
 
 ## Decision
 

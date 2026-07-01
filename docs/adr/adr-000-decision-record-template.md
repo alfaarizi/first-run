@@ -22,9 +22,9 @@ What is the change that we're proposing and/or doing?
 
 ## Consequences
 
-What becomes easier or more difficult to do because of this change? End with the rejected alternatives.
+What becomes easier or more difficult to do because of this change? Write the rejected alternatives.
 
 The rejected alternatives were:
 
-- Option A: the one reason it lost.
-- Option B: the one reason it lost.
+- Option A: Why is it rejected?
+- Option B: Why is it rejected?

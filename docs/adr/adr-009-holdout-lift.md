@@ -8,7 +8,7 @@ Accepted
 
 ## Context
 
-Every vendor in this category asserts lift, and asserted lift is marketing. Measured lift needs a control group. At small-SaaS MAU that control group is small, so the statistics must be honest about uncertainty.
+Every vendor in this category asserts lift, and asserted lift is marketing. Measured lift needs a control group. At the monthly active user (MAU) counts a small SaaS sees, that control group is small, so the statistics must be honest about uncertainty.
 
 ## Decision
 

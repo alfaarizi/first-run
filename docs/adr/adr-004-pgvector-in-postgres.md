@@ -12,7 +12,7 @@ Per-tenant document corpora are small, thousands of chunks per docs site, not mi
 
 ## Decision
 
-Store embeddings in `doc_chunks(embedding vector)` inside the main Postgres, indexed with HNSW, namespaced per tenant, and covered by the same RLS policies as everything else.
+Store embeddings in `doc_chunks(embedding vector)` inside the main Postgres, indexed with a Hierarchical Navigable Small World (HNSW) graph, namespaced per tenant, and covered by the same RLS policies as everything else.
 
 ## Consequences
 

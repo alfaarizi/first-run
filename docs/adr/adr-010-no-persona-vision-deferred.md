@@ -12,7 +12,7 @@ The capability checklist behind this build has ten boxes, and this product ticks
 
 ## Decision
 
-No product persona, because nothing in the domain needs a character. Scripted session generators live only in the eval harness, as test tooling. Vision is deferred, not rejected. DOM events identify the screen for ordinary web apps, and vision earns a place only for canvas-heavy products like design tools and editors, the explicit trigger to revisit.
+No product persona, because nothing in the domain needs a character. Scripted session generators live only in the eval harness, as test tooling. Vision is deferred, not rejected. Document Object Model (DOM) events identify the screen for ordinary web apps, and vision earns a place only for canvas-heavy products like design tools and editors, the explicit trigger to revisit.
 
 ## Consequences
 
@@ -21,4 +21,4 @@ Engineering time concentrates on the two differentiators, the detection policy a
 The rejected alternatives were:
 
 - Ticking all ten capabilities: capability theater.
-- Deferring more by dropping MCP or memory: both have real jobs here, since MCP makes the agent's tools externally drivable for demos and memory is what makes a returning stuck user feel met where they left off.
+- Deferring more by dropping the Model Context Protocol (MCP) or memory: both have real jobs here, since MCP makes the agent's tools externally drivable for demos and memory is what makes a returning stuck user feel met where they left off.

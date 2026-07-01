@@ -8,7 +8,7 @@ Accepted
 
 ## Context
 
-Running a model on every event destroys unit economics and latency. Take a planning envelope, re-verified against live provider pricing. A 5,000-MAU tenant at about 40 events per user per day produces about 6M events per month, and a policy call is about 700 tokens round trip on a small model.
+Running a model on every event destroys unit economics and latency. A planning envelope, re-verified against live provider pricing, shows why. A tenant with 5,000 monthly active users (MAU) at about 40 events per user per day produces about 6M events per month, and a policy call is about 700 tokens round trip on a small model.
 
 - Model on every event: about 4.2B tokens per month, hundreds to thousands of dollars per tenant. The $0.05 per MAU guardrail is dead on arrival.
 - Gate firing on 1 to 3% of events: at most 180K calls, about 126M tokens, single digits to low tens of dollars per tenant, under $0.015 per MAU.
