@@ -1,0 +1,28 @@
+name: User Story
+description: A new user story or feature-specific NFR
+title: "US-XX: "
+labels: ["kind/feature"]
+body:
+  - type: textarea
+    id: story
+    attributes:
+      label: User Story
+      placeholder: As a [user], I want [goal] so that [benefit].
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      placeholder: |
+        - [ ] AC-XX.1: First testable condition
+        - [ ] AC-XX.2: Second testable condition
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      placeholder: Dependencies, constraints, or open questions.
+    validations:
+      required: false
