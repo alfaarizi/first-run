@@ -1,7 +1,7 @@
 name: Spike
 description: Time-boxed research to reduce uncertainty
 title: "SPIKE-XXX: "
-labels: ["kind/design"]
+labels: ["kind/spike"]
 body:
   - type: textarea
     id: description
