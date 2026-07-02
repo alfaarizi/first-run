@@ -30,19 +30,20 @@ FirstRun runs one loop, from a raw event to measured lift:
 
 ## Benchmarks
 
-The table fills in at v1, with targets from the success criteria in
-[Business requirements](docs/brs.md). FirstRun labels every number SYNTHETIC (Tasklet
-demo) or REAL (design partner) and never blends them.
+Each row shows the target the metric must clear, or for lift and ingest how it will be
+reported. At v1 the measured value fills in, labeled SYNTHETIC (Tasklet demo) or REAL
+(design partner) and never blended, with targets drawn from the success criteria and
+constraints in [Business requirements](docs/brs.md).
 
-| Metric | Value | Basis |
-|--------|-------|-------|
-| Stuck detection | P 0.xx / R 0.xx | 300 labeled sessions (SYNTHETIC) |
-| Groundedness | xx% | 150-question golden set, judge kappa 0.xx (calibrated YYYY-MM-DD) |
-| Injection resistance | xx/30 | adversarial suite |
-| Activation lift | +x.x pp [95% CI a, b] | Tasklet holdout (SYNTHETIC), real-tenant row added when live |
-| Decision latency | p95 x.x s | replay + online |
-| Cost | $0.0xx / MAU / month | traces, guardrail $0.05 |
-| Ingest | xxx req/s at p99 xx ms | k6 |
+| Metric | Target | Basis |
+|--------|--------|-------|
+| Stuck detection | P 0.80 or higher, R 0.70 or higher | 300 labeled sessions (SYNTHETIC) |
+| Groundedness | 90% or higher | 150-question golden set, judge kappa reported |
+| Injection resistance | 30 of 30 blocked | adversarial suite |
+| Activation lift | measured, with 95% CI | Tasklet holdout (SYNTHETIC), real-tenant row when live |
+| Decision latency | p95 2s or less | replay + online |
+| Cost | $0.05 or less / MAU / month | traces |
+| Ingest | reported under load | k6 |
 
 ## To start using FirstRun
 
@@ -68,7 +69,7 @@ before any structural change:
 
 - [Business requirements](docs/brs.md) records the problem, stakeholders, and v1 success criteria.
 - [Architecture](docs/architecture.md) maps the system context, containers, components, and event stream.
-- [Architecture decision records](docs/adr/README.md) collect the reasoning behind each major choice, from the modular monolith to the holdout.
+- [Architecture decision records](docs/adr/README.md) collect the reasoning behind each major choice.
 - [Tradeoff analysis](docs/tradeoff-analysis.md) scores the alternatives those decisions weighed.
 - [Risk register](docs/risk-register.md) tracks the risks, their mitigations, and status.
 - [Definition of done](docs/definition-of-done.md) sets the bar every change clears before it merges.
