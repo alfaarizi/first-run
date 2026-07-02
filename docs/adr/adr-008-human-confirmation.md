@@ -19,7 +19,7 @@ Execution requires four steps, in order:
 3. The end user clicks Confirm on the registry's confirmation copy.
 4. The confirmation event lands in the ledger.
 
-No confirmation row, no webhook call (I-2, I-3). There is no auto-confirm setting.
+No confirmation row, and no webhook call (INV-2, INV-3). There is no auto-confirm setting.
 
 ## Consequences
 

@@ -12,7 +12,7 @@ Every vendor in this category asserts lift, and asserted lift is marketing. Meas
 
 ## Decision
 
-Each tenant gets a default 10% holdout, a deterministic hash bucket on `end_user_id`, assigned at first sight, immutable, and excluded from every intervention surface (I-6). Lift is the difference in milestone-completion rate between the intervened cohort and the holdout within the attribution window, reported with a 95% bootstrap confidence interval. No surface in the product, the README, or the dashboard shows lift without its interval.
+Each tenant gets a default 10% holdout, a deterministic hash bucket on `end_user_id`, assigned at first sight, immutable, and excluded from every intervention surface (INV-6). Lift is the difference in milestone-completion rate between the intervened cohort and the holdout within the attribution window, reported with a 95% bootstrap confidence interval. No surface in the product, the README, or the dashboard shows lift without its interval.
 
 ## Consequences
 
