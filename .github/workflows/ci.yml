@@ -55,4 +55,6 @@ jobs:
       - name: spectral lint
         run: npx --no-install spectral lint --ruleset api/.spectral.yaml --fail-severity warn "api/openapi/*.yaml"
       - name: regenerate stubs
-        run: make generate
+        run: |
+          make generate
+          git diff --exit-code
