@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package firstrun.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_outer_classname = "ConversationProto";
+option java_package = "com.firstrunhq.v1";
+
+// Answers end-user questions with citations from the tenant's own docs.
+service ConversationService {
+  // Streams a conversation. The first client frame must be a
+  // ConversationContext, followed by user messages. The server streams answer
+  // chunks, citations, and at most one action proposal per answer.
+  rpc Converse(stream ConverseRequest) returns (stream ConverseResponse);
+}
+
+message ConverseRequest {
+  oneof frame {
+    ConversationContext context = 1;
+    UserMessage user_message = 2;
+  }
+}
+
+message ConverseResponse {
+  oneof frame {
+    AnswerChunk answer_chunk = 1;
+    Citation citation = 2;
+    ActionProposal action_proposal = 3;
+    AnswerDone answer_done = 4;
+  }
+}
+
+message ConversationContext {
+  string conversation_id = 1;
+  string tenant_id = 2;
+  string app_id = 3;
+  string end_user_hash = 4;
+  string session_id = 5;
+
+  // The intervention whose nudge opened this conversation.
+  string intervention_id = 6;
+  string milestone_id = 7;
+
+  // The milestone's completion event name, such as "data_source_connected".
+  string milestone_name = 8;
+
+  // Action names the agent may propose. The server rejects proposals
+  // outside this list.
+  repeated string registered_action_names = 9;
+}
+
+message UserMessage {
+  string message_id = 1;
+  string text = 2;
+  google.protobuf.Timestamp send_time = 3;
+}
+
+// One streamed span of answer text. The message_id ties chunks, citations,
+// the proposal, and the done frame to one answer.
+message AnswerChunk {
+  string message_id = 1;
+  string text = 2;
+}
+
+// A pointer into the tenant's docs grounding the current answer.
+message Citation {
+  string message_id = 1;
+  string source_url = 2;
+  string title = 3;
+  string snippet = 4;
+}
+
+// A registered action the agent proposes. Nothing executes until the end
+// user confirms and the server revalidates the name and scope.
+message ActionProposal {
+  string message_id = 1;
+  string action_name = 2;
+  map<string, string> arguments = 3;
+}
+
+message AnswerDone {
+  string message_id = 1;
+}

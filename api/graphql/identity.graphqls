@@ -1,0 +1,17 @@
+type Viewer {
+  id: ID!
+  email: String!
+  role: Role!
+  tenant: Tenant!
+}
+
+enum Role {
+  OWNER
+  MEMBER
+}
+
+type Tenant {
+  id: ID!
+  name: String!
+  apps: [App!]!
+}

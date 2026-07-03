@@ -1,0 +1,41 @@
+"A registered operation the agent may propose."
+type Action {
+  id: ID!
+  "The registry name the agent proposes by, in snake_case."
+  name: String!
+  "The endpoint the server calls after confirmation. HTTPS only."
+  webhookUrl: String!
+  "The declared scope the server validates before the webhook fires."
+  scope: String!
+  "The copy the widget shows on the confirm button."
+  confirmationCopy: String!
+  createdAt: DateTime!
+}
+
+type ActionExecution {
+  id: ID!
+  action: Action!
+  status: ActionExecutionStatus!
+  attempts: Int!
+  "When the end user confirmed. Executions exist only after confirmation."
+  confirmedAt: DateTime!
+  completedAt: DateTime
+}
+
+enum ActionExecutionStatus {
+  EXECUTING
+  SUCCEEDED
+  FAILED
+}
+
+input RegisterActionInput {
+  appId: ID!
+  name: String!
+  webhookUrl: String!
+  scope: String!
+  confirmationCopy: String!
+}
+
+type RegisterActionPayload {
+  action: Action
+}

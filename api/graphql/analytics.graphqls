@@ -1,0 +1,17 @@
+type LiftReport {
+  attributionWindowDays: Int!
+  "The milestone completion rate inside the holdout."
+  holdoutCompletionRate: Float!
+  "The milestone completion rate among intervened end users."
+  interventionCompletionRate: Float!
+  lift: Float!
+  confidenceInterval: ConfidenceInterval!
+  computedAt: DateTime!
+}
+
+type ConfidenceInterval {
+  lower: Float!
+  upper: Float!
+  "The confidence level, such as 0.95."
+  level: Float!
+}

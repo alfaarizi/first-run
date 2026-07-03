@@ -1,0 +1,123 @@
+openapi: 3.1.0
+info:
+  title: FirstRun Action Webhooks
+  version: 1.0.0
+  description: |
+    The requests FirstRun sends to a customer's registered action endpoints.
+    This document describes requests the customer receives, not an API
+    FirstRun serves. A webhook fires only after the end user confirms and the
+    server validates the action's name and scope.
+
+    Delivery behavior:
+
+    - HTTPS only, with no redirect following.
+    - Denies private, loopback, link-local, and metadata address ranges.
+    - 5-second timeout and a 64 KB response cap per attempt.
+    - Any 2xx response counts as success. Retries anything else up to
+      5 times with exponential backoff and jitter, behind a per-tenant
+      circuit breaker.
+    - Deliveries can repeat, so receivers should deduplicate on
+      `execution_id`.
+  contact:
+    name: FirstRun
+    url: https://github.com/alfaarizi/first-run
+  license:
+    name: AGPL-3.0-only
+    identifier: AGPL-3.0-only
+webhooks:
+  actionExecution:
+    post:
+      operationId: deliverActionExecution
+      summary: Deliver a confirmed action execution
+      description: |
+        Sends this request to the action's registered webhook URL. To
+        verify, compute the hex-encoded HMAC-SHA256 over
+        `{timestamp}.{raw body}` with the app's webhook signing secret and
+        compare it to `X-FirstRun-Signature` in
+        constant time. Reject timestamps older than 5 minutes. Verify over
+        the exact bytes received, because field order and encoding are part
+        of the contract.
+      parameters:
+        - name: X-FirstRun-Event
+          in: header
+          required: true
+          description: The name of the event that triggered the delivery.
+          schema:
+            type: string
+            enum: [action_execution]
+        - name: X-FirstRun-Delivery
+          in: header
+          required: true
+          description: A unique identifier for the delivery, new on every attempt.
+          schema:
+            type: string
+            format: uuid
+        - name: X-FirstRun-Timestamp
+          in: header
+          required: true
+          description: Send time in RFC 3339 UTC.
+          schema:
+            type: string
+            format: date-time
+        - name: X-FirstRun-Signature
+          in: header
+          required: true
+          description: Hex-encoded HMAC-SHA256 over `{timestamp}.{raw body}`.
+          schema:
+            type: string
+            pattern: ^[0-9a-f]{64}$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionExecutionPayload'
+            example:
+              execution_id: 019813f2-9d1e-7c1a-b0aa-5a41f7c2d9b1
+              action_name: invite_teammate
+              scope: team:write
+              app_id: 019813f2-1111-7000-8000-000000000000
+              end_user_hash: 9f86d081884c7d65
+              intervention_id: 019813f2-2222-7000-8000-000000000000
+              arguments:
+                email_domain: acme.com
+              confirmed_at: '2026-07-02T12:00:05Z'
+      responses:
+        '200':
+          description: Acknowledged. Any 2xx response stops retries.
+components:
+  schemas:
+    ActionExecutionPayload:
+      type: object
+      required: [execution_id, action_name, scope, app_id, end_user_hash, confirmed_at]
+      properties:
+        execution_id:
+          type: string
+          format: uuid
+          description: UUIDv7 of this execution. Stable across retries.
+        action_name:
+          type: string
+          description: The name the founder registered the action under.
+        scope:
+          type: string
+          description: The declared scope the server validates before delivery.
+        app_id:
+          type: string
+          format: uuid
+        end_user_hash:
+          type: string
+          maxLength: 128
+          description: The customer-supplied hash identifying their user.
+        intervention_id:
+          type: string
+          format: uuid
+          description: The intervention whose conversation proposed the action.
+        arguments:
+          type: object
+          additionalProperties:
+            type: string
+          description: Arguments the agent proposed with the action.
+        confirmed_at:
+          type: string
+          format: date-time
+          description: When the end user confirmed, in RFC 3339 UTC.

@@ -1,0 +1,39 @@
+"A defined activation step."
+type Milestone {
+  id: ID!
+  "The completion event name, such as \"data_source_connected\"."
+  name: String!
+  "The display name the dashboard shows."
+  title: String!
+  "The order within the activation funnel, starting at 1."
+  position: Int!
+  createdAt: DateTime!
+}
+
+type Funnel {
+  from: DateTime!
+  to: DateTime!
+  steps: [FunnelStep!]!
+}
+
+type FunnelStep {
+  milestone: Milestone!
+  "End users who started the step."
+  entered: Int!
+  "End users who completed the step."
+  completed: Int!
+  "Candidates the stuck gate flagged on the step."
+  stuckSignals: Int!
+  medianSecondsToComplete: Int
+}
+
+input CreateMilestoneInput {
+  appId: ID!
+  name: String!
+  title: String!
+  position: Int!
+}
+
+type CreateMilestonePayload {
+  milestone: Milestone
+}

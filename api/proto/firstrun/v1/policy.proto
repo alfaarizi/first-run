@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package firstrun.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_outer_classname = "PolicyProto";
+option java_package = "com.firstrunhq.v1";
+
+// Decides whether to intervene for an end user the stuck gate flagged.
+service InterventionPolicyService {
+  // Returns the decision for one candidate, either intervene or hold.
+  rpc Decide(DecideRequest) returns (DecideResponse);
+}
+
+message DecideRequest {
+  string candidate_id = 1;
+  string tenant_id = 2;
+  string app_id = 3;
+
+  // The customer-supplied hash identifying their user, never personal data.
+  string end_user_hash = 4;
+  string session_id = 5;
+  string milestone_id = 6;
+
+  // The milestone's completion event name, such as "data_source_connected".
+  string milestone_name = 7;
+  SessionFeatures features = 8;
+
+  // Prior interventions for this end user, most recent first.
+  repeated InterventionHistoryEntry history = 9;
+  SuppressionContext suppression = 10;
+
+  // When the stuck gate flagged the candidate.
+  google.protobuf.Timestamp flag_time = 11;
+}
+
+message DecideResponse {
+  Decision decision = 1;
+}
+
+// The policy's verdict on a candidate.
+message Decision {
+  string candidate_id = 1;
+  Verdict verdict = 2;
+
+  // Machine-readable, such as "dwell_over_threshold" or "agent_timeout".
+  string reason = 3;
+  google.protobuf.Timestamp decide_time = 4;
+}
+
+enum Verdict {
+  VERDICT_UNSPECIFIED = 0;
+  VERDICT_INTERVENE = 1;
+  VERDICT_HOLD = 2;
+}
+
+// Stuck signals the server computes in-stream for the current session.
+message SessionFeatures {
+  int64 dwell_seconds = 1;
+  int32 retry_count = 2;
+
+  // Times the end user left the step and returned.
+  int32 backtrack_count = 3;
+  int32 error_count = 4;
+  string current_page = 5;
+}
+
+message InterventionHistoryEntry {
+  string intervention_id = 1;
+  Verdict verdict = 2;
+  Outcome outcome = 3;
+  google.protobuf.Timestamp decide_time = 4;
+}
+
+// How the end user responded to an intervention.
+enum Outcome {
+  OUTCOME_UNSPECIFIED = 0;
+  OUTCOME_ENGAGED = 1;
+  OUTCOME_DISMISSED = 2;
+  OUTCOME_IGNORED = 3;
+}
+
+// Counters the suppression rules evaluate before an intervene verdict.
+message SuppressionContext {
+  int32 interventions_this_session = 1;
+  google.protobuf.Timestamp last_intervention_time = 2;
+
+  // Whether the end user is on a page the founder marked quiet.
+  bool on_quiet_page = 3;
+}

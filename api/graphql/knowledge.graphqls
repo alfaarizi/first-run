@@ -1,0 +1,31 @@
+type DocSource {
+  id: ID!
+  url: String!
+  status: DocSourceStatus!
+  lastIndexedAt: DateTime
+  chunkCount: Int!
+}
+
+enum DocSourceStatus {
+  PENDING
+  INDEXING
+  READY
+  FAILED
+}
+
+input AddDocSourceInput {
+  appId: ID!
+  url: String!
+}
+
+type AddDocSourcePayload {
+  docSource: DocSource
+}
+
+input ReindexDocSourceInput {
+  docSourceId: ID!
+}
+
+type ReindexDocSourcePayload {
+  docSource: DocSource
+}
