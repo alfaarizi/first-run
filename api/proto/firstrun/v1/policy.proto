@@ -10,7 +10,7 @@ option java_package = "com.firstrunhq.v1";
 
 // Decides whether to intervene for an end user the stuck gate flagged.
 service InterventionPolicyService {
-  // Returns one decision per candidate, either intervene or hold.
+  // Returns the decision for one candidate, either intervene or hold.
   rpc Decide(DecideRequest) returns (DecideResponse);
 }
 
