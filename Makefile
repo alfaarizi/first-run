@@ -23,7 +23,7 @@ generate:
 	else echo "generate: web/ not scaffolded, skipping GraphQL types"; fi
 
 # The GraphQL self-diff never reports changes. It proves the SDL files parse
-# and compose, and CI diffs against main.
+# and compose, and CI diffs against the PR base branch.
 lint:
 	cd api && $(BUF) lint && $(BUF) format --diff --exit-code
 	$(GRAPHQL_INSPECTOR) diff "api/graphql/*.graphqls" "api/graphql/*.graphqls"
