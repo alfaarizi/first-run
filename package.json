@@ -1,0 +1,15 @@
+{
+  "name": "first-run",
+  "private": true,
+  "description": "Pins the contract toolchain for /api (buf, graphql-inspector, spectral).",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "1.71.0",
+    "@graphql-inspector/cli": "6.0.8",
+    "@stoplight/spectral-cli": "6.16.1",
+    "graphql": "16.14.2"
+  }
+}
