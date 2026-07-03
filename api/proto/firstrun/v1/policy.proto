@@ -19,8 +19,8 @@ message DecideRequest {
   string tenant_id = 2;
   string app_id = 3;
 
-  // Comes from the customer-supplied hash, never personal data.
-  string end_user_id = 4;
+  // The customer-supplied hash identifying their user, never personal data.
+  string end_user_hash = 4;
   string session_id = 5;
   string milestone_id = 6;
 

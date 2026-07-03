@@ -36,7 +36,7 @@ message ConversationContext {
   string conversation_id = 1;
   string tenant_id = 2;
   string app_id = 3;
-  string end_user_id = 4;
+  string end_user_hash = 4;
   string session_id = 5;
 
   // The intervention whose nudge opened this conversation.
