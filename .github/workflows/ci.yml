@@ -40,15 +40,17 @@ jobs:
           else
             echo "api/buf.yaml is not on the base branch yet, nothing to break against"
           fi
-      - name: graphql-inspector diff against main
+      - name: graphql-inspector diff against the base branch
+        env:
+          BASE_BRANCH_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          if git cat-file -e origin/main:api/graphql 2>/dev/null; then
-            git worktree add "$RUNNER_TEMP/main" origin/main
+          if git cat-file -e "${BASE_BRANCH_SHA}:api/graphql" 2>/dev/null; then
+            git worktree add "$RUNNER_TEMP/base" "$BASE_BRANCH_SHA"
             npx graphql-inspector diff \
-              "$RUNNER_TEMP/main/api/graphql/*.graphqls" \
+              "$RUNNER_TEMP/base/api/graphql/*.graphqls" \
               "api/graphql/*.graphqls"
           else
-            echo "api/graphql is not on main yet, nothing to diff against"
+            echo "api/graphql is not on the base branch yet, nothing to diff against"
           fi
       - name: spectral lint
         run: npx spectral lint --ruleset api/.spectral.yaml --fail-severity warn "api/openapi/*.yaml"
