@@ -25,8 +25,8 @@ jobs:
       - name: buf lint and format
         working-directory: api
         run: |
-          npx buf lint
-          npx buf format --diff --exit-code
+          npx --no-install buf lint
+          npx --no-install buf format --diff --exit-code
       # Compares against the pull request's base branch, the branch the PR
       # merges into, at the commit GitHub recorded when the run started.
       # bufbuild/buf-action computes the same default.
@@ -36,7 +36,7 @@ jobs:
           BASE_BRANCH_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           if git cat-file -e "${BASE_BRANCH_SHA}:api/buf.yaml" 2>/dev/null; then
-            npx buf breaking --against "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git#format=git,commit=${BASE_BRANCH_SHA},subdir=api"
+            npx --no-install buf breaking --against "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git#format=git,commit=${BASE_BRANCH_SHA},subdir=api"
           else
             echo "api/buf.yaml is not on the base branch yet, nothing to break against"
           fi
@@ -46,13 +46,13 @@ jobs:
         run: |
           if git cat-file -e "${BASE_BRANCH_SHA}:api/graphql" 2>/dev/null; then
             git worktree add "$RUNNER_TEMP/base" "$BASE_BRANCH_SHA"
-            npx graphql-inspector diff \
+            npx --no-install graphql-inspector diff \
               "$RUNNER_TEMP/base/api/graphql/*.graphqls" \
               "api/graphql/*.graphqls"
           else
             echo "api/graphql is not on the base branch yet, nothing to diff against"
           fi
       - name: spectral lint
-        run: npx spectral lint --ruleset api/.spectral.yaml --fail-severity warn "api/openapi/*.yaml"
+        run: npx --no-install spectral lint --ruleset api/.spectral.yaml --fail-severity warn "api/openapi/*.yaml"
       - name: regenerate stubs
         run: make generate
