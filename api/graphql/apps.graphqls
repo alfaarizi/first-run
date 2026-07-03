@@ -1,0 +1,37 @@
+type App {
+  id: ID!
+  name: String!
+  "The public key the widget snippet embeds. An identifier, not a secret."
+  sdkPublicKey: String!
+  "Event property names the gateway accepts."
+  allowlist: [String!]!
+  "Origins the gateway accepts events from."
+  allowedOrigins: [String!]!
+  milestones: [Milestone!]!
+  "Milestone completion counts per step. Defaults to the last 30 days."
+  funnel(from: DateTime, to: DateTime): Funnel!
+  "The append-only decision ledger, newest first."
+  decisions(verdict: Verdict, first: Int, after: String): DecisionConnection!
+  "Measured lift against the holdout, absent until enough data accrues."
+  liftReport: LiftReport
+  actions: [Action!]!
+  docSources: [DocSource!]!
+}
+
+input UpdateAllowlistInput {
+  appId: ID!
+  properties: [String!]!
+}
+
+type UpdateAllowlistPayload {
+  app: App
+}
+
+input UpdateAllowedOriginsInput {
+  appId: ID!
+  origins: [String!]!
+}
+
+type UpdateAllowedOriginsPayload {
+  app: App
+}

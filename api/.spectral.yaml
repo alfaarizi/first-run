@@ -1,0 +1,9 @@
+extends:
+  - [spectral:oas, recommended]
+overrides:
+  # webhooks.yaml describes calls made to customer-registered URLs, so there
+  # is no server to declare.
+  - files:
+      - "**/openapi/webhooks.yaml"
+    rules:
+      oas3-api-servers: off

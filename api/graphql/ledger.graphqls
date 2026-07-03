@@ -1,0 +1,44 @@
+"The policy's recorded verdict on a candidate, holds included."
+type Decision {
+  id: ID!
+  verdict: Verdict!
+  "Machine-readable, such as \"cooldown_active\" or \"agent_timeout\"."
+  reason: String!
+  "The customer-supplied hash identifying their user."
+  endUserHash: String!
+  milestone: Milestone
+  decidedAt: DateTime!
+  "Present only when the verdict was INTERVENE."
+  intervention: Intervention
+}
+
+enum Verdict {
+  INTERVENE
+  HOLD
+}
+
+type DecisionConnection {
+  edges: [DecisionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DecisionEdge {
+  cursor: String!
+  node: Decision!
+}
+
+type Intervention {
+  id: ID!
+  shownAt: DateTime
+  outcome: Outcome
+  "Whether the milestone completed inside the attribution window."
+  attributed: Boolean!
+  actionExecutions: [ActionExecution!]!
+}
+
+enum Outcome {
+  ENGAGED
+  DISMISSED
+  IGNORED
+}

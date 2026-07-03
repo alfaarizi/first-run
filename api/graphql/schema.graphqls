@@ -1,0 +1,26 @@
+"An ISO-8601 encoded UTC date string."
+scalar DateTime
+
+type Query {
+  "The authenticated founder."
+  viewer: Viewer!
+  app(id: ID!): App
+}
+
+type Mutation {
+  createMilestone(input: CreateMilestoneInput!): CreateMilestonePayload
+  registerAction(input: RegisterActionInput!): RegisterActionPayload
+  addDocSource(input: AddDocSourceInput!): AddDocSourcePayload
+  reindexDocSource(input: ReindexDocSourceInput!): ReindexDocSourcePayload
+  "Replaces the event property allowlist. The gateway drops properties not on it."
+  updateAllowlist(input: UpdateAllowlistInput!): UpdateAllowlistPayload
+  "Replaces the origins the gateway accepts events from."
+  updateAllowedOrigins(input: UpdateAllowedOriginsInput!): UpdateAllowedOriginsPayload
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
