@@ -72,3 +72,6 @@ docs/partners.md
 /server/src/main/resources/graphql/
 /agent/src/firstrun/v1/
 /web/src/gql/
+
+# Spring Modulith test output (ModularityTests)
+/build/generated-spring-modulith/
