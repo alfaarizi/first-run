@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: firstrun-server
+  datasource:
+    url: jdbc:postgresql://localhost:5432/firstrun
+    username: firstrun
+    password: firstrun
+  kafka:
+    bootstrap-servers: localhost:19092
+  mvc:
+    problemdetails:
+      enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
