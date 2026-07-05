@@ -44,7 +44,7 @@ jobs:
           # `gh pr comment`, which posts the no-issues summary. delete_pending
           # clears the draft review a cancelled run leaves behind.
           claude_args: >-
-            --model claude-opus-4-8
+            --model claude-opus-4-6
             --allowedTools
             Task TodoWrite
             Read Glob Grep
