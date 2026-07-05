@@ -38,7 +38,7 @@ jobs:
           if git cat-file -e "${BASE_BRANCH_SHA}:api/buf.yaml" 2>/dev/null; then
             npx --no-install buf breaking --against "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git#format=git,commit=${BASE_BRANCH_SHA},subdir=api"
           else
-            echo "api/buf.yaml is not on the base branch yet, nothing to break against"
+            echo "::notice::api/buf.yaml is not on the base branch yet, nothing to break against"
           fi
       - name: graphql-inspector diff against the base branch
         env:
@@ -50,10 +50,24 @@ jobs:
               "$RUNNER_TEMP/base/api/graphql/*.graphqls" \
               "api/graphql/*.graphqls"
           else
-            echo "api/graphql is not on the base branch yet, nothing to diff against"
+            echo "::notice::api/graphql is not on the base branch yet, nothing to diff against"
           fi
       - name: spectral lint
         run: npx --no-install spectral lint --ruleset api/.spectral.yaml --fail-severity warn "api/openapi/*.yaml"
+      # `make generate` drives every consumer toolchain, so the job needs
+      # java for the server, uv for the agent, and web dependencies.
+      - uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: agent/uv.lock
+      - name: install web dependencies
+        working-directory: web
+        run: npm ci
       - name: regenerate stubs
         run: |
           make generate

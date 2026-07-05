@@ -1,0 +1,17 @@
+body {
+  font-family: system-ui, sans-serif;
+  margin: 2rem auto;
+  max-width: 32rem;
+  padding: 0 1rem;
+}
+
+form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+input {
+  flex: 1;
+  padding: 0.4rem;
+}
