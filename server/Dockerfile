@@ -4,6 +4,9 @@
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /workspace
 COPY pom.xml .
+# jvm.config carries the --add-exports flags Error Prone needs to reach javac's
+# internals. Without it in the image the JDK 21 compile fails with IllegalAccessError.
+COPY .mvn/ .mvn/
 RUN --mount=type=cache,target=/root/.m2 mvn -q -DskipTests dependency:go-offline
 COPY src src
 RUN --mount=type=cache,target=/root/.m2 mvn -q -DskipTests package
