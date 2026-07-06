@@ -8,7 +8,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 
@@ -23,7 +22,11 @@ class AppRowLevelSecurityTests {
   private static final String TENANT_A = "019813f2-0000-7000-8000-00000000000a";
   private static final String TENANT_B = "019813f2-0000-7000-8000-00000000000b";
 
-  @Autowired DataSource dataSource;
+  private final DataSource dataSource;
+
+  AppRowLevelSecurityTests(DataSource dataSource) {
+    this.dataSource = dataSource;
+  }
 
   @Test
   void crossTenantReadReturnsNothing() throws SQLException {
@@ -59,6 +62,49 @@ class AppRowLevelSecurityTests {
       assertThat(countApps(statement)).isZero();
 
       statement.execute("RESET app.tenant_id");
+      assertThat(countApps(statement)).isZero();
+
+      statement.execute("RESET ROLE");
+    }
+  }
+
+  @Test
+  void sdkKeyLookupReleasesExactlyItsRow() throws SQLException {
+    try (Connection connection = dataSource.getConnection();
+        Statement statement = connection.createStatement()) {
+      statement.execute(
+          """
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'rls_probe') THEN
+              CREATE ROLE rls_probe LOGIN;
+            END IF;
+          END $$
+          """);
+      statement.execute("GRANT SELECT ON tenant, app TO rls_probe");
+      statement.execute(
+          """
+          INSERT INTO tenant (id, name)
+          VALUES ('019813f2-0000-7000-8000-00000000000c', 'Tenant C')
+          ON CONFLICT (id) DO NOTHING
+          """);
+      statement.execute(
+          """
+          INSERT INTO app (id, tenant_id, name, sdk_key, hmac_key)
+          VALUES ('019813f2-0000-7000-8000-0000000000cc',
+                  '019813f2-0000-7000-8000-00000000000c', 'App C', 'key_c', 'hmac_c')
+          ON CONFLICT (id) DO NOTHING
+          """);
+
+      statement.execute("SET ROLE rls_probe");
+      statement.execute("RESET app.tenant_id");
+
+      statement.execute("SET app.sdk_key = 'key_c'");
+      assertThat(countApps(statement)).isEqualTo(1);
+
+      statement.execute("SET app.sdk_key = 'key_that_matches_nothing'");
+      assertThat(countApps(statement)).isZero();
+
+      statement.execute("RESET app.sdk_key");
       assertThat(countApps(statement)).isZero();
 
       statement.execute("RESET ROLE");
