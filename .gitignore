@@ -13,6 +13,8 @@
 !.vscode/launch.json
 !.vscode/tasks.json
 .idea/
+# SQLTools scratchpads
+*.session.sql
 
 # Logs
 *.log

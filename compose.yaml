@@ -16,6 +16,9 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+      # postgres-init.sh reads these to provision the server's login role.
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
@@ -30,11 +33,11 @@ services:
   redis:
     image: redis:7
     # Langfuse queues on BullMQ and requires noeviction (langfuse.com/self-hosting).
-    command: --requirepass myredissecret --maxmemory-policy noeviction
+    command: --requirepass ${REDIS_PASSWORD} --maxmemory-policy noeviction
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a myredissecret ping | grep PONG"]
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping | grep PONG"]
       interval: 3s
       timeout: 3s
       retries: 10
@@ -62,6 +65,23 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+
+  # Debug tooling, off until `make tools` activates the profile.
+  console:
+    image: docker.redpanda.com/redpandadata/console:v3.8.0
+    profiles: ["tools"]
+    entrypoint: /bin/sh
+    command: -c 'echo "$$CONSOLE_CONFIG_FILE" > /tmp/config.yml; /app/console'
+    environment:
+      CONFIG_FILEPATH: /tmp/config.yml
+      CONSOLE_CONFIG_FILE: |
+        kafka:
+          brokers: ["redpanda:9092"]
+    ports:
+      - "8085:8080"
+    depends_on:
+      redpanda:
+        condition: service_healthy
 
   clickhouse:
     image: clickhouse/clickhouse-server
@@ -125,7 +145,7 @@ services:
       LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
       REDIS_HOST: redis
       REDIS_PORT: "6379"
-      REDIS_AUTH: myredissecret
+      REDIS_AUTH: ${REDIS_PASSWORD}
       REDIS_TLS_ENABLED: "false"
       NEXTAUTH_URL: http://localhost:3000
       TELEMETRY_ENABLED: "true"
@@ -163,13 +183,17 @@ services:
     build: ./server
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/firstrun
-      SPRING_DATASOURCE_USERNAME: firstrun
-      SPRING_DATASOURCE_PASSWORD: firstrun
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_APP_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_APP_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
     ports:
       - "8080:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       redpanda:
         condition: service_healthy
