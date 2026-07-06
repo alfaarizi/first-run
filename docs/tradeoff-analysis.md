@@ -1,6 +1,6 @@
 # Tradeoff Analysis
 
-Date: 2026-07-01
+Date: 2026-07-06
 
 Each matrix below weighs the decision in one Architecture Decision Record (ADR)
 against the alternatives it rejected. The columns are the accepted option and those
@@ -221,3 +221,21 @@ the clone with no recourse, an unlicensed repo blocks the very embedding the wid
 needs, open core is licensing machinery with no enterprise buyer to charge, and
 source-available terms are not approved by the Open Source Initiative (OSI), which
 weakens the open-audit claim and drags out legal review.
+
+## Null safety (ADR-012)
+
+Nullness is declared with JSpecify annotations and enforced by NullAway inside build.
+
+| Criterion | Weight | NullAway + JSpecify | Checker Framework | IDE-only JDT | No checking |
+|---|:---:|:---:|:---:|:---:|:---:|
+| CI guarantee for every editor | 0.30 | 9 | 9 | 2 | 1 |
+| NPE coverage and soundness | 0.25 | 8 | 10 | 5 | 1 |
+| Build-time overhead | 0.20 | 8 | 4 | 10 | 10 |
+| Annotation and adoption burden | 0.15 | 8 | 4 | 6 | 10 |
+| Ecosystem alignment with Spring | 0.10 | 10 | 6 | 4 | 3 |
+| **Weighted total** | | **8.50** | **7.20** | **5.15** | **4.35** |
+
+NullAway turns a null-safety promise into a compile error inside `./mvnw verify`,
+so the guarantee holds for CI and every editor at a cheaper build cost. Checker Framework wins only on soundness, where its heavier annotation burden buys. 
+An IDE-only analysis guards a single editor and gates nothing, and no checking 
+at all leaves the NPE class to production.

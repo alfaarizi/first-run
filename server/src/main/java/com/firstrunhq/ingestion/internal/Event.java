@@ -9,6 +9,7 @@ import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 
 /** Mirrors {@code Event} in api/openapi/ingest.yaml. */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
@@ -17,6 +18,6 @@ record Event(
     @NotBlank @Size(max = 64) @Pattern(regexp = "^(fr\\.[a-z][a-z0-9_]*|[a-z][a-z0-9_]*)$")
         String event,
     @NotBlank @Size(max = 128) String endUserHash,
-    UUID sessionId,
+    @Nullable UUID sessionId,
     @NotNull Instant timestamp,
-    @Size(max = 20) Map<String, Object> properties) {}
+    @Size(max = 20) @Nullable Map<String, Object> properties) {}

@@ -86,7 +86,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
         '401':
-          description: Missing or invalid signature, or timestamp outside the window.
+          description: >
+            Unknown SDK key, missing or invalid signature, or timestamp
+            outside the window.
           content:
             application/problem+json:
               schema:
