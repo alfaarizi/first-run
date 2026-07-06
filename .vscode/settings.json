@@ -1,0 +1,20 @@
+{
+    // NullAway enforces nullness in the build (ADR-012), so the pessimistic
+    // JDT null analysis is off to avoid a second, disagreeing checker.
+    "java.compile.nullAnalysis.mode": "disabled",
+    "java.configuration.updateBuildConfiguration": "interactive",
+    // Local-development constants from compose.yaml, not secrets. Connects as
+    // the superuser because the firstrun role is subject to row-level
+    // security and shows no rows without a tenant context.
+    "sqltools.connections": [
+        {
+            "name": "firstrun-local",
+            "driver": "PostgreSQL",
+            "server": "localhost",
+            "port": 5432,
+            "database": "firstrun",
+            "username": "postgres",
+            "password": "postgres"
+        }
+    ]
+}
