@@ -180,7 +180,9 @@ services:
     depends_on: *langfuse-deps
 
   server:
-    build: ./server
+    build:
+      context: ./server
+      target: local
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/firstrun
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_APP_USER}
@@ -198,7 +200,7 @@ services:
       redpanda:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      test: ["CMD", "/busybox/wget", "-q", "-O", "-", "http://localhost:8080/actuator/health"]
       interval: 5s
       timeout: 3s
       retries: 20
