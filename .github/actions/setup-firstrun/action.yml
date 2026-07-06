@@ -1,0 +1,26 @@
+name: setup firstrun
+description: Installs the toolchains and dependencies the Makefile targets need
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: '**/package-lock.json'
+    - uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
+      with:
+        distribution: temurin
+        java-version: 21
+        cache: maven
+    - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      with:
+        enable-cache: true
+        cache-dependency-glob: agent/uv.lock
+    - run: npm ci
+      shell: bash
+    - name: install web dependencies
+      working-directory: web
+      run: npm ci
+      shell: bash
