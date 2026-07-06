@@ -23,6 +23,9 @@
          3.18.0. Remove once the parent manages 3.18 or later. -->
     <commons-lang3.version>3.20.0</commons-lang3.version>
     <spring-modulith.version>1.4.12</spring-modulith.version>
+    <!-- The version spring-modulith-core ships, so module verification and the
+         custom rules run on one ArchUnit. -->
+    <archunit.version>1.4.2</archunit.version>
     <spotless.version>2.44.5</spotless.version>
   </properties>
 
@@ -92,6 +95,12 @@
     <dependency>
       <groupId>org.springframework.modulith</groupId>
       <artifactId>spring-modulith-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit</artifactId>
+      <version>${archunit.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
