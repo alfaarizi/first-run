@@ -121,9 +121,20 @@ class FunnelStateMachineTests {
   }
 
   @Test
+  void anEventOlderThanTheMilestoneDoesNotCompleteIt() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    // A completion-named event that predates the milestone reads as any other activity, so a
+    // replay against a grown catalog never completes milestones retroactively.
+    send(event(user, MILESTONE_TWO).at(Instant.now().minus(Duration.ofHours(1))));
+    awaitState(user, MILESTONE_ONE, "IN_PROGRESS");
+    assertThat(state(user, MILESTONE_TWO)).isNull();
+  }
+
+  @Test
   void clampsCompletionTimeToTheStartTime() throws JsonProcessingException {
     String user = "user-" + UUID.randomUUID();
-    Instant startedAt = Instant.now();
+    // Times sit in the near future so the out-of-order completion still postdates the milestone.
+    Instant startedAt = Instant.now().plusSeconds(600);
     send(event(user, "fr.click").at(startedAt));
     awaitState(user, MILESTONE_ONE, "IN_PROGRESS");
     // The completion carries an earlier client time than the event that opened the step.

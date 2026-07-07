@@ -14,8 +14,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Advances one user's milestone state machine. An event named after a milestone completes it
- * idempotently, and any other event starts the user's current step.
+ * Advances one user's milestone state machine. An event completes the milestone it names when the
+ * milestone predates it, and any other event starts the user's current step.
  */
 @Component
 class MilestoneProgressTracker {
@@ -36,10 +36,17 @@ class MilestoneProgressTracker {
     tenantContext.scopeTo(envelope.tenantId());
     OffsetDateTime eventAt = envelope.timestamp().atOffset(ZoneOffset.UTC);
     UUID endUserId = firstSeenEndUser(envelope, eventAt);
+    // Only a milestone that predates the event completes, so a replayed event takes the decision
+    // its first delivery took, whatever the catalog has grown to since.
     Optional<UUID> completion =
-        jdbc.sql("SELECT id FROM milestone WHERE app_id = :app_id AND name = :name")
+        jdbc.sql(
+                """
+                SELECT id FROM milestone
+                WHERE app_id = :app_id AND name = :name AND created_at <= :event_at
+                """)
             .param("app_id", envelope.appId())
             .param("name", envelope.event())
+            .param("event_at", eventAt)
             .query(UUID.class)
             .optional();
     if (completion.isPresent()) {
