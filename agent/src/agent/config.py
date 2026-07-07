@@ -1,5 +1,7 @@
 """Runtime configuration read from the environment."""
 
+from functools import lru_cache
+
 from pydantic_settings import BaseSettings
 
 
@@ -11,10 +13,12 @@ class Settings(BaseSettings):
     to start unconfigured.
     """
 
-    app_name: str = "firstrun-agent"
     langfuse_host: str
     langfuse_public_key: str
     langfuse_secret_key: str
 
 
-settings = Settings()
+@lru_cache
+def get_settings() -> Settings:
+    """Return the settings, reading the environment once per process."""
+    return Settings()

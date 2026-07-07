@@ -7,10 +7,10 @@
 # superuser creates pgvector so migrations never need elevated rights.
 set -euo pipefail
 
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-'SQL'
-	CREATE ROLE firstrun LOGIN PASSWORD 'firstrun';
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-SQL
+	CREATE ROLE ${POSTGRES_APP_USER} LOGIN PASSWORD '${POSTGRES_APP_PASSWORD}';
 	CREATE ROLE langfuse LOGIN PASSWORD 'langfuse';
-	CREATE DATABASE firstrun OWNER firstrun;
+	CREATE DATABASE firstrun OWNER ${POSTGRES_APP_USER};
 	CREATE DATABASE langfuse OWNER langfuse;
 SQL
 

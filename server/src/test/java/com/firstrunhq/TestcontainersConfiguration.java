@@ -3,11 +3,14 @@ package com.firstrunhq;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.redpanda.RedpandaContainer;
 import org.testcontainers.utility.DockerImageName;
 
-/** Throwaway Postgres and Redpanda matching the compose stack, wired by service connections. */
+/**
+ * Throwaway Postgres, Redpanda, and Redis matching the compose stack, wired by service connections.
+ */
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
 
@@ -16,6 +19,15 @@ public class TestcontainersConfiguration {
   PostgreSQLContainer<?> postgresContainer() {
     return new PostgreSQLContainer<>(
         DockerImageName.parse("pgvector/pgvector:pg17").asCompatibleSubstituteFor("postgres"));
+  }
+
+  // A GenericContainer exposes no image name, so the connection name is explicit.
+  @Bean
+  @ServiceConnection(name = "redis")
+  GenericContainer<?> redisContainer() {
+    GenericContainer<?> container = new GenericContainer<>(DockerImageName.parse("redis:7"));
+    container.addExposedPort(6379);
+    return container;
   }
 
   @Bean

@@ -1,6 +1,6 @@
 # Risk Register
 
-Date: 2026-07-01
+Date: 2026-07-06
 
 This register tracks the risks to the project, each with its probability, impact,
 mitigation, and current status. It is a living document, so a status moves here as a
@@ -17,3 +17,4 @@ three are the project's falsifiable kill criteria.
 | RSK-006 | An RLS gap leaks one customer's data to another. | Low | High | Cover every customer table with RLS, give the application role no BYPASSRLS, and block merge until an isolation test proves a cross-customer read fails. | Open |
 | RSK-007 | The single Redpanda node fails and drops in-flight events. | Medium | Medium | Batch and retry client-side in the widget, dedupe on each event's unique ID to make redelivery safe, and document recovery and the MSK trigger in the runbook. | Accepted (ADR-002) |
 | RSK-008 | Token use or provider pricing drifts past $0.05 per MAU. | Medium | Medium | Cap model calls at 1 to 3% of events with the gate, run a small model in the policy node, and graph cost per decision from Langfuse traces. | Open |
+| RSK-009 | A flood of unauthenticated ingest requests reaches Postgres before any limit, because the per-tenant bucket runs after the SDK-key lookup and v1 has no per-IP limit. | Medium | Medium | Shed authenticated floods per tenant at the gateway, cache the SDK-key lookup in memory when load warrants it, and front the endpoint with a per-IP limit at the load balancer before general availability. | Open |

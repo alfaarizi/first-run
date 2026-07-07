@@ -26,7 +26,13 @@
     <!-- The version spring-modulith-core ships, so module verification and the
          custom rules run on one ArchUnit. -->
     <archunit.version>1.4.2</archunit.version>
+    <bucket4j.version>8.14.0</bucket4j.version>
     <spotless.version>2.44.5</spotless.version>
+    <jspecify.version>1.0.0</jspecify.version>
+    <!-- Highest Error Prone before 2.50.0 dropped a class NullAway 0.12.7 links.
+         Bump in lockstep with a NullAway release that supports 2.50 or later. -->
+    <error-prone.version>2.39.0</error-prone.version>
+    <nullaway.version>0.12.7</nullaway.version>
   </properties>
 
   <dependencyManagement>
@@ -50,6 +56,11 @@
 
   <dependencies>
     <dependency>
+      <groupId>org.jspecify</groupId>
+      <artifactId>jspecify</artifactId>
+      <version>${jspecify.version}</version>
+    </dependency>
+    <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
@@ -66,12 +77,21 @@
       <artifactId>spring-boot-starter-jdbc</artifactId>
     </dependency>
     <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.springframework.kafka</groupId>
       <artifactId>spring-kafka</artifactId>
     </dependency>
     <dependency>
       <groupId>org.springframework.modulith</groupId>
       <artifactId>spring-modulith-starter-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.bucket4j</groupId>
+      <artifactId>bucket4j_jdk17-core</artifactId>
+      <version>${bucket4j.version}</version>
     </dependency>
     <dependency>
       <groupId>org.flywaydb</groupId>
@@ -127,6 +147,35 @@
 
   <build>
     <plugins>
+      <!-- Error Prone hosts NullAway, which fails the compile on a nullness
+           violation in com.firstrunhq, main and test alike.
+           HandleTestAssertionLibraries lets it read AssertJ null assertions for
+           refinement. The JVM export flags Error Prone needs on JDK 17+ live in
+           .mvn/jvm.config. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <compilerArgs>
+            <arg>-XDcompilePolicy=simple</arg>
+            <arg>--should-stop=ifError=FLOW</arg>
+            <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+            <arg>-Xplugin:ErrorProne -XepDisableAllChecks -Xep:NullAway:ERROR -XepOpt:NullAway:AnnotatedPackages=com.firstrunhq -XepOpt:NullAway:HandleTestAssertionLibraries=true</arg>
+          </compilerArgs>
+          <annotationProcessorPaths>
+            <path>
+              <groupId>com.google.errorprone</groupId>
+              <artifactId>error_prone_core</artifactId>
+              <version>${error-prone.version}</version>
+            </path>
+            <path>
+              <groupId>com.uber.nullaway</groupId>
+              <artifactId>nullaway</artifactId>
+              <version>${nullaway.version}</version>
+            </path>
+          </annotationProcessorPaths>
+        </configuration>
+      </plugin>
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
@@ -162,8 +211,8 @@
         <version>${flyway.version}</version>
         <configuration>
           <url>jdbc:postgresql://localhost:5432/firstrun</url>
-          <user>firstrun</user>
-          <password>firstrun</password>
+          <user>${env.POSTGRES_APP_USER}</user>
+          <password>${env.POSTGRES_APP_PASSWORD}</password>
         </configuration>
       </plugin>
     </plugins>

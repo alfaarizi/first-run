@@ -7,6 +7,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @SpringBootApplication
 public class FirstRunApplication {
 
+  /** Starts the Spring context and the embedded web server. */
   public static void main(String[] args) {
     SpringApplication.run(FirstRunApplication.class, args);
   }

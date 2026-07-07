@@ -3,6 +3,21 @@
 Each entry records the date, the change, the rationale, and whether it is
 additive or breaking.
 
+## 2026-07-06
+
+### Added
+
+- `events.raw` record contract: the gateway wraps each accepted event in an
+  envelope that adds `tenant_id`, `app_id`, `received_at`, and the truncated
+  client `ip`, serialized snake_case and keyed by the hex SHA-256 of
+  `tenant_id:end_user_hash`. The envelope `timestamp` carries the event time
+  corrected by the client clock skew `sent_at` reveals, the recipe the
+  ingest contract already promised. Failed consumption dead-letters to
+  `<topic>.dlq`.
+
+Additive. `POST /v1/e` keeps its shape, and this pins what stream consumers
+may rely on before the first one ships.
+
 ## 2026-07-02
 
 ### Added

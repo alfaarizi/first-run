@@ -3,10 +3,22 @@ spring:
     name: firstrun-server
   datasource:
     url: jdbc:postgresql://localhost:5432/firstrun
-    username: firstrun
-    password: firstrun
+    username: ${POSTGRES_APP_USER}
+    password: ${POSTGRES_APP_PASSWORD}
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: ${REDIS_PASSWORD}
   kafka:
     bootstrap-servers: localhost:19092
+    producer:
+      # Bound the produce path so a broker outage becomes a fast 503 for the
+      # retrying client instead of a request hung on the default 60s block.
+      properties:
+        "[max.block.ms]": 2000
+        "[request.timeout.ms]": 3000
+        "[delivery.timeout.ms]": 5000
   mvc:
     problemdetails:
       enabled: true
@@ -16,3 +28,11 @@ management:
     web:
       exposure:
         include: health
+
+firstrun:
+  ingest:
+    # Per-tenant token bucket counted in events. Capacity bounds the burst and
+    # refill the sustained rate, per instance, so scale-out multiplies both.
+    rate-capacity: 1000
+    rate-refill-per-second: 500
+    produce-timeout: 5s

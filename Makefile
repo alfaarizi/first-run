@@ -4,7 +4,7 @@ BUF := npx --no-install buf
 SPECTRAL := npx --no-install spectral
 GRAPHQL_INSPECTOR := npx --no-install graphql-inspector
 
-.PHONY: up down seed generate test test-server test-agent test-widget test-web \
+.PHONY: up down tools seed generate test test-server test-agent test-widget test-web \
 	eval e2e lint size migrate load replay rollback
 
 # --wait returns once every healthcheck passes, so seed can run immediately.
@@ -15,11 +15,21 @@ up:
 	@echo ">> tasklet    http://localhost:5174"
 	@echo ">> langfuse   http://localhost:3000"
 
+# --profile tools so a console started by `make tools` comes down too.
 down:
-	docker compose down
+	docker compose --profile tools down
+
+# Debug UIs on demand, kept out of `make up` and its memory budget. Naming the
+# console service starts it plus its dependencies and no other profile service.
+tools:
+	docker compose up --detach --wait console
+	@echo ">> console    http://localhost:8085"
 
 seed:
-	docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d firstrun < scripts/seed.sql
+	set -a; source ./.env; set +a; \
+	docker compose exec -T postgres psql -v ON_ERROR_STOP=1 \
+		-v sdk_key="$$VITE_FIRSTRUN_KEY" -v hmac_key="$$VITE_FIRSTRUN_HMAC_KEY" \
+		-U postgres -d firstrun < scripts/seed.sql
 	@echo ">> seeded the demo tenant and Tasklet app"
 
 # Regenerates every stub from /api.
@@ -81,7 +91,7 @@ size:
 	else echo ">> skipping size, widget/ is not scaffolded"; fi
 
 migrate:
-	cd server && ./mvnw -q flyway:migrate
+	set -a; source ./.env; set +a; cd server && ./mvnw -q flyway:migrate
 
 load:
 	@echo ">> skipping load, the k6 script arrives with infra/"
