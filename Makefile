@@ -4,8 +4,8 @@ BUF := npx --no-install buf
 SPECTRAL := npx --no-install spectral
 GRAPHQL_INSPECTOR := npx --no-install graphql-inspector
 
-.PHONY: up down tools seed generate test test-server test-agent test-widget test-web \
-	eval e2e lint size migrate load replay rollback
+.PHONY: up down tools seed generate generate-server test test-server test-agent test-widget \
+	test-web eval e2e lint size migrate load replay rollback
 
 # --wait returns once every healthcheck passes, so seed can run immediately.
 up:
@@ -33,12 +33,10 @@ seed:
 	@echo ">> seeded the demo tenant and Tasklet app"
 
 # Regenerates every stub from /api.
-generate:
+generate: generate-server
 	@if [ -f server/pom.xml ]; then \
-		mkdir -p server/src/main/resources/graphql && \
-		cp api/graphql/*.graphqls server/src/main/resources/graphql/ && \
 		(cd server && ./mvnw -q generate-sources); \
-	else echo ">> skipping Java stubs and the schema copy, server/ is not scaffolded"; fi
+	else echo ">> skipping Java stubs, server/ is not scaffolded"; fi
 	@if [ -f agent/pyproject.toml ]; then \
 		(cd agent && uv run python -m grpc_tools.protoc -I ../api/proto \
 			--python_out=src --grpc_python_out=src --pyi_out=src \
@@ -48,11 +46,17 @@ generate:
 		(cd web && npm run codegen); \
 	else echo ">> skipping GraphQL types, web/ is not scaffolded"; fi
 
+# The SDL the server serves, copied from /api so tests never run a stale schema.
+generate-server:
+	@if [ -f server/pom.xml ]; then \
+		mkdir -p server/src/main/resources/graphql && \
+		cp api/graphql/*.graphqls server/src/main/resources/graphql/; \
+	else echo ">> skipping the schema copy, server/ is not scaffolded"; fi
+
 test: test-server test-agent test-widget test-web
 
 # Needs the Docker daemon because Testcontainers starts throwaway Postgres and Redpanda.
-# Depends on generate because the server serves the SDL copied from /api.
-test-server: generate
+test-server: generate-server
 	cd server && ./mvnw -q verify
 
 test-agent:
