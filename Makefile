@@ -51,7 +51,8 @@ generate:
 test: test-server test-agent test-widget test-web
 
 # Needs the Docker daemon because Testcontainers starts throwaway Postgres and Redpanda.
-test-server:
+# Depends on generate because the server serves the SDL copied from /api.
+test-server: generate
 	cd server && ./mvnw -q verify
 
 test-agent:
