@@ -111,6 +111,18 @@ class FunnelStateMachineTests {
   }
 
   @Test
+  void advancesProgressWhenTheDedupeClaimSurvivedACrash() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    EventEnvelope completion = envelope(user, UUID.randomUUID(), MILESTONE_ONE, null);
+    // A crash after the claim but before the commit leaves the claim set with no progress written.
+    // The key scheme mirrors StreamDeduper. The redelivery must still complete the milestone.
+    redis.opsForValue().set("dedupe:stream-processor:%s:%s".formatted(APP, completion.id()), "");
+
+    send(completion);
+    awaitState(user, MILESTONE_ONE, "COMPLETED");
+  }
+
+  @Test
   void completesAMilestoneOutOfOrder() throws JsonProcessingException {
     String user = "user-" + UUID.randomUUID();
 

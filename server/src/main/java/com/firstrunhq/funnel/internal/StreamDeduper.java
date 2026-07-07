@@ -6,8 +6,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Claims each event UUID for 24 hours so a redelivered record applies once. The group qualifier
- * keeps the gateway's claims, held before every produce, from reading as duplicates here.
+ * Claims each event UUID for 24 hours so a redelivered record updates session features once. The
+ * group qualifier keeps the gateway's claims, held before every produce, from reading as duplicates.
  */
 @Component
 class StreamDeduper {

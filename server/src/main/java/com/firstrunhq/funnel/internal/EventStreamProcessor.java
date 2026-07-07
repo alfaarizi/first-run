@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Consumes {@code events.raw}, advances milestone progress, and refreshes session features. A
- * malformed record fails before the dedupe claim, so the shared error handler retries and then
+ * malformed record fails before any write, so the shared error handler retries and then
  * dead-letters it.
  */
 @Component
@@ -36,11 +36,14 @@ class EventStreamProcessor {
   @KafkaListener(topics = EventTopics.EVENTS_RAW, groupId = GROUP)
   void onEvent(String value) throws JsonProcessingException {
     EventEnvelope envelope = objectMapper.readValue(value, EventEnvelope.class);
+    // Idempotent milestone writes run before the claim and replay as no-ops after a crash. The
+    // claim guards only non-idempotent feature counters, taken last so a crash never strands it.
+    Integer currentStep = progressTracker.advance(envelope);
     if (!deduper.firstDelivery(envelope.appId(), envelope.id())) {
       return;
     }
     try {
-      sessionFeatures.record(envelope, progressTracker.advance(envelope));
+      sessionFeatures.record(envelope, currentStep);
     } catch (RuntimeException failure) {
       deduper.release(envelope.appId(), envelope.id());
       throw failure;
