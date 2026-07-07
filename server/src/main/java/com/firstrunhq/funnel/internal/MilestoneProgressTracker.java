@@ -14,9 +14,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Advances one user's per-milestone state machine. An event named after a milestone completes it,
- * and any other event moves the current step, the lowest milestone not completed, out of PENDING.
- * Writes only ever advance a state, so a redelivered or replayed event re-applies as a no-op.
+ * Advances one user's milestone state machine. An event named after a milestone completes it
+ * idempotently. Any other event starts the current step only when {@code applyStart} is set, so a
+ * redelivered event never advances past the step its first delivery reached.
  */
 @Component
 class MilestoneProgressTracker {
@@ -33,7 +33,7 @@ class MilestoneProgressTracker {
 
   /** Applies the event and returns the user's current step position, absent as {@code null}. */
   @Transactional
-  @Nullable Integer advance(EventEnvelope envelope) {
+  @Nullable Integer advance(EventEnvelope envelope, boolean applyStart) {
     tenantContext.scopeTo(envelope.tenantId());
     OffsetDateTime eventAt = envelope.timestamp().atOffset(ZoneOffset.UTC);
     UUID endUserId = firstSeenEndUser(envelope, eventAt);
@@ -45,7 +45,7 @@ class MilestoneProgressTracker {
             .optional();
     if (completion.isPresent()) {
       complete(envelope.tenantId(), endUserId, completion.get(), eventAt);
-    } else {
+    } else if (applyStart) {
       startCurrentStep(envelope, endUserId, eventAt);
     }
     return jdbc.sql(
@@ -104,7 +104,8 @@ class MilestoneProgressTracker {
               (tenant_id, end_user_id, milestone_id, state, started_at, completed_at)
             VALUES (:tenant_id, :end_user_id, :milestone_id, 'COMPLETED', :event_at, :event_at)
             ON CONFLICT (end_user_id, milestone_id) DO UPDATE
-            SET state = 'COMPLETED', completed_at = excluded.completed_at
+            SET state = 'COMPLETED',
+                completed_at = greatest(milestone_progress.started_at, excluded.completed_at)
             WHERE milestone_progress.state <> 'COMPLETED'
             """)
         .param("tenant_id", tenantId)

@@ -36,17 +36,33 @@ class EventStreamProcessor {
   @KafkaListener(topics = EventTopics.EVENTS_RAW, groupId = GROUP)
   void onEvent(String value) throws JsonProcessingException {
     EventEnvelope envelope = objectMapper.readValue(value, EventEnvelope.class);
-    // Idempotent milestone writes run before the claim and replay as no-ops after a crash. The
-    // claim guards only non-idempotent feature counters, taken last so a crash never strands it.
-    Integer currentStep = progressTracker.advance(envelope);
-    if (!deduper.firstDelivery(envelope.appId(), envelope.id())) {
-      return;
-    }
+    // Jackson does not enforce the record's non-null components, so a malformed envelope is
+    // rejected to the dead-letter queue before any side effect.
+    requireComplete(envelope);
+    // Completion is idempotent, so it runs on every delivery and a crash replays it harmlessly. The
+    // claim gates the non-idempotent step start and feature counters against a late duplicate.
+    boolean firstDelivery = deduper.firstDelivery(envelope.appId(), envelope.id());
     try {
-      sessionFeatures.record(envelope, currentStep);
+      Integer currentStep = progressTracker.advance(envelope, firstDelivery);
+      if (firstDelivery) {
+        sessionFeatures.record(envelope, currentStep);
+      }
     } catch (RuntimeException failure) {
-      deduper.release(envelope.appId(), envelope.id());
+      if (firstDelivery) {
+        deduper.release(envelope.appId(), envelope.id());
+      }
       throw failure;
+    }
+  }
+
+  private static void requireComplete(EventEnvelope envelope) {
+    if (envelope.tenantId() == null
+        || envelope.appId() == null
+        || envelope.id() == null
+        || envelope.event() == null
+        || envelope.endUserHash() == null
+        || envelope.timestamp() == null) {
+      throw new IllegalArgumentException("events.raw envelope is missing a required field");
     }
   }
 }

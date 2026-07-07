@@ -30,7 +30,9 @@ CREATE TABLE milestone_progress (
     CONSTRAINT milestone_progress_milestone_fkey
         FOREIGN KEY (milestone_id, tenant_id) REFERENCES milestone (id, tenant_id),
     CONSTRAINT milestone_progress_completed_at_check
-        CHECK ((state = 'COMPLETED') = (completed_at IS NOT NULL))
+        CHECK ((state = 'COMPLETED') = (completed_at IS NOT NULL)),
+    CONSTRAINT milestone_progress_completed_after_started_check
+        CHECK (completed_at IS NULL OR completed_at >= started_at)
 );
 
 ALTER TABLE end_user ENABLE ROW LEVEL SECURITY;
