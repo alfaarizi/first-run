@@ -1,5 +1,6 @@
 package com.firstrunhq.ingestion.internal;
 
+import com.firstrunhq.ingestion.EventTopics;
 import java.time.Duration;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.TopicPartition;
@@ -16,11 +17,6 @@ import org.springframework.util.backoff.FixedBackOff;
 @EnableConfigurationProperties(IngestProperties.class)
 class EventTopicsConfiguration {
 
-  // A dead-letter topic is its source topic with this suffix appended.
-  static final String DLQ_SUFFIX = ".dlq";
-  static final String EVENTS_RAW = "events.raw";
-  static final String EVENTS_RAW_DLQ = EVENTS_RAW + DLQ_SUFFIX;
-
   private static final Duration RETRY_BACKOFF = Duration.ofSeconds(1);
   private static final long MAX_RETRIES = 2;
 
@@ -30,12 +26,12 @@ class EventTopicsConfiguration {
    */
   @Bean
   NewTopic eventsRawTopic() {
-    return TopicBuilder.name(EVENTS_RAW).partitions(1).replicas(1).build();
+    return TopicBuilder.name(EventTopics.EVENTS_RAW).partitions(1).replicas(1).build();
   }
 
   @Bean
   NewTopic eventsRawDlqTopic() {
-    return TopicBuilder.name(EVENTS_RAW_DLQ).partitions(1).replicas(1).build();
+    return TopicBuilder.name(EventTopics.EVENTS_RAW_DLQ).partitions(1).replicas(1).build();
   }
 
   /**
@@ -50,7 +46,7 @@ class EventTopicsConfiguration {
         new DeadLetterPublishingRecoverer(
             kafkaOperations,
             (failed, exception) ->
-                new TopicPartition(failed.topic() + DLQ_SUFFIX, failed.partition()));
+                new TopicPartition(failed.topic() + EventTopics.DLQ_SUFFIX, failed.partition()));
     return new DefaultErrorHandler(
         recoverer, new FixedBackOff(RETRY_BACKOFF.toMillis(), MAX_RETRIES));
   }

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.firstrunhq.apps.AppDirectory;
 import com.firstrunhq.apps.SdkApp;
 import com.firstrunhq.ingestion.EventEnvelope;
+import com.firstrunhq.ingestion.EventTopics;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
@@ -167,7 +168,7 @@ class IngestController {
               allowlisted(event.properties(), app.allowedProperties()));
       deliveries.add(
           kafkaTemplate.send(
-              EventTopicsConfiguration.EVENTS_RAW,
+              EventTopics.EVENTS_RAW,
               partitionKey(app.tenantId(), event.endUserHash()),
               objectMapper.writeValueAsString(envelope)));
     }

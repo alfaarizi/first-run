@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.firstrunhq.ingestion.EventTopics;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
@@ -131,7 +132,7 @@ class IngestGatewayTests {
 
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
     ConsumerRecord<String, String> record =
-        awaitRecord("events.raw", value -> value.contains(endUserHash));
+        awaitRecord(EventTopics.EVENTS_RAW, value -> value.contains(endUserHash));
     assertThat(record.key()).isEqualTo(sha256Hex(TENANT_A + ":" + endUserHash));
     JsonNode envelope = objectMapper.readTree(record.value());
     assertThat(envelope.get("tenant_id").asText()).isEqualTo(TENANT_A);
@@ -153,7 +154,7 @@ class IngestGatewayTests {
         .isEqualTo(HttpStatus.ACCEPTED);
 
     ConsumerRecord<String, String> record =
-        awaitRecord("events.raw", value -> value.contains(endUserHash));
+        awaitRecord(EventTopics.EVENTS_RAW, value -> value.contains(endUserHash));
     JsonNode envelope = objectMapper.readTree(record.value());
     assertThat(envelope.get("timestamp").asText()).isEqualTo(envelope.get("received_at").asText());
   }
@@ -169,7 +170,7 @@ class IngestGatewayTests {
         .isEqualTo(HttpStatus.ACCEPTED);
 
     List<ConsumerRecord<String, String>> records =
-        drain("events.raw", Duration.ofSeconds(5)).stream()
+        drain(EventTopics.EVENTS_RAW, Duration.ofSeconds(5)).stream()
             .filter(record -> record.value().contains(endUserHash))
             .toList();
     assertThat(records).hasSize(1);
@@ -270,7 +271,8 @@ class IngestGatewayTests {
     kafkaTemplate.send(DeadLetterProbe.TOPIC, "poison-key", "poison-value");
 
     ConsumerRecord<String, String> dead =
-        awaitRecord(DeadLetterProbe.TOPIC + ".dlq", value -> value.equals("poison-value"));
+        awaitRecord(
+            DeadLetterProbe.TOPIC + EventTopics.DLQ_SUFFIX, value -> value.equals("poison-value"));
     assertThat(dead.key()).isEqualTo("poison-key");
   }
 
@@ -287,7 +289,7 @@ class IngestGatewayTests {
 
     @Bean
     NewTopic dlqProofDlqTopic() {
-      return TopicBuilder.name(TOPIC + ".dlq").partitions(1).replicas(1).build();
+      return TopicBuilder.name(TOPIC + EventTopics.DLQ_SUFFIX).partitions(1).replicas(1).build();
     }
 
     @KafkaListener(topics = TOPIC, groupId = "dlq-proof")
