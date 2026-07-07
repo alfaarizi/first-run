@@ -39,25 +39,20 @@ class EventStreamProcessor {
     // Jackson does not enforce the record's non-null components, so a malformed envelope is
     // rejected to the dead-letter queue before any side effect.
     requireComplete(envelope);
-    // Completion is idempotent, so it runs on every delivery and a crash replays it harmlessly. The
-    // claim gates the non-idempotent step start and feature counters against a late duplicate.
-    boolean firstDelivery = deduper.firstDelivery(envelope.appId(), envelope.id());
-    try {
-      Integer currentStep = progressTracker.advance(envelope, firstDelivery);
-      if (firstDelivery) {
-        sessionFeatures.record(envelope, currentStep);
-      }
-    } catch (RuntimeException failure) {
-      if (firstDelivery) {
-        deduper.release(envelope.appId(), envelope.id());
-      }
-      throw failure;
+    // The claim gates the step start and feature counters against a late duplicate, and lands
+    // only after those writes are durable, so a crash replays the event instead of dropping it.
+    boolean firstDelivery = !deduper.seen(envelope.appId(), envelope.id());
+    Integer currentStep = progressTracker.advance(envelope, firstDelivery);
+    if (firstDelivery) {
+      sessionFeatures.record(envelope, currentStep);
+      deduper.claim(envelope.appId(), envelope.id());
     }
   }
 
   private static void requireComplete(EventEnvelope envelope) {
     if (envelope.tenantId() == null
         || envelope.appId() == null
+        || envelope.receivedAt() == null
         || envelope.id() == null
         || envelope.event() == null
         || envelope.endUserHash() == null

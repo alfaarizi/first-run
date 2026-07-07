@@ -182,6 +182,22 @@ class FunnelStateMachineTests {
   }
 
   @Test
+  void aDeadLetteredEventStaysUnclaimedForReplay() throws JsonProcessingException, SQLException {
+    String user = "user-" + UUID.randomUUID();
+    UUID lateTenant = UUID.randomUUID();
+    UUID lateApp = UUID.randomUUID();
+    // The tenant does not exist yet, so every retry fails and the record dead-letters.
+    send(event(user, "fr.click").inApp(lateTenant, lateApp));
+    ConsumerRecord<String, String> dead =
+        awaitRecord(EventTopics.EVENTS_RAW_DLQ, record -> user.equals(record.key()));
+
+    seedLateTenant(lateTenant, lateApp);
+    // The failed apply never claimed the event id, so the replay opens the funnel normally.
+    kafkaTemplate.send(EventTopics.EVENTS_RAW, user, dead.value());
+    awaitState(user, MILESTONE_ONE, "IN_PROGRESS");
+  }
+
+  @Test
   void recordsSessionFeaturesWithAnIdleExpiry() throws JsonProcessingException {
     String user = "user-" + UUID.randomUUID();
     UUID session = UUID.randomUUID();
@@ -210,6 +226,50 @@ class FunnelStateMachineTests {
         .isNotNull()
         .isPositive()
         .isLessThanOrEqualTo(Duration.ofMinutes(30).toSeconds());
+  }
+
+  @Test
+  void neverShrinksDwellForAnOutOfOrderEvent() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    UUID session = UUID.randomUUID();
+    Instant openedAt = Instant.now();
+
+    send(event(user, "fr.page_view").inSession(session).at(openedAt));
+    send(event(user, "fr.click").inSession(session).at(openedAt.plusSeconds(120)));
+    // A late event carries an older client time and must not shrink the recorded dwell.
+    send(event(user, "fr.click").inSession(session).at(openedAt.plusSeconds(30)));
+
+    String key = sessionKey(session);
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () ->
+                assertThat(redis.<String, String>opsForHash().get(key, "last_event_at"))
+                    .isEqualTo(openedAt.plusSeconds(30).toString()));
+    assertThat(redis.<String, String>opsForHash().get(key, "dwell_seconds")).isEqualTo("120");
+  }
+
+  @Test
+  void separatesFallbackUserKeysFromSessionKeys() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    UUID session = UUID.randomUUID();
+    // A batch event with no session_id from a user whose hash is UUID-shaped and equal to
+    // another user's session_id: the fallback key must not merge into that user's session.
+    String collidingHash = session.toString();
+
+    send(event(user, "fr.page_view").inSession(session));
+    send(event(collidingHash, "fr.error"));
+
+    String fallbackKey = "session:%s:user:%s".formatted(APP, collidingHash);
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () ->
+                assertThat(redis.<String, String>opsForHash().get(fallbackKey, "errors"))
+                    .isEqualTo("1"));
+    Map<String, String> features = redis.<String, String>opsForHash().entries(sessionKey(session));
+    assertThat(features.get("last_event")).isEqualTo("fr.page_view");
+    assertThat(features).doesNotContainKey("errors");
   }
 
   @Test
@@ -250,6 +310,33 @@ class FunnelStateMachineTests {
     assertThat(endUsers(user)).isZero();
   }
 
+  @Test
+  void deadLettersAnEnvelopeMissingReceivedAt() throws JsonProcessingException, SQLException {
+    String user = "user-" + UUID.randomUUID();
+    // The gateway stamps received_at on every envelope, so its absence marks a poison record.
+    String value =
+        objectMapper.writeValueAsString(
+            Map.of(
+                "tenant_id",
+                TENANT,
+                "app_id",
+                APP,
+                "id",
+                UUID.randomUUID().toString(),
+                "event",
+                "fr.click",
+                "end_user_hash",
+                user,
+                "timestamp",
+                Instant.now().toString()));
+    kafkaTemplate.send(EventTopics.EVENTS_RAW, user, value);
+
+    ConsumerRecord<String, String> dead =
+        awaitRecord(EventTopics.EVENTS_RAW_DLQ, record -> user.equals(record.key()));
+    assertThat(dead.value()).isEqualTo(value);
+    assertThat(endUsers(user)).isZero();
+  }
+
   private static EventBuilder event(String endUserHash, String name) {
     return new EventBuilder(endUserHash, name);
   }
@@ -258,6 +345,8 @@ class FunnelStateMachineTests {
   private static final class EventBuilder {
     private final String endUserHash;
     private final String event;
+    private UUID tenantId = UUID.fromString(TENANT);
+    private UUID appId = UUID.fromString(APP);
     private UUID id = UUID.randomUUID();
     private @Nullable UUID sessionId;
     private Instant at = Instant.now();
@@ -266,6 +355,12 @@ class FunnelStateMachineTests {
     private EventBuilder(String endUserHash, String event) {
       this.endUserHash = endUserHash;
       this.event = event;
+    }
+
+    private EventBuilder inApp(UUID tenantId, UUID appId) {
+      this.tenantId = tenantId;
+      this.appId = appId;
+      return this;
     }
 
     private EventBuilder withId(UUID id) {
@@ -290,16 +385,7 @@ class FunnelStateMachineTests {
 
     private EventEnvelope build() {
       return new EventEnvelope(
-          UUID.fromString(TENANT),
-          UUID.fromString(APP),
-          at,
-          null,
-          id,
-          event,
-          endUserHash,
-          sessionId,
-          at,
-          properties);
+          tenantId, appId, at, null, id, event, endUserHash, sessionId, at, properties);
     }
   }
 
@@ -312,7 +398,28 @@ class FunnelStateMachineTests {
 
   // Where SessionFeatureStore keeps one session's stuck-signal features.
   private static String sessionKey(UUID session) {
-    return "session:%s:%s".formatted(APP, session);
+    return "session:%s:sid:%s".formatted(APP, session);
+  }
+
+  // A tenant, app, and first milestone that exist only once a test decides they should.
+  private void seedLateTenant(UUID tenant, UUID app) throws SQLException {
+    try (var connection = dataSource.getConnection();
+        Statement statement = connection.createStatement()) {
+      statement.execute(
+          "INSERT INTO tenant (id, name) VALUES ('%s', 'Late Tenant')".formatted(tenant));
+      statement.execute(
+          """
+          INSERT INTO app (id, tenant_id, name, sdk_key, hmac_key)
+          VALUES ('%s', '%s', 'Late App', 'key_%s', 'hmac_late')
+          """
+              .formatted(app, tenant, app));
+      statement.execute(
+          """
+          INSERT INTO milestone (id, tenant_id, app_id, name, title, position)
+          VALUES ('%s', '%s', '%s', '%s', 'Create a task', 1)
+          """
+              .formatted(UUID.randomUUID(), tenant, app, MILESTONE_ONE));
+    }
   }
 
   private void awaitState(String endUserHash, String milestone, String expected) {

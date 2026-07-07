@@ -60,13 +60,16 @@ class SessionFeatureStore {
     }
 
     String stepStartedAt = session.get("step_started_at");
+    boolean dwellReset = false;
     if (currentStep == null) {
       if (session.containsKey("step_position")) {
         features.delete(key, "step_position", "step_started_at");
+        dwellReset = true;
       }
       stepStartedAt = null;
     } else if (!String.valueOf(currentStep).equals(session.get("step_position"))) {
       stepStartedAt = eventAt.toString();
+      dwellReset = true;
       updates.put("step_position", String.valueOf(currentStep));
       updates.put("step_started_at", stepStartedAt);
     }
@@ -75,8 +78,13 @@ class SessionFeatureStore {
         stepStartedAt != null
             ? Instant.parse(stepStartedAt)
             : sessionStartedAt != null ? Instant.parse(sessionStartedAt) : eventAt;
-    // Event times can arrive out of order, so dwell never reads negative.
+    // Event times can arrive out of order, so dwell never reads negative and, while the step is
+    // unchanged, never shrinks below what a newer event already recorded.
     long dwellSeconds = Math.max(0, Duration.between(dwellFrom, eventAt).toSeconds());
+    String recordedDwell = session.get("dwell_seconds");
+    if (!dwellReset && recordedDwell != null) {
+      dwellSeconds = Math.max(dwellSeconds, Long.parseLong(recordedDwell));
+    }
     updates.put("dwell_seconds", String.valueOf(dwellSeconds));
 
     updates.put("last_event", envelope.event());
@@ -86,10 +94,12 @@ class SessionFeatureStore {
     redis.expire(key, IDLE_EXPIRY);
   }
 
-  // Batches may omit session_id, so the user hash carries the same idle-window semantics.
+  // Batches may omit session_id, so the user hash carries the same idle-window semantics. The
+  // type prefix keeps a UUID-shaped user hash from colliding with another user's session_id.
   private static String key(EventEnvelope envelope) {
-    Object session = envelope.sessionId() != null ? envelope.sessionId() : envelope.endUserHash();
-    return "session:%s:%s".formatted(envelope.appId(), session);
+    return envelope.sessionId() != null
+        ? "session:%s:sid:%s".formatted(envelope.appId(), envelope.sessionId())
+        : "session:%s:user:%s".formatted(envelope.appId(), envelope.endUserHash());
   }
 
   private static @Nullable String pagePath(EventEnvelope envelope) {

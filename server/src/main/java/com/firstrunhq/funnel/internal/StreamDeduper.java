@@ -6,8 +6,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Claims each event UUID for 24 hours so a redelivered record updates session features once. The
- * group qualifier separates these claims from the gateway's, held before every produce.
+ * Remembers each applied event UUID for 24 hours so a redelivered record updates session features
+ * once. The group qualifier separates these claims from the gateway's, held before every produce.
  */
 @Component
 class StreamDeduper {
@@ -20,13 +20,13 @@ class StreamDeduper {
     this.redis = redis;
   }
 
-  boolean firstDelivery(UUID appId, UUID eventId) {
-    return Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(key(appId, eventId), "", CLAIM_TTL));
+  boolean seen(UUID appId, UUID eventId) {
+    return Boolean.TRUE.equals(redis.hasKey(key(appId, eventId)));
   }
 
-  /** Frees the claim after a failed apply, so the retry or a dead-letter replay passes dedupe. */
-  void release(UUID appId, UUID eventId) {
-    redis.delete(key(appId, eventId));
+  /** Runs only after the apply is durable, so a failure or crash replays instead of dropping. */
+  void claim(UUID appId, UUID eventId) {
+    redis.opsForValue().set(key(appId, eventId), "", CLAIM_TTL);
   }
 
   private static String key(UUID appId, UUID eventId) {
