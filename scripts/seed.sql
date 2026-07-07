@@ -11,6 +11,7 @@ ON CONFLICT (id) DO NOTHING;
 
 -- DO UPDATE so a reseed converges an existing volume on the canonical demo
 -- config, such as the allowlist for the task_count property Tasklet sends.
+-- path rides fr.page_view and feeds the session backtracking feature.
 INSERT INTO app (id, tenant_id, name, sdk_key, hmac_key, allowed_origins, allowed_properties)
 VALUES (
   '019813f2-0000-7000-8000-000000000002',
@@ -19,7 +20,7 @@ VALUES (
   :'sdk_key',
   :'hmac_key',
   '{http://localhost:5174}',
-  '{task_count}'
+  '{task_count,path}'
 )
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,

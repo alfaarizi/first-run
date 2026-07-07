@@ -101,8 +101,12 @@ migrate:
 load:
 	@echo ">> skipping load, the k6 script arrives with infra/"
 
+# Feeds a dead-letter topic back to its source after a handler fix. Handler
+# dedupe absorbs records replayed twice inside its 24-hour window.
 replay:
-	@echo ">> skipping replay, no consumers exist yet"
+	@test -n "$(TOPIC)" || { echo "replay: set TOPIC, e.g. make replay TOPIC=events.raw" >&2; exit 1; }
+	docker compose exec -T redpanda sh -c \
+		"rpk topic consume $(TOPIC).dlq --format '%k\t%v\n' --offset :end | rpk topic produce $(TOPIC) --format '%k\t%v\n'"
 
 rollback:
 	@echo ">> skipping rollback, no deploy pipeline exists yet"

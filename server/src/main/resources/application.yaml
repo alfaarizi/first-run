@@ -12,6 +12,10 @@ spring:
       password: ${REDIS_PASSWORD}
   kafka:
     bootstrap-servers: localhost:19092
+    consumer:
+      # New groups start at the earliest offset, so events produced before a
+      # consumer's first deployment still reach it (the default skips them).
+      auto-offset-reset: earliest
     producer:
       # Bound the produce path so a broker outage becomes a fast 503 for the
       # retrying client instead of a request hung on the default 60s block.

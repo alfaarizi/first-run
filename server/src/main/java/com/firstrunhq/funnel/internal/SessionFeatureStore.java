@@ -1,0 +1,102 @@
+package com.firstrunhq.funnel.internal;
+
+import com.firstrunhq.ingestion.EventEnvelope;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import org.jspecify.annotations.Nullable;
+import org.springframework.data.redis.core.HashOperations;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Component;
+
+/**
+ * Keeps one Redis hash of stuck-signal features per session: dwell on the current step, retries,
+ * backtracking, and errors. The 30-minute idle expiry closes the session, mirroring the widget's
+ * {@code session_id} rotation.
+ */
+@Component
+class SessionFeatureStore {
+
+  private static final Duration IDLE_EXPIRY = Duration.ofMinutes(30);
+  private static final String PAGE_VIEW = "fr.page_view";
+  private static final String ERROR = "fr.error";
+
+  private final StringRedisTemplate redis;
+
+  SessionFeatureStore(StringRedisTemplate redis) {
+    this.redis = redis;
+  }
+
+  void record(EventEnvelope envelope, @Nullable Integer currentStep) {
+    String key = key(envelope);
+    HashOperations<String, String, String> features = redis.opsForHash();
+    Map<String, String> session = features.entries(key);
+    Instant eventAt = envelope.timestamp();
+    String path = pagePath(envelope);
+    Map<String, String> updates = new LinkedHashMap<>();
+
+    if (session.isEmpty()) {
+      updates.put("started_at", eventAt.toString());
+    }
+    // A retry is an exact repeat of the previous event, same name and same page.
+    if (envelope.event().equals(session.get("last_event"))
+        && (path == null ? "" : path).equals(session.getOrDefault("last_event_path", ""))) {
+      features.increment(key, "retries", 1);
+    }
+    if (ERROR.equals(envelope.event())) {
+      features.increment(key, "errors", 1);
+    }
+    String lastPath = session.get("last_path");
+    if (path != null && !path.equals(lastPath)) {
+      // Returning to the page before the last distinct one is the abandonment loop.
+      if (path.equals(session.get("prev_path"))) {
+        features.increment(key, "backtracks", 1);
+      }
+      if (lastPath != null) {
+        updates.put("prev_path", lastPath);
+      }
+      updates.put("last_path", path);
+    }
+
+    String stepStartedAt = session.get("step_started_at");
+    if (currentStep == null) {
+      if (session.containsKey("step_position")) {
+        features.delete(key, "step_position", "step_started_at");
+      }
+      stepStartedAt = null;
+    } else if (!String.valueOf(currentStep).equals(session.get("step_position"))) {
+      stepStartedAt = eventAt.toString();
+      updates.put("step_position", String.valueOf(currentStep));
+      updates.put("step_started_at", stepStartedAt);
+    }
+    String sessionStartedAt = session.get("started_at");
+    Instant dwellFrom =
+        stepStartedAt != null
+            ? Instant.parse(stepStartedAt)
+            : sessionStartedAt != null ? Instant.parse(sessionStartedAt) : eventAt;
+    // Event times can arrive out of order, so dwell never reads negative.
+    long dwellSeconds = Math.max(0, Duration.between(dwellFrom, eventAt).toSeconds());
+    updates.put("dwell_seconds", String.valueOf(dwellSeconds));
+
+    updates.put("last_event", envelope.event());
+    updates.put("last_event_path", path == null ? "" : path);
+    updates.put("last_event_at", eventAt.toString());
+    features.putAll(key, updates);
+    redis.expire(key, IDLE_EXPIRY);
+  }
+
+  // Batches may omit session_id, so the user hash carries the same idle-window semantics.
+  private static String key(EventEnvelope envelope) {
+    Object session = envelope.sessionId() != null ? envelope.sessionId() : envelope.endUserHash();
+    return "session:%s:%s".formatted(envelope.appId(), session);
+  }
+
+  private static @Nullable String pagePath(EventEnvelope envelope) {
+    Map<String, Object> properties = envelope.properties();
+    if (!PAGE_VIEW.equals(envelope.event()) || properties == null) {
+      return null;
+    }
+    return properties.get("path") instanceof String path ? path : null;
+  }
+}

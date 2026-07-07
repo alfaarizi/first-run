@@ -17,8 +17,13 @@ additive or breaking.
 - The dashboard GraphQL endpoint reads its tenant from the
   `X-FirstRun-Tenant` header until login ships, and a request without it
   fails as unauthorized.
+- `events.raw` consumer semantics: the funnel's stream processor treats an
+  event whose name matches a milestone as that milestone's completion, reads
+  the reserved `path` property on `fr.page_view` (the Segment Page field)
+  for the session backtracking feature, and scopes session features to
+  `session_id`, falling back to `end_user_hash` when a batch omits it.
 
-Additive. The mutation and payload keep the shape defined on 2026-07-02.
+Additive. The mutation, payload, and envelope keep their recorded shapes.
 
 ## 2026-07-06
 
