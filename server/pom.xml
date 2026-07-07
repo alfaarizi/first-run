@@ -27,6 +27,10 @@
          custom rules run on one ArchUnit. -->
     <archunit.version>1.4.2</archunit.version>
     <bucket4j.version>8.14.0</bucket4j.version>
+    <!-- Tracks the graphql-java major that spring-graphql brings in, per the
+         library's one-release-per-graphql-java policy. -->
+    <graphql-java-extended-scalars.version>24.0</graphql-java-extended-scalars.version>
+    <java-uuid-generator.version>5.1.0</java-uuid-generator.version>
     <spotless.version>2.44.5</spotless.version>
     <jspecify.version>1.0.0</jspecify.version>
     <!-- Highest Error Prone before 2.50.0 dropped a class NullAway 0.12.7 links.
@@ -74,6 +78,20 @@
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-graphql</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.graphql-java</groupId>
+      <artifactId>graphql-java-extended-scalars</artifactId>
+      <version>${graphql-java-extended-scalars.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.uuid</groupId>
+      <artifactId>java-uuid-generator</artifactId>
+      <version>${java-uuid-generator.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-jdbc</artifactId>
     </dependency>
     <dependency>
@@ -115,6 +133,17 @@
     <dependency>
       <groupId>org.springframework.modulith</groupId>
       <artifactId>spring-modulith-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.graphql</groupId>
+      <artifactId>spring-graphql-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- HttpGraphQlTester rides on WebTestClient, which lives in webflux. -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-webflux</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>

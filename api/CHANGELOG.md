@@ -3,6 +3,23 @@
 Each entry records the date, the change, the rationale, and whether it is
 additive or breaking.
 
+## 2026-07-07
+
+### Added
+
+- `CreateMilestoneInput.name` describes its grammar: the ingest contract's
+  custom-event form (snake_case past tense, at most 64 characters), with
+  `fr.` reserved for auto-captured events.
+- `createMilestone` semantics the SDL cannot carry: names and positions are
+  unique per app, an app holds at most 10 milestones (the glossary's upper
+  bound), and an app outside the requesting tenant resolves to not found.
+  Violations arrive as top-level GraphQL errors, never inside the payload.
+- The dashboard GraphQL endpoint reads its tenant from the
+  `X-FirstRun-Tenant` header until login ships, and a request without it
+  fails as unauthorized.
+
+Additive. The mutation and payload keep the shape defined on 2026-07-02.
+
 ## 2026-07-06
 
 ### Added
