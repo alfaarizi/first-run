@@ -39,14 +39,13 @@ class EventStreamProcessor {
     // Jackson does not enforce the record's non-null components, so a malformed envelope is
     // rejected to the dead-letter queue before any side effect.
     requireComplete(envelope);
-    // The claim gates the step start and feature counters against a late duplicate, and lands
-    // only after those writes are durable, so a crash replays the event instead of dropping it.
-    boolean firstDelivery = !deduper.seen(envelope.appId(), envelope.id());
-    Integer currentStep = progressTracker.advance(envelope, firstDelivery);
-    if (firstDelivery) {
-      sessionFeatures.record(envelope, currentStep);
-      deduper.claim(envelope.appId(), envelope.id());
+    // The claim lands only after every write below is durable, so a crash replays the event and
+    // a claimed duplicate skips it entirely, never reapplied against a catalog that changed since.
+    if (deduper.seen(envelope.appId(), envelope.id())) {
+      return;
     }
+    sessionFeatures.record(envelope, progressTracker.advance(envelope));
+    deduper.claim(envelope.appId(), envelope.id());
   }
 
   private static void requireComplete(EventEnvelope envelope) {

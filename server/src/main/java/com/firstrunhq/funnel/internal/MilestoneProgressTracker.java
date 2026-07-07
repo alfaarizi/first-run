@@ -15,8 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Advances one user's milestone state machine. An event named after a milestone completes it
- * idempotently. Any other event starts the current step only when {@code shouldStartStep} is set,
- * so a redelivered event never advances past the step its first delivery reached.
+ * idempotently, and any other event starts the user's current step.
  */
 @Component
 class MilestoneProgressTracker {
@@ -33,7 +32,7 @@ class MilestoneProgressTracker {
 
   /** Applies the event and returns the user's current step position, absent as {@code null}. */
   @Transactional
-  @Nullable Integer advance(EventEnvelope envelope, boolean shouldStartStep) {
+  @Nullable Integer advance(EventEnvelope envelope) {
     tenantContext.scopeTo(envelope.tenantId());
     OffsetDateTime eventAt = envelope.timestamp().atOffset(ZoneOffset.UTC);
     UUID endUserId = firstSeenEndUser(envelope, eventAt);
@@ -45,7 +44,7 @@ class MilestoneProgressTracker {
             .optional();
     if (completion.isPresent()) {
       complete(envelope.tenantId(), endUserId, completion.get(), eventAt);
-    } else if (shouldStartStep) {
+    } else {
       startCurrentStep(envelope, endUserId, eventAt);
     }
     return jdbc.sql(

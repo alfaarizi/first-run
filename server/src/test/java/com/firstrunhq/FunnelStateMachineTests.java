@@ -156,14 +156,21 @@ class FunnelStateMachineTests {
   }
 
   @Test
-  void completionAppliesEvenWhenItsIdIsAlreadyClaimed() throws JsonProcessingException {
+  void aClaimedDuplicateDoesNotCompleteAMilestoneDefinedLater()
+      throws JsonProcessingException, SQLException {
     String user = "user-" + UUID.randomUUID();
-    UUID id = UUID.randomUUID();
-    // A completion applies even when its id is already claimed, so a crash between claim and commit
-    // cannot strand the funnel. The click claims the id, then the completion reuses it.
-    send(event(user, "fr.click").withId(id));
-    send(event(user, MILESTONE_ONE).withId(id));
+    EventBuilder invite = event(user, "invite_sent");
+    send(invite);
+    awaitState(user, MILESTONE_ONE, "IN_PROGRESS");
+
+    // The founder names a milestone after the event flowed, then the same record redelivers.
+    seedMilestone("invite_sent", 3);
+    send(invite);
+    // The marker shares the user's partition key, so its arrival orders after the duplicate.
+    send(event(user, MILESTONE_ONE));
     awaitState(user, MILESTONE_ONE, "COMPLETED");
+
+    assertThat(state(user, "invite_sent")).isNull();
   }
 
   @Test
@@ -363,11 +370,6 @@ class FunnelStateMachineTests {
       return this;
     }
 
-    private EventBuilder withId(UUID id) {
-      this.id = id;
-      return this;
-    }
-
     private EventBuilder inSession(UUID sessionId) {
       this.sessionId = sessionId;
       return this;
@@ -399,6 +401,20 @@ class FunnelStateMachineTests {
   // Where SessionFeatureStore keeps one session's stuck-signal features.
   private static String sessionKey(UUID session) {
     return "session:%s:sid:%s".formatted(APP, session);
+  }
+
+  // A milestone the founder defines only after events already flowed.
+  private void seedMilestone(String name, int position) throws SQLException {
+    try (var connection = dataSource.getConnection();
+        Statement statement = connection.createStatement()) {
+      statement.execute(
+          """
+          INSERT INTO milestone (id, tenant_id, app_id, name, title, position)
+          VALUES ('019813f2-0000-7000-8000-0000000000e5', '%s', '%s', '%s', 'Invite a teammate', %d)
+          ON CONFLICT (id) DO NOTHING
+          """
+              .formatted(TENANT, APP, name, position));
+    }
   }
 
   // A tenant, app, and first milestone that exist only once a test decides they should.

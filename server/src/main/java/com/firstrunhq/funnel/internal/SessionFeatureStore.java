@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -34,6 +35,7 @@ class SessionFeatureStore {
     Map<String, String> session = features.entries(key);
     Instant eventAt = envelope.timestamp();
     String path = pagePath(envelope);
+    String storedPath = path == null ? "" : path;
     Map<String, String> updates = new LinkedHashMap<>();
 
     if (session.isEmpty()) {
@@ -41,7 +43,7 @@ class SessionFeatureStore {
     }
     // A retry is an exact repeat of the previous event, same name and same page.
     if (envelope.event().equals(session.get("last_event"))
-        && (path == null ? "" : path).equals(session.getOrDefault("last_event_path", ""))) {
+        && storedPath.equals(session.getOrDefault("last_event_path", ""))) {
       features.increment(key, "retries", 1);
     }
     if (ERROR.equals(envelope.event())) {
@@ -59,36 +61,33 @@ class SessionFeatureStore {
       updates.put("last_path", path);
     }
 
-    String stepStartedAt = session.get("step_started_at");
-    boolean dwellReset = false;
-    if (currentStep == null) {
-      if (session.containsKey("step_position")) {
+    String step = currentStep == null ? null : String.valueOf(currentStep);
+    boolean stepChanged = !Objects.equals(step, session.get("step_position"));
+    if (stepChanged) {
+      if (step == null) {
         features.delete(key, "step_position", "step_started_at");
-        dwellReset = true;
+      } else {
+        updates.put("step_position", step);
+        updates.put("step_started_at", eventAt.toString());
       }
-      stepStartedAt = null;
-    } else if (!String.valueOf(currentStep).equals(session.get("step_position"))) {
-      stepStartedAt = eventAt.toString();
-      dwellReset = true;
-      updates.put("step_position", String.valueOf(currentStep));
-      updates.put("step_started_at", stepStartedAt);
     }
-    String sessionStartedAt = session.get("started_at");
-    Instant dwellFrom =
-        stepStartedAt != null
-            ? Instant.parse(stepStartedAt)
-            : sessionStartedAt != null ? Instant.parse(sessionStartedAt) : eventAt;
-    // Event times can arrive out of order, so dwell never reads negative and, while the step is
-    // unchanged, never shrinks below what a newer event already recorded.
+    // Dwell runs from the step's opening, or from the session's start when no step is open.
+    String dwellAnchor =
+        step == null
+            ? session.get("started_at")
+            : stepChanged ? eventAt.toString() : session.get("step_started_at");
+    Instant dwellFrom = dwellAnchor == null ? eventAt : Instant.parse(dwellAnchor);
+    // Event times can arrive out of order, so dwell never reads negative and, on an unchanged
+    // step, never shrinks below what a newer event already recorded.
     long dwellSeconds = Math.max(0, Duration.between(dwellFrom, eventAt).toSeconds());
-    String recordedDwell = session.get("dwell_seconds");
-    if (!dwellReset && recordedDwell != null) {
-      dwellSeconds = Math.max(dwellSeconds, Long.parseLong(recordedDwell));
+    if (!stepChanged) {
+      dwellSeconds =
+          Math.max(dwellSeconds, Long.parseLong(session.getOrDefault("dwell_seconds", "0")));
     }
     updates.put("dwell_seconds", String.valueOf(dwellSeconds));
 
     updates.put("last_event", envelope.event());
-    updates.put("last_event_path", path == null ? "" : path);
+    updates.put("last_event_path", storedPath);
     updates.put("last_event_at", eventAt.toString());
     features.putAll(key, updates);
     redis.expire(key, IDLE_EXPIRY);
