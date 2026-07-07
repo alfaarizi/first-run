@@ -29,6 +29,7 @@ type FunnelStep {
 
 input CreateMilestoneInput {
   appId: ID!
+  "The completion event name: snake_case past tense, at most 64 characters. The `fr.` prefix is reserved."
   name: String!
   title: String!
   position: Int!

@@ -190,6 +190,9 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      # Local-only trust: resolves the dashboard tenant from a plain header
+      # until we have login.
+      FIRSTRUN_IDENTITY_TRUSTED_TENANT_HEADER: "true"
     ports:
       - "8080:8080"
     depends_on:
