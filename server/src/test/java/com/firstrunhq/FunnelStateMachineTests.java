@@ -93,33 +93,21 @@ class FunnelStateMachineTests {
     String user = "user-" + UUID.randomUUID();
     UUID session = UUID.randomUUID();
 
-    send(envelope(user, session, "fr.page_view", Map.of("path", "/home")));
+    send(event(user, "fr.page_view").inSession(session).withProperties(Map.of("path", "/home")));
     awaitState(user, MILESTONE_ONE, "IN_PROGRESS");
     assertThat(state(user, MILESTONE_TWO)).isNull();
 
-    send(envelope(user, session, MILESTONE_ONE, null));
+    send(event(user, MILESTONE_ONE).inSession(session));
     awaitState(user, MILESTONE_ONE, "COMPLETED");
     assertThat(state(user, MILESTONE_TWO)).isNull();
 
-    send(envelope(user, session, "fr.click", null));
+    send(event(user, "fr.click").inSession(session));
     awaitState(user, MILESTONE_TWO, "IN_PROGRESS");
     assertThat(state(user, MILESTONE_ONE)).isEqualTo("COMPLETED");
 
-    send(envelope(user, session, MILESTONE_TWO, null));
+    send(event(user, MILESTONE_TWO).inSession(session));
     awaitState(user, MILESTONE_TWO, "COMPLETED");
     assertThat(endUsers(user)).isEqualTo(1);
-  }
-
-  @Test
-  void advancesProgressWhenTheDedupeClaimSurvivedACrash() throws JsonProcessingException {
-    String user = "user-" + UUID.randomUUID();
-    EventEnvelope completion = envelope(user, UUID.randomUUID(), MILESTONE_ONE, null);
-    // A crash after the claim but before the commit leaves the claim set with no progress written.
-    // The key scheme mirrors StreamDeduper. The redelivery must still complete the milestone.
-    redis.opsForValue().set("dedupe:stream-processor:%s:%s".formatted(APP, completion.id()), "");
-
-    send(completion);
-    awaitState(user, MILESTONE_ONE, "COMPLETED");
   }
 
   @Test
@@ -127,23 +115,37 @@ class FunnelStateMachineTests {
     String user = "user-" + UUID.randomUUID();
 
     // The completion event touches only its milestone, so the skipped step stays PENDING.
-    send(envelope(user, UUID.randomUUID(), MILESTONE_TWO, null));
+    send(event(user, MILESTONE_TWO));
     awaitState(user, MILESTONE_TWO, "COMPLETED");
     assertThat(state(user, MILESTONE_ONE)).isNull();
+  }
+
+  @Test
+  void clampsCompletionTimeToTheStartTime() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    Instant startedAt = Instant.now();
+    send(event(user, "fr.click").at(startedAt));
+    awaitState(user, MILESTONE_ONE, "IN_PROGRESS");
+    // The completion carries an earlier client time than the event that opened the step.
+    send(event(user, MILESTONE_ONE).at(startedAt.minusSeconds(300)));
+    awaitState(user, MILESTONE_ONE, "COMPLETED");
+
+    // completed_at never precedes started_at, so time-to-complete never reads negative.
+    assertThat(completedAtEqualsStartedAt(user, MILESTONE_ONE)).isTrue();
   }
 
   @Test
   void skipsARedeliveredEventUuid() throws JsonProcessingException {
     String user = "user-" + UUID.randomUUID();
     UUID session = UUID.randomUUID();
-    EventEnvelope error = envelope(user, session, "fr.error", null);
+    EventBuilder error = event(user, "fr.error").inSession(session);
 
     send(error);
     send(error);
     // The marker shares the user's partition key, so its arrival orders after both copies.
-    send(envelope(user, session, "fr.click", null));
+    send(event(user, "fr.click").inSession(session));
 
-    String key = "session:%s:%s".formatted(APP, session);
+    String key = sessionKey(session);
     await()
         .atMost(Duration.ofSeconds(30))
         .untilAsserted(
@@ -154,17 +156,43 @@ class FunnelStateMachineTests {
   }
 
   @Test
+  void completionAppliesEvenWhenItsIdIsAlreadyClaimed() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    UUID id = UUID.randomUUID();
+    // A completion applies even when its id is already claimed, so a crash between claim and commit
+    // cannot strand the funnel. The click claims the id, then the completion reuses it.
+    send(event(user, "fr.click").withId(id));
+    send(event(user, MILESTONE_ONE).withId(id));
+    awaitState(user, MILESTONE_ONE, "COMPLETED");
+  }
+
+  @Test
+  void aReplayedNonMilestoneEventDoesNotAdvanceTheFunnel() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    Instant clickAt = Instant.now();
+    EventBuilder click = event(user, "fr.click").at(clickAt);
+    send(click); // opens step one and claims the id
+    send(event(user, MILESTONE_ONE).at(clickAt.plusSeconds(1)));
+    send(click); // a duplicate now, must not open step two
+    send(event(user, MILESTONE_TWO).at(clickAt.plusSeconds(60)));
+    awaitState(user, MILESTONE_TWO, "COMPLETED");
+
+    // Step two only ever completed. Had the duplicate opened it, started_at would predate that.
+    assertThat(completedAtEqualsStartedAt(user, MILESTONE_TWO)).isTrue();
+  }
+
+  @Test
   void recordsSessionFeaturesWithAnIdleExpiry() throws JsonProcessingException {
     String user = "user-" + UUID.randomUUID();
     UUID session = UUID.randomUUID();
 
-    send(envelope(user, session, "fr.page_view", Map.of("path", "/a")));
-    send(envelope(user, session, "fr.page_view", Map.of("path", "/b")));
-    send(envelope(user, session, "fr.page_view", Map.of("path", "/a")));
-    send(envelope(user, session, "fr.error", null));
-    send(envelope(user, session, "fr.error", null));
+    send(event(user, "fr.page_view").inSession(session).withProperties(Map.of("path", "/a")));
+    send(event(user, "fr.page_view").inSession(session).withProperties(Map.of("path", "/b")));
+    send(event(user, "fr.page_view").inSession(session).withProperties(Map.of("path", "/a")));
+    send(event(user, "fr.error").inSession(session));
+    send(event(user, "fr.error").inSession(session));
 
-    String key = "session:%s:%s".formatted(APP, session);
+    String key = sessionKey(session);
     await()
         .atMost(Duration.ofSeconds(30))
         .untilAsserted(
@@ -194,26 +222,97 @@ class FunnelStateMachineTests {
     assertThat(dead.value()).isEqualTo("not an envelope");
   }
 
-  private EventEnvelope envelope(
-      String endUserHash, UUID sessionId, String event, @Nullable Map<String, Object> properties) {
-    Instant now = Instant.now();
-    return new EventEnvelope(
-        UUID.fromString(TENANT),
-        UUID.fromString(APP),
-        now,
-        null,
-        UUID.randomUUID(),
-        event,
-        endUserHash,
-        sessionId,
-        now,
-        properties);
+  @Test
+  void deadLettersAnEnvelopeMissingARequiredField() throws JsonProcessingException, SQLException {
+    String user = "user-" + UUID.randomUUID();
+    // A structurally valid envelope with no event: Jackson accepts it, the processor must not.
+    String value =
+        objectMapper.writeValueAsString(
+            Map.of(
+                "tenant_id",
+                TENANT,
+                "app_id",
+                APP,
+                "received_at",
+                Instant.now().toString(),
+                "id",
+                UUID.randomUUID().toString(),
+                "end_user_hash",
+                user,
+                "timestamp",
+                Instant.now().toString()));
+    kafkaTemplate.send(EventTopics.EVENTS_RAW, user, value);
+
+    ConsumerRecord<String, String> dead =
+        awaitRecord(EventTopics.EVENTS_RAW_DLQ, record -> user.equals(record.key()));
+    assertThat(dead.value()).isEqualTo(value);
+    // Rejected before any write, so the end user was never created.
+    assertThat(endUsers(user)).isZero();
+  }
+
+  private static EventBuilder event(String endUserHash, String name) {
+    return new EventBuilder(endUserHash, name);
+  }
+
+  /** Builds one events.raw envelope, defaulting every field a test does not name. */
+  private static final class EventBuilder {
+    private final String endUserHash;
+    private final String event;
+    private UUID id = UUID.randomUUID();
+    private @Nullable UUID sessionId;
+    private Instant at = Instant.now();
+    private @Nullable Map<String, Object> properties;
+
+    private EventBuilder(String endUserHash, String event) {
+      this.endUserHash = endUserHash;
+      this.event = event;
+    }
+
+    private EventBuilder withId(UUID id) {
+      this.id = id;
+      return this;
+    }
+
+    private EventBuilder inSession(UUID sessionId) {
+      this.sessionId = sessionId;
+      return this;
+    }
+
+    private EventBuilder at(Instant at) {
+      this.at = at;
+      return this;
+    }
+
+    private EventBuilder withProperties(Map<String, Object> properties) {
+      this.properties = properties;
+      return this;
+    }
+
+    private EventEnvelope build() {
+      return new EventEnvelope(
+          UUID.fromString(TENANT),
+          UUID.fromString(APP),
+          at,
+          null,
+          id,
+          event,
+          endUserHash,
+          sessionId,
+          at,
+          properties);
+    }
   }
 
   /** Keys by the user hash so one user's events stay ordered, like the gateway's partition key. */
-  private void send(EventEnvelope envelope) throws JsonProcessingException {
+  private void send(EventBuilder event) throws JsonProcessingException {
+    EventEnvelope envelope = event.build();
     kafkaTemplate.send(
         EventTopics.EVENTS_RAW, envelope.endUserHash(), objectMapper.writeValueAsString(envelope));
+  }
+
+  // Where SessionFeatureStore keeps one session's stuck-signal features.
+  private static String sessionKey(UUID session) {
+    return "session:%s:%s".formatted(APP, session);
   }
 
   private void awaitState(String endUserHash, String milestone, String expected) {
@@ -237,6 +336,27 @@ class FunnelStateMachineTests {
       statement.setString(2, milestone);
       try (ResultSet row = statement.executeQuery()) {
         return row.next() ? row.getString(1) : null;
+      }
+    } catch (SQLException failure) {
+      throw new IllegalStateException(failure);
+    }
+  }
+
+  private boolean completedAtEqualsStartedAt(String endUserHash, String milestone) {
+    try (var connection = dataSource.getConnection();
+        var statement =
+            connection.prepareStatement(
+                """
+                SELECT p.completed_at = p.started_at
+                FROM milestone_progress p
+                JOIN end_user u ON u.id = p.end_user_id
+                JOIN milestone m ON m.id = p.milestone_id
+                WHERE u.external_hash = ? AND m.name = ?
+                """)) {
+      statement.setString(1, endUserHash);
+      statement.setString(2, milestone);
+      try (ResultSet row = statement.executeQuery()) {
+        return row.next() && row.getBoolean(1);
       }
     } catch (SQLException failure) {
       throw new IllegalStateException(failure);
