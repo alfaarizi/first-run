@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Claims each event UUID for 24 hours so a redelivered record updates session features once. The
- * group qualifier keeps the gateway's claims, held before every produce, from reading as duplicates.
+ * group qualifier separates these claims from the gateway's, held before every produce.
  */
 @Component
 class StreamDeduper {
