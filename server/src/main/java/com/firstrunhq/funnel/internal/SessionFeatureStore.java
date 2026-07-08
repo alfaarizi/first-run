@@ -55,6 +55,7 @@ class SessionFeatureStore {
     if (session.isEmpty()) {
       updates.put("started_at", eventAt.toString());
     }
+
     // A retry is an exact repeat of the previous event, same name and same page.
     if (envelope.event().equals(session.get("last_event"))
         && storedPath.equals(session.getOrDefault("last_event_path", ""))) {
@@ -87,12 +88,14 @@ class SessionFeatureStore {
         updates.put("step_started_at", newestAt.toString());
       }
     }
+
     // Dwell runs from the step's opening, or from the session's start when no step is open.
     String dwellAnchor =
         step == null
             ? session.get("started_at")
             : stepChanged ? updates.get("step_started_at") : session.get("step_started_at");
     Instant dwellFrom = dwellAnchor == null ? eventAt : Instant.parse(dwellAnchor);
+
     // Event times can arrive out of order, so dwell never reads negative and, on an unchanged
     // step, never shrinks below what a newer event already recorded.
     long dwellSeconds = Math.max(0, Duration.between(dwellFrom, eventAt).toSeconds());

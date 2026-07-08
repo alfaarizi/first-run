@@ -36,9 +36,11 @@ class EventStreamProcessor {
   @KafkaListener(topics = EventTopics.EVENTS_RAW, groupId = GROUP)
   void onEvent(String value) throws JsonProcessingException {
     EventEnvelope envelope = objectMapper.readValue(value, EventEnvelope.class);
+
     // Jackson does not enforce the record's non-null components, so a malformed envelope is
     // rejected to the dead-letter queue before any side effect.
     requireComplete(envelope);
+
     // The claim lands only after every write below is durable, so a crash replays the event and
     // a claimed duplicate skips it entirely, never reapplied against a catalog that changed since.
     if (deduper.isClaimed(envelope.appId(), envelope.id())) {

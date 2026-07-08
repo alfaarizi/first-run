@@ -43,10 +43,12 @@ class MilestoneRowLevelSecurityTests {
           END $$
           """);
       statement.execute("GRANT SELECT ON milestone TO rls_probe");
+
       // The container's default user is a superuser, so these inserts bypass RLS.
       statement.execute(
           "INSERT INTO tenant (id, name) VALUES ('%s', 'Tenant A'), ('%s', 'Tenant B')"
               .formatted(TENANT_A, TENANT_B));
+
       statement.execute(
           """
           INSERT INTO app (id, tenant_id, name, sdk_key, hmac_key)

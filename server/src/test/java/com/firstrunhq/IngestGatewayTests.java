@@ -125,6 +125,7 @@ class IngestGatewayTests {
     String endUserHash = "user-" + UUID.randomUUID();
     String body = batch(1, endUserHash, Map.of("plan", "pro", "email", "pii@example.com"));
     HttpHeaders extra = new HttpHeaders();
+
     // The last entry is the balancer-appended client, the only one the gateway believes.
     extra.set("X-Forwarded-For", "6.6.6.6, 12.214.31.144");
 
@@ -146,6 +147,7 @@ class IngestGatewayTests {
   @Test
   void correctsEventTimeByTheClientClockSkew() throws JsonProcessingException {
     String endUserHash = "user-" + UUID.randomUUID();
+
     // With the event time equal to sent_at, the corrected time must equal received_at exactly.
     Instant skewedClock = Instant.now().minus(Duration.ofMinutes(2));
     String body = batch(1, endUserHash, Map.of(), skewedClock);
@@ -162,6 +164,7 @@ class IngestGatewayTests {
   @Test
   void boundsACorrectedEventTimeByArrival() throws JsonProcessingException {
     String endUserHash = "user-" + UUID.randomUUID();
+
     // An event time past sent_at survives skew correction, so the gateway clamps it to arrival.
     Instant sentAt = Instant.now();
     String body = batch(1, endUserHash, Map.of(), sentAt, sentAt.plus(Duration.ofHours(2)));
