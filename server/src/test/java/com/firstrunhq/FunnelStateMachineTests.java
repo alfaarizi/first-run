@@ -206,6 +206,27 @@ class FunnelStateMachineTests {
   }
 
   @Test
+  void backdatesOnlyOneStepWhenCompletionsTie() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    Instant completedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS).plusSeconds(600);
+
+    // A batch completes both milestones at the same instant, so their completion windows tie.
+    send(event(user, MILESTONE_ONE).at(completedAt));
+    send(event(user, MILESTONE_TWO).at(completedAt));
+    awaitState(user, MILESTONE_TWO, "COMPLETED");
+
+    // Stale activity before both belongs to step one alone, so only its entry moves.
+    send(event(user, "fr.click").at(completedAt.minusSeconds(90)));
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () ->
+                assertThat(progressTime(user, MILESTONE_ONE, "started_at"))
+                    .isEqualTo(completedAt.minusSeconds(90)));
+    assertThat(progressTime(user, MILESTONE_TWO, "started_at")).isEqualTo(completedAt);
+  }
+
+  @Test
   void ignoresActivityFromBeforeACompletion() throws JsonProcessingException {
     String user = "user-" + UUID.randomUUID();
     Instant completedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS).plusSeconds(600);

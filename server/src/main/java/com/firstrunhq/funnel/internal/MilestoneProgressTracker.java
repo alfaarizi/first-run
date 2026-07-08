@@ -146,7 +146,9 @@ class MilestoneProgressTracker {
 
   /**
    * Backdates the entry of the step whose completion window contains the stale event, so late
-   * activity can only move that step's started_at earlier, never past the row's own completion.
+   * activity can only move that step's started_at earlier, never past the row's own completion. The
+   * event belongs to one step, so the earliest completion at or after it wins, then the lowest
+   * position breaks a tie when a batch completes two milestones at the same instant.
    */
   private void backdateStep(UUID endUserId, OffsetDateTime eventAt) {
     jdbc.sql(
@@ -154,8 +156,13 @@ class MilestoneProgressTracker {
             UPDATE milestone_progress
             SET started_at = :event_at
             WHERE end_user_id = :end_user_id AND :event_at < started_at
-              AND completed_at = (SELECT min(completed_at) FROM milestone_progress
-                                  WHERE end_user_id = :end_user_id AND completed_at >= :event_at)
+              AND milestone_id = (
+                SELECT p.milestone_id
+                FROM milestone_progress p
+                JOIN milestone m ON m.id = p.milestone_id
+                WHERE p.end_user_id = :end_user_id AND p.completed_at >= :event_at
+                ORDER BY p.completed_at, m.position
+                LIMIT 1)
             """)
         .param("end_user_id", endUserId)
         .param("event_at", eventAt)

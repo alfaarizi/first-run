@@ -23,8 +23,8 @@ import org.springframework.context.annotation.Import;
 @Import(TestcontainersConfiguration.class)
 class MilestoneProgressTrackerTests {
 
-  private static final String TENANT = "019813f2-0000-7000-8000-0000000000f1";
-  private static final String APP = "019813f2-0000-7000-8000-0000000000f2";
+  private static final String TENANT = "019813f2-0000-7000-8000-0000000000c1";
+  private static final String APP = "019813f2-0000-7000-8000-0000000000c2";
   private static final String MILESTONE = "task_created";
 
   private final MilestoneProgressTracker tracker;
@@ -53,7 +53,7 @@ class MilestoneProgressTrackerTests {
       statement.execute(
           """
           INSERT INTO milestone (id, tenant_id, app_id, name, title, position)
-          VALUES ('019813f2-0000-7000-8000-0000000000f3', '%s', '%s', '%s', 'Create a task', 1)
+          VALUES ('019813f2-0000-7000-8000-0000000000c3', '%s', '%s', '%s', 'Create a task', 1)
           ON CONFLICT (id) DO NOTHING
           """
               .formatted(TENANT, APP, MILESTONE));

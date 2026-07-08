@@ -104,15 +104,18 @@ load:
 # Replays a dead-letter topic to its source after a handler fix, bounded per partition to the
 # records present now and trimmed only after its pipe succeeds, so a failed replay stays
 # rerunnable and a rerun re-emits nothing. Handler dedupe absorbs redeliveries for 24 hours.
+# A replicated topic prints REPLICAS as a space-bearing list, so that column is stripped before
+# the partition rows are read by position. Keys and values move hex-encoded so a tab or newline
+# in a record never collides with the pipe's field and record delimiters.
 replay:
 	@if [ -z "$(TOPIC)" ]; then echo "replay: set TOPIC, e.g. make replay TOPIC=events.raw" >&2; exit 1; fi
 	docker compose exec -T redpanda bash -o errexit -o pipefail -o nounset -c 'dlq=$(TOPIC).dlq; \
-		rows=$$(rpk topic describe $$dlq -p | tail -n +2); \
+		rows=$$(rpk topic describe $$dlq -p | sed -E "1d; s/\[[^]]*\] *//"); \
 		[ -n "$$rows" ] || { echo ">> $$dlq does not exist" >&2; exit 1; }; \
-		echo "$$rows" | while read -r part _ _ _ start hwm _; do \
+		echo "$$rows" | while read -r part _ _ start hwm _; do \
 			if [ "$$hwm" -gt "$$start" ]; then \
-				rpk topic consume $$dlq --partitions $$part --format "%k\t%v\n" --offset :$$hwm \
-					| rpk topic produce $(TOPIC) --format "%k\t%v\n"; \
+				rpk topic consume $$dlq --partitions $$part --format "%k{hex}\t%v{hex}\n" --offset :$$hwm \
+					| rpk topic produce $(TOPIC) --format "%k{hex}\t%v{hex}\n"; \
 				rpk topic trim-prefix $$dlq --partitions $$part --offset $$hwm --no-confirm; \
 			else echo ">> $$dlq/$$part has no records to replay"; fi; \
 		done'
