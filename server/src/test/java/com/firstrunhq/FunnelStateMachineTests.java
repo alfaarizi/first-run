@@ -168,6 +168,40 @@ class FunnelStateMachineTests {
   }
 
   @Test
+  void keepsTheEarliestEntryToTheCurrentStep() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    Instant enteredAt = Instant.now().truncatedTo(ChronoUnit.MILLIS).plusSeconds(600);
+    send(event(user, "fr.click").at(enteredAt.plusSeconds(60)));
+    awaitState(user, MILESTONE_ONE, "IN_PROGRESS");
+
+    // The user's earlier activity on the same step arrives late and marks the true entry.
+    send(event(user, "fr.click").at(enteredAt));
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () -> assertThat(progressTime(user, MILESTONE_ONE, "started_at")).isEqualTo(enteredAt));
+  }
+
+  @Test
+  void backdatesACompletedStepForLateActivityInsideIt() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    Instant completedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS).plusSeconds(600);
+    send(event(user, MILESTONE_ONE).at(completedAt));
+    awaitState(user, MILESTONE_ONE, "COMPLETED");
+
+    // Activity from before the completion arrives late: the entry moves, the completion stays.
+    send(event(user, "fr.click").at(completedAt.minusSeconds(90)));
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () ->
+                assertThat(progressTime(user, MILESTONE_ONE, "started_at"))
+                    .isEqualTo(completedAt.minusSeconds(90)));
+    assertThat(progressTime(user, MILESTONE_ONE, "completed_at")).isEqualTo(completedAt);
+    assertThat(state(user, MILESTONE_TWO)).isNull();
+  }
+
+  @Test
   void ignoresActivityFromBeforeACompletion() throws JsonProcessingException {
     String user = "user-" + UUID.randomUUID();
     Instant completedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS).plusSeconds(600);
@@ -228,9 +262,13 @@ class FunnelStateMachineTests {
     String user = "user-" + UUID.randomUUID();
     Instant clickAt = Instant.now();
     EventBuilder click = event(user, "fr.click").at(clickAt);
-    send(click); // opens step one and claims the id
+
+    // opens step one and claims the id
+    send(click);
     send(event(user, MILESTONE_ONE).at(clickAt.plusSeconds(1)));
-    send(click); // a duplicate now, must not open step two
+
+    // a duplicate now, must not open step two
+    send(click);
     send(event(user, MILESTONE_TWO).at(clickAt.plusSeconds(60)));
     awaitState(user, MILESTONE_TWO, "COMPLETED");
 
@@ -253,7 +291,7 @@ class FunnelStateMachineTests {
             () -> assertThat(redis.<String, String>opsForHash().get(key, "errors")).isEqualTo("1"));
 
     // A crash after the apply but before the claim: the claim is gone and the record redelivers.
-    redis.delete("dedupe:stream-processor:%s:%s".formatted(APP, error.id));
+    redis.delete(claimKey(error.id));
     send(error);
     send(event(user, "fr.click").inSession(session));
     await()
@@ -265,6 +303,35 @@ class FunnelStateMachineTests {
     // The session hash keeps the applied event id, so the replay counts nothing twice.
     assertThat(redis.<String, String>opsForHash().get(key, "errors")).isEqualTo("1");
     assertThat(redis.<String, String>opsForHash().get(key, "retries")).isNull();
+  }
+
+  @Test
+  void restoresTheIdleExpiryOnRedelivery() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    UUID session = UUID.randomUUID();
+    EventBuilder click = event(user, "fr.click").inSession(session);
+    String key = sessionKey(session);
+
+    send(click);
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () -> assertThat(redis.getExpire(key, TimeUnit.SECONDS)).isNotNull().isPositive());
+
+    // A crash after the feature write can lose both the expiry and the claim. The redelivery is
+    // a no-op for the counters but must restore the expiry, or the session outlives its window.
+    redis.persist(key);
+    redis.delete(claimKey(click.id));
+
+    send(click);
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () ->
+                assertThat(redis.getExpire(key, TimeUnit.SECONDS))
+                    .isNotNull()
+                    .isPositive()
+                    .isLessThanOrEqualTo(Duration.ofMinutes(30).toSeconds()));
   }
 
   @Test
@@ -315,6 +382,29 @@ class FunnelStateMachineTests {
   }
 
   @Test
+  void skipsPageLogicForAMalformedPath() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    UUID session = UUID.randomUUID();
+    send(event(user, "fr.page_view").inSession(session).withProperties(Map.of("path", "/a")));
+
+    // A path that is not a string is dropped whole, so it cannot corrupt counters or throw.
+    EventBuilder malformed =
+        event(user, "fr.page_view").inSession(session).withProperties(Map.of("path", 42));
+    send(malformed);
+
+    String key = sessionKey(session);
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () ->
+                assertThat(redis.<String, String>opsForHash().get(key, "last_event_id"))
+                    .isEqualTo(malformed.id.toString()));
+    Map<String, String> features = redis.<String, String>opsForHash().entries(key);
+    assertThat(features.get("last_path")).isEqualTo("/a");
+    assertThat(features).doesNotContainKey("backtracks");
+  }
+
+  @Test
   void neverShrinksDwellForAnOutOfOrderEvent() throws JsonProcessingException {
     String user = "user-" + UUID.randomUUID();
     UUID session = UUID.randomUUID();
@@ -356,6 +446,63 @@ class FunnelStateMachineTests {
     // Dwell on step two runs from the click that anchored it, not from the stale completion time.
     assertThat(redis.<String, String>opsForHash().get(key, "step_position")).isEqualTo("2");
     assertThat(redis.<String, String>opsForHash().get(key, "dwell_seconds")).isEqualTo("30");
+  }
+
+  @Test
+  void anchorsANewStepAtTheNewestRecordedTime() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    UUID session = UUID.randomUUID();
+    Instant openedAt = Instant.now().plusSeconds(600);
+
+    send(event(user, "fr.click").inSession(session).at(openedAt));
+    send(event(user, "fr.click").inSession(session).at(openedAt.plusSeconds(120)));
+
+    // An out-of-order event drags last_event_at backwards before a completion opens step two.
+    send(event(user, "fr.click").inSession(session).at(openedAt.plusSeconds(30)));
+    send(event(user, MILESTONE_ONE).inSession(session).at(openedAt.plusSeconds(60)));
+    send(event(user, "fr.click").inSession(session).at(openedAt.plusSeconds(150)));
+
+    String key = sessionKey(session);
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () ->
+                assertThat(redis.<String, String>opsForHash().get(key, "last_event_at"))
+                    .isEqualTo(openedAt.plusSeconds(150).toString()));
+
+    // Step two anchored at the newest recorded time, not at the stale one an old event left.
+    assertThat(redis.<String, String>opsForHash().get(key, "step_position")).isEqualTo("2");
+    assertThat(redis.<String, String>opsForHash().get(key, "dwell_seconds")).isEqualTo("30");
+  }
+
+  @Test
+  void ignoresStaleActivityForSessionFeatures() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    UUID session = UUID.randomUUID();
+    Instant completedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS).plusSeconds(600);
+    send(event(user, MILESTONE_ONE).inSession(session).at(completedAt));
+
+    String key = sessionKey(session);
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () ->
+                assertThat(redis.<String, String>opsForHash().get(key, "step_position"))
+                    .isEqualTo("2"));
+
+    // The session expired, then stale activity arrived: it must not reopen the session.
+    redis.delete(key);
+
+    send(event(user, "fr.click").inSession(session).at(completedAt.minusSeconds(60)));
+    send(event(user, "fr.click").inSession(session).at(completedAt.plusSeconds(60)));
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () ->
+                assertThat(redis.<String, String>opsForHash().get(key, "last_event"))
+                    .isEqualTo("fr.click"));
+    assertThat(redis.<String, String>opsForHash().get(key, "started_at"))
+        .isEqualTo(completedAt.plusSeconds(60).toString());
   }
 
   @Test
@@ -415,7 +562,6 @@ class FunnelStateMachineTests {
     ConsumerRecord<String, String> dead =
         awaitRecord(EventTopics.EVENTS_RAW_DLQ, record -> user.equals(record.key()));
     assertThat(dead.value()).isEqualTo(value);
-    // Rejected before any write, so the end user was never created.
     assertThat(endUsers(user)).isZero();
   }
 
@@ -505,7 +651,12 @@ class FunnelStateMachineTests {
     return "session:%s:sid:%s".formatted(APP, session);
   }
 
-  // A milestone the founder defines only after events already flowed.
+  /** Where StreamDeduper claims an applied event UUID for 24 hours. */
+  private static String claimKey(UUID eventId) {
+    return "dedupe:stream-processor:%s:%s".formatted(APP, eventId);
+  }
+
+  /** A milestone the founder defines only after events already flowed. */
   private void seedMilestone(String name, int position) throws SQLException {
     try (var connection = dataSource.getConnection();
         Statement statement = connection.createStatement()) {

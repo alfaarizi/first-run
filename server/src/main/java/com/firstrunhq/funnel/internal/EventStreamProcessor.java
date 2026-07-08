@@ -41,10 +41,17 @@ class EventStreamProcessor {
     requireComplete(envelope);
     // The claim lands only after every write below is durable, so a crash replays the event and
     // a claimed duplicate skips it entirely, never reapplied against a catalog that changed since.
-    if (deduper.seen(envelope.appId(), envelope.id())) {
+    if (deduper.isClaimed(envelope.appId(), envelope.id())) {
       return;
     }
-    sessionFeatures.record(envelope, progressTracker.advance(envelope));
+
+    MilestoneProgressTracker.Progress progress = progressTracker.advance(envelope);
+
+    // Stale activity only amended history, so it is no live signal for the stuck gate.
+    if (!progress.stale()) {
+      sessionFeatures.record(envelope, progress.currentStep());
+    }
+
     deduper.claim(envelope.appId(), envelope.id());
   }
 

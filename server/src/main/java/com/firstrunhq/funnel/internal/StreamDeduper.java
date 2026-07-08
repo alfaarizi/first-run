@@ -6,8 +6,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Remembers each applied event UUID for 24 hours so a redelivered record updates session features
- * once. The group qualifier separates these claims from the gateway's, held before every produce.
+ * Remembers each applied event UUID for 24 hours so a redelivered record is skipped whole. The
+ * group qualifier separates these claims from the gateway's, held before every produce.
  */
 @Component
 class StreamDeduper {
@@ -20,7 +20,7 @@ class StreamDeduper {
     this.redis = redis;
   }
 
-  boolean seen(UUID appId, UUID eventId) {
+  boolean isClaimed(UUID appId, UUID eventId) {
     return Boolean.TRUE.equals(redis.hasKey(key(appId, eventId)));
   }
 
