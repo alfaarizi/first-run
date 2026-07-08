@@ -160,6 +160,22 @@ class IngestGatewayTests {
   }
 
   @Test
+  void boundsACorrectedEventTimeByArrival() throws JsonProcessingException {
+    String endUserHash = "user-" + UUID.randomUUID();
+    // An event time past sent_at survives skew correction, so the gateway clamps it to arrival.
+    Instant sentAt = Instant.now();
+    String body = batch(1, endUserHash, Map.of(), sentAt, sentAt.plus(Duration.ofHours(2)));
+
+    assertThat(post(KEY_A, HMAC_A, ORIGIN_A, body, null).getStatusCode())
+        .isEqualTo(HttpStatus.ACCEPTED);
+
+    ConsumerRecord<String, String> record =
+        awaitRecord(EventTopics.EVENTS_RAW, value -> value.contains(endUserHash));
+    JsonNode envelope = objectMapper.readTree(record.value());
+    assertThat(envelope.get("timestamp").asText()).isEqualTo(envelope.get("received_at").asText());
+  }
+
+  @Test
   void dropsARedeliveredEventUuid() throws JsonProcessingException {
     String endUserHash = "user-" + UUID.randomUUID();
     String body = batch(1, endUserHash, Map.of("plan", "solo"));
@@ -307,18 +323,23 @@ class IngestGatewayTests {
   private String batch(
       int events, String endUserHash, Map<String, Object> properties, Instant clientClock)
       throws JsonProcessingException {
+    return batch(events, endUserHash, properties, clientClock, clientClock);
+  }
+
+  private String batch(
+      int events, String endUserHash, Map<String, Object> properties, Instant sentAt, Instant at)
+      throws JsonProcessingException {
     List<Map<String, Object>> list = new ArrayList<>();
     for (int i = 0; i < events; i++) {
       Map<String, Object> event = new LinkedHashMap<>();
       event.put("id", UUID.randomUUID().toString());
       event.put("event", "task_created");
       event.put("end_user_hash", endUserHash);
-      event.put("timestamp", clientClock.toString());
+      event.put("timestamp", at.toString());
       event.put("properties", properties);
       list.add(event);
     }
-    return objectMapper.writeValueAsString(
-        Map.of("sent_at", clientClock.toString(), "events", list));
+    return objectMapper.writeValueAsString(Map.of("sent_at", sentAt.toString(), "events", list));
   }
 
   private ResponseEntity<String> post(

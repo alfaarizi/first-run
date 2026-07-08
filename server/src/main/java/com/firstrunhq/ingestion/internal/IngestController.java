@@ -154,6 +154,9 @@ class IngestController {
         continue;
       }
       claimed.add(event.id());
+      // Correction still trusts the client's own event time, and nothing occurs after arrival,
+      // so any residue past received_at is clock error and clamps to it.
+      Instant corrected = event.timestamp().plus(skew);
       EventEnvelope envelope =
           new EventEnvelope(
               app.tenantId(),
@@ -164,7 +167,7 @@ class IngestController {
               event.event(),
               event.endUserHash(),
               event.sessionId(),
-              event.timestamp().plus(skew),
+              corrected.isAfter(receivedAt) ? receivedAt : corrected,
               allowlisted(event.properties(), app.allowedProperties()));
       deliveries.add(
           kafkaTemplate.send(
