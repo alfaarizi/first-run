@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.firstrunhq.ingestion.EventTopics;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
@@ -124,6 +125,7 @@ class IngestGatewayTests {
     String endUserHash = "user-" + UUID.randomUUID();
     String body = batch(1, endUserHash, Map.of("plan", "pro", "email", "pii@example.com"));
     HttpHeaders extra = new HttpHeaders();
+
     // The last entry is the balancer-appended client, the only one the gateway believes.
     extra.set("X-Forwarded-For", "6.6.6.6, 12.214.31.144");
 
@@ -131,7 +133,7 @@ class IngestGatewayTests {
 
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
     ConsumerRecord<String, String> record =
-        awaitRecord("events.raw", value -> value.contains(endUserHash));
+        awaitRecord(EventTopics.EVENTS_RAW, value -> value.contains(endUserHash));
     assertThat(record.key()).isEqualTo(sha256Hex(TENANT_A + ":" + endUserHash));
     JsonNode envelope = objectMapper.readTree(record.value());
     assertThat(envelope.get("tenant_id").asText()).isEqualTo(TENANT_A);
@@ -145,6 +147,7 @@ class IngestGatewayTests {
   @Test
   void correctsEventTimeByTheClientClockSkew() throws JsonProcessingException {
     String endUserHash = "user-" + UUID.randomUUID();
+
     // With the event time equal to sent_at, the corrected time must equal received_at exactly.
     Instant skewedClock = Instant.now().minus(Duration.ofMinutes(2));
     String body = batch(1, endUserHash, Map.of(), skewedClock);
@@ -153,7 +156,24 @@ class IngestGatewayTests {
         .isEqualTo(HttpStatus.ACCEPTED);
 
     ConsumerRecord<String, String> record =
-        awaitRecord("events.raw", value -> value.contains(endUserHash));
+        awaitRecord(EventTopics.EVENTS_RAW, value -> value.contains(endUserHash));
+    JsonNode envelope = objectMapper.readTree(record.value());
+    assertThat(envelope.get("timestamp").asText()).isEqualTo(envelope.get("received_at").asText());
+  }
+
+  @Test
+  void boundsACorrectedEventTimeByArrival() throws JsonProcessingException {
+    String endUserHash = "user-" + UUID.randomUUID();
+
+    // An event time past sent_at survives skew correction, so the gateway clamps it to arrival.
+    Instant sentAt = Instant.now();
+    String body = batch(1, endUserHash, Map.of(), sentAt, sentAt.plus(Duration.ofHours(2)));
+
+    assertThat(post(KEY_A, HMAC_A, ORIGIN_A, body, null).getStatusCode())
+        .isEqualTo(HttpStatus.ACCEPTED);
+
+    ConsumerRecord<String, String> record =
+        awaitRecord(EventTopics.EVENTS_RAW, value -> value.contains(endUserHash));
     JsonNode envelope = objectMapper.readTree(record.value());
     assertThat(envelope.get("timestamp").asText()).isEqualTo(envelope.get("received_at").asText());
   }
@@ -169,7 +189,7 @@ class IngestGatewayTests {
         .isEqualTo(HttpStatus.ACCEPTED);
 
     List<ConsumerRecord<String, String>> records =
-        drain("events.raw", Duration.ofSeconds(5)).stream()
+        drain(EventTopics.EVENTS_RAW, Duration.ofSeconds(5)).stream()
             .filter(record -> record.value().contains(endUserHash))
             .toList();
     assertThat(records).hasSize(1);
@@ -270,7 +290,8 @@ class IngestGatewayTests {
     kafkaTemplate.send(DeadLetterProbe.TOPIC, "poison-key", "poison-value");
 
     ConsumerRecord<String, String> dead =
-        awaitRecord(DeadLetterProbe.TOPIC + ".dlq", value -> value.equals("poison-value"));
+        awaitRecord(
+            DeadLetterProbe.TOPIC + EventTopics.DLQ_SUFFIX, value -> value.equals("poison-value"));
     assertThat(dead.key()).isEqualTo("poison-key");
   }
 
@@ -287,7 +308,7 @@ class IngestGatewayTests {
 
     @Bean
     NewTopic dlqProofDlqTopic() {
-      return TopicBuilder.name(TOPIC + ".dlq").partitions(1).replicas(1).build();
+      return TopicBuilder.name(TOPIC + EventTopics.DLQ_SUFFIX).partitions(1).replicas(1).build();
     }
 
     @KafkaListener(topics = TOPIC, groupId = "dlq-proof")
@@ -305,18 +326,23 @@ class IngestGatewayTests {
   private String batch(
       int events, String endUserHash, Map<String, Object> properties, Instant clientClock)
       throws JsonProcessingException {
+    return batch(events, endUserHash, properties, clientClock, clientClock);
+  }
+
+  private String batch(
+      int events, String endUserHash, Map<String, Object> properties, Instant sentAt, Instant at)
+      throws JsonProcessingException {
     List<Map<String, Object>> list = new ArrayList<>();
     for (int i = 0; i < events; i++) {
       Map<String, Object> event = new LinkedHashMap<>();
       event.put("id", UUID.randomUUID().toString());
       event.put("event", "task_created");
       event.put("end_user_hash", endUserHash);
-      event.put("timestamp", clientClock.toString());
+      event.put("timestamp", at.toString());
       event.put("properties", properties);
       list.add(event);
     }
-    return objectMapper.writeValueAsString(
-        Map.of("sent_at", clientClock.toString(), "events", list));
+    return objectMapper.writeValueAsString(Map.of("sent_at", sentAt.toString(), "events", list));
   }
 
   private ResponseEntity<String> post(

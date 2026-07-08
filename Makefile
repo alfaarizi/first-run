@@ -9,7 +9,7 @@ GRAPHQL_INSPECTOR := npx --no-install graphql-inspector
 
 # --wait returns once every healthcheck passes, so seed can run immediately.
 up:
-	@test -f .env || { echo "up: missing .env, run 'cp .env.example .env'" >&2; exit 1; }
+	@if [ ! -f .env ]; then echo "up: missing .env, run 'cp .env.example .env'" >&2; exit 1; fi
 	docker compose up --detach --build --wait
 	@echo ">> dashboard  http://localhost:5173"
 	@echo ">> tasklet    http://localhost:5174"
@@ -101,8 +101,23 @@ migrate:
 load:
 	@echo ">> skipping load, the k6 script arrives with infra/"
 
+# Replays a dead-letter topic to its source after a handler fix, bounded per partition to the
+# records present now and trimmed only once its pipe succeeds, so a failed run stays rerunnable
+# and a rerun re-emits nothing (handler dedupe absorbs redeliveries for 24 hours). A replicated
+# topic prints REPLICAS as a space-bearing list, stripped before the positional read, and keys
+# and values move hex-encoded so a tab or newline never collides with the pipe delimiters.
 replay:
-	@echo ">> skipping replay, no consumers exist yet"
+	@if [ -z "$(TOPIC)" ]; then echo "replay: set TOPIC, e.g. make replay TOPIC=events.raw" >&2; exit 1; fi
+	docker compose exec -T redpanda bash -o errexit -o pipefail -o nounset -c 'dlq=$(TOPIC).dlq; \
+		rows=$$(rpk topic describe $$dlq -p | sed -E "1d; s/\[[^]]*\] *//"); \
+		[ -n "$$rows" ] || { echo ">> $$dlq does not exist" >&2; exit 1; }; \
+		echo "$$rows" | while read -r part _ _ start hwm _; do \
+			if [ "$$hwm" -gt "$$start" ]; then \
+				rpk topic consume $$dlq --partitions $$part --format "%k{hex}\t%v{hex}\n" --offset :$$hwm \
+					| rpk topic produce $(TOPIC) --format "%k{hex}\t%v{hex}\n"; \
+				rpk topic trim-prefix $$dlq --partitions $$part --offset $$hwm --no-confirm; \
+			else echo ">> $$dlq/$$part has no records to replay"; fi; \
+		done'
 
 rollback:
 	@echo ">> skipping rollback, no deploy pipeline exists yet"

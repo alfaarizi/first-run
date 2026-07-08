@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.firstrunhq.apps.AppDirectory;
 import com.firstrunhq.apps.SdkApp;
 import com.firstrunhq.ingestion.EventEnvelope;
+import com.firstrunhq.ingestion.EventTopics;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
@@ -77,8 +78,11 @@ class IngestController {
     this.properties = properties;
   }
 
-  // Missing headers answer as their check's failure (401, not a framework 400), so the
-  // authentication headers are resolved as optional and checked here.
+  /**
+   * Authenticates the batch, then dedupes, minimizes, and produces it to the event stream. The
+   * authentication headers are optional so a missing one answers as its own check's failure (401),
+   * not a framework 400.
+   */
   @PostMapping(path = PATH, consumes = MediaType.APPLICATION_JSON_VALUE)
   ResponseEntity<Object> ingestEvents(
       @RequestHeader(value = HEADER_SDK_KEY, required = false) @Nullable String sdkKey,
@@ -94,6 +98,7 @@ class IngestController {
     if (app == null) {
       return problem(HttpStatus.UNAUTHORIZED, "No app owns this SDK key.");
     }
+
     // The origin gate runs before the signature check. The HMAC key ships in the widget bundle,
     // so the allowed-origins list, not the key, carries the off-site forgery defense.
     if (origin == null || !app.allowedOrigins().contains(origin)) {
@@ -141,6 +146,7 @@ class IngestController {
   private ResponseEntity<Object> produce(SdkApp app, EventBatch batch, @Nullable String ip)
       throws JsonProcessingException {
     Instant receivedAt = Instant.now();
+
     // sent_at against the gateway clock measures the client's clock skew, and each event time
     // shifts by it (Segment's recipe for the same fields).
     Duration skew =
@@ -153,6 +159,11 @@ class IngestController {
         continue;
       }
       claimed.add(event.id());
+
+      // Correction still trusts the client's own event time, and nothing occurs after arrival,
+      // so any residue past received_at is clock error and clamps to it.
+      Instant corrected = event.timestamp().plus(skew);
+
       EventEnvelope envelope =
           new EventEnvelope(
               app.tenantId(),
@@ -163,11 +174,11 @@ class IngestController {
               event.event(),
               event.endUserHash(),
               event.sessionId(),
-              event.timestamp().plus(skew),
+              corrected.isAfter(receivedAt) ? receivedAt : corrected,
               allowlisted(event.properties(), app.allowedProperties()));
       deliveries.add(
           kafkaTemplate.send(
-              EventTopicsConfiguration.EVENTS_RAW,
+              EventTopics.EVENTS_RAW,
               partitionKey(app.tenantId(), event.endUserHash()),
               objectMapper.writeValueAsString(envelope)));
     }
@@ -200,7 +211,10 @@ class IngestController {
     return kept;
   }
 
-  // Keyed by hash(tenant_id, end_user_hash) so one user's events stay ordered per partition.
+  /**
+   * Hashes tenant_id and end_user_hash into the Kafka partition key, so one user's events stay
+   * ordered within a partition.
+   */
   private static String partitionKey(UUID tenantId, String endUserHash) {
     try {
       MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -212,8 +226,10 @@ class IngestController {
     }
   }
 
-  // The balancer appends the client it saw as the last X-Forwarded-For entry. Earlier entries
-  // arrive client-controlled, so only the last one is believed.
+  /**
+   * Reads the client address from the last X-Forwarded-For entry, the one the balancer appended.
+   * Earlier entries arrive client-controlled, so only the last is believed.
+   */
   private static String clientAddress(HttpServletRequest request) {
     String forwarded = request.getHeader("X-Forwarded-For");
     if (forwarded == null) {

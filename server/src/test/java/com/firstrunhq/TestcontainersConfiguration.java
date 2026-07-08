@@ -21,7 +21,10 @@ public class TestcontainersConfiguration {
         DockerImageName.parse("pgvector/pgvector:pg17").asCompatibleSubstituteFor("postgres"));
   }
 
-  // A GenericContainer exposes no image name, so the connection name is explicit.
+  /**
+   * Provides the Redis container. A GenericContainer exposes no image name, so its
+   * service-connection name is set explicitly.
+   */
   @Bean
   @ServiceConnection(name = "redis")
   GenericContainer<?> redisContainer() {
