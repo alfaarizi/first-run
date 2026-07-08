@@ -101,17 +101,21 @@ migrate:
 load:
 	@echo ">> skipping load, the k6 script arrives with infra/"
 
-# Replays a dead-letter topic to its source after a handler fix, bounded to the records
-# present now and trimmed once replayed, so a rerun never re-emits what already went back.
-# Handler dedupe absorbs a redelivery inside its 24-hour window.
+# Replays a dead-letter topic to its source after a handler fix, bounded per partition to the
+# records present now and trimmed only after its pipe succeeds, so a failed replay stays
+# rerunnable and a rerun re-emits nothing. Handler dedupe absorbs redeliveries for 24 hours.
 replay:
 	@if [ -z "$(TOPIC)" ]; then echo "replay: set TOPIC, e.g. make replay TOPIC=events.raw" >&2; exit 1; fi
-	docker compose exec -T redpanda sh -c 'dlq=$(TOPIC).dlq; \
-		set -- $$(rpk topic describe $$dlq -p | tail -n1 | tr -s " " | cut -d" " -f5,6); start=$$1 hwm=$$2; \
-		if [ "$$hwm" -gt "$$start" ]; then \
-			rpk topic consume $$dlq --format "%k\t%v\n" --offset :$$hwm | rpk topic produce $(TOPIC) --format "%k\t%v\n"; \
-			rpk topic trim-prefix $$dlq --offset $$hwm --no-confirm; \
-		else echo ">> $$dlq has no records to replay"; fi'
+	docker compose exec -T redpanda bash -o errexit -o pipefail -o nounset -c 'dlq=$(TOPIC).dlq; \
+		rows=$$(rpk topic describe $$dlq -p | tail -n +2); \
+		[ -n "$$rows" ] || { echo ">> $$dlq does not exist" >&2; exit 1; }; \
+		echo "$$rows" | while read -r part _ _ _ start hwm _; do \
+			if [ "$$hwm" -gt "$$start" ]; then \
+				rpk topic consume $$dlq --partitions $$part --format "%k\t%v\n" --offset :$$hwm \
+					| rpk topic produce $(TOPIC) --format "%k\t%v\n"; \
+				rpk topic trim-prefix $$dlq --partitions $$part --offset $$hwm --no-confirm; \
+			else echo ">> $$dlq/$$part has no records to replay"; fi; \
+		done'
 
 rollback:
 	@echo ">> skipping rollback, no deploy pipeline exists yet"
