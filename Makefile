@@ -102,11 +102,10 @@ load:
 	@echo ">> skipping load, the k6 script arrives with infra/"
 
 # Replays a dead-letter topic to its source after a handler fix, bounded per partition to the
-# records present now and trimmed only after its pipe succeeds, so a failed replay stays
-# rerunnable and a rerun re-emits nothing. Handler dedupe absorbs redeliveries for 24 hours.
-# A replicated topic prints REPLICAS as a space-bearing list, so that column is stripped before
-# the partition rows are read by position. Keys and values move hex-encoded so a tab or newline
-# in a record never collides with the pipe's field and record delimiters.
+# records present now and trimmed only once its pipe succeeds, so a failed run stays rerunnable
+# and a rerun re-emits nothing (handler dedupe absorbs redeliveries for 24 hours). A replicated
+# topic prints REPLICAS as a space-bearing list, stripped before the positional read, and keys
+# and values move hex-encoded so a tab or newline never collides with the pipe delimiters.
 replay:
 	@if [ -z "$(TOPIC)" ]; then echo "replay: set TOPIC, e.g. make replay TOPIC=events.raw" >&2; exit 1; fi
 	docker compose exec -T redpanda bash -o errexit -o pipefail -o nounset -c 'dlq=$(TOPIC).dlq; \

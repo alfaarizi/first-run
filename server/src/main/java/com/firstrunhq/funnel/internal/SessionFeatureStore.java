@@ -30,6 +30,14 @@ class SessionFeatureStore {
   }
 
   void record(EventEnvelope envelope, @Nullable Integer currentStep) {
+    Instant eventAt = envelope.timestamp();
+
+    // An event older than the idle window is not live activity, so it opens no session and an
+    // offline flush or earliest-offset replay cannot fabricate a stuck user from old records.
+    if (Duration.between(eventAt, Instant.now()).compareTo(IDLE_EXPIRY) >= 0) {
+      return;
+    }
+
     String key = sessionKey(envelope);
     HashOperations<String, String, String> features = redis.opsForHash();
     Map<String, String> session = features.entries(key);
@@ -42,11 +50,10 @@ class SessionFeatureStore {
       return;
     }
 
-    Instant eventAt = envelope.timestamp();
-
-    // Event times can interleave, so new steps anchor at the newest time the session recorded,
-    // never at a stale one.
+    // Event times can interleave, so a new step anchors at the session's newest recorded time, and
+    // an event older than that (a backfill) drives no path transition.
     Instant newestAt = latest(eventAt, session.get("newest_event_at"));
+    boolean advancesTime = !eventAt.isBefore(newestAt);
 
     String path = pagePath(envelope);
     String storedPath = path == null ? "" : path;
@@ -67,7 +74,7 @@ class SessionFeatureStore {
     }
 
     String lastPath = session.get("last_path");
-    if (path != null && !path.equals(lastPath)) {
+    if (advancesTime && path != null && !path.equals(lastPath)) {
       // Returning to the page before the last distinct one is the abandonment loop.
       if (path.equals(session.get("prev_path"))) {
         increment(session, updates, "backtracks");

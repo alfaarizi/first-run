@@ -227,6 +227,26 @@ class FunnelStateMachineTests {
   }
 
   @Test
+  void opensTheCurrentStepForActivityBeforeAnOutOfPositionCompletion()
+      throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    Instant completedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS).plusSeconds(600);
+
+    // Completing position two first is legitimate, and position one stays the current step.
+    send(event(user, MILESTONE_TWO).at(completedAt));
+    awaitState(user, MILESTONE_TWO, "COMPLETED");
+
+    // Activity from before that completion belongs to the still-pending step one, not step two.
+    send(event(user, "fr.click").at(completedAt.minusSeconds(90)));
+    awaitState(user, MILESTONE_ONE, "IN_PROGRESS");
+    assertThat(progressTime(user, MILESTONE_ONE, "started_at"))
+        .isEqualTo(completedAt.minusSeconds(90));
+
+    // Step two keeps its own instant completion; the stale click never backdated it.
+    assertThat(progressTime(user, MILESTONE_TWO, "started_at")).isEqualTo(completedAt);
+  }
+
+  @Test
   void ignoresActivityFromBeforeACompletion() throws JsonProcessingException {
     String user = "user-" + UUID.randomUUID();
     Instant completedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS).plusSeconds(600);
@@ -461,6 +481,48 @@ class FunnelStateMachineTests {
   }
 
   @Test
+  void doesNotCountABacktrackForAnOutOfOrderPageView() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    UUID session = UUID.randomUUID();
+    Instant openedAt = Instant.now();
+
+    send(view(user, session, "/a").at(openedAt));
+    send(view(user, session, "/b").at(openedAt.plusSeconds(100)));
+
+    // A delayed /a from between the two arrives last, so the true order is /a, /a, /b, no return.
+    send(view(user, session, "/a").at(openedAt.plusSeconds(50)));
+
+    String key = sessionKey(session);
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () ->
+                assertThat(redis.<String, String>opsForHash().get(key, "last_event_at"))
+                    .isEqualTo(openedAt.plusSeconds(50).toString()));
+
+    // The backfill never advanced the path, so no backtrack is fabricated and /b stays current.
+    Map<String, String> features = redis.<String, String>opsForHash().entries(key);
+    assertThat(features).doesNotContainKey("backtracks");
+    assertThat(features.get("last_path")).isEqualTo("/b");
+  }
+
+  @Test
+  void doesNotOpenASessionForAnOldEvent() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    UUID session = UUID.randomUUID();
+
+    // An offline flush or earliest-offset replay delivers activity older than the idle window.
+    send(
+        event(user, "fr.click").inSession(session).at(Instant.now().minus(Duration.ofMinutes(31))));
+
+    // The DB still backfills funnel progress, so its state is the processing signal to wait on.
+    awaitState(user, MILESTONE_ONE, "IN_PROGRESS");
+
+    // No live session is fabricated for the stuck gate.
+    assertThat(redis.hasKey(sessionKey(session))).isFalse();
+  }
+
+  @Test
   void anchorsANewStepAtTheSessionsNewestActivity() throws JsonProcessingException {
     String user = "user-" + UUID.randomUUID();
     UUID session = UUID.randomUUID();
@@ -636,7 +698,13 @@ class FunnelStateMachineTests {
     return new EventBuilder(endUserHash, name);
   }
 
-  /** Builds one events.raw envelope, defaulting every field a test does not name. */
+  private static EventBuilder view(String endUserHash, UUID session, String path) {
+    return event(endUserHash, "fr.page_view")
+        .inSession(session)
+        .withProperties(Map.of("path", path));
+  }
+
+  /** Builds one events.raw envelope, defaulting every field a test does not name. * */
   private static final class EventBuilder {
     private final String endUserHash;
     private final String event;

@@ -47,42 +47,75 @@ class MilestoneProgressTracker {
 
     // Only a milestone that predates the event completes, so a replayed event takes the decision
     // its first delivery took, whatever the catalog has grown to since.
-    Optional<UUID> completion =
-        jdbc.sql(
-                """
-                SELECT id FROM milestone
-                WHERE app_id = :app_id AND name = :name AND created_at <= :event_at
-                """)
-            .param("app_id", envelope.appId())
-            .param("name", envelope.event())
-            .param("event_at", eventAt)
-            .query(UUID.class)
-            .optional();
-
-    // Stale activity is from before the user's newest completion: an already-finished step. The
-    // row this event completes is excluded, so a redelivery reads the answer its first apply read.
-    boolean stale =
-        jdbc.sql(
-                """
-                SELECT max(completed_at) FROM milestone_progress
-                WHERE end_user_id = :end_user_id
-                  AND milestone_id IS DISTINCT FROM :milestone_id
-                """)
-            .param("end_user_id", endUserId)
-            .param("milestone_id", completion.orElse(null), Types.OTHER)
-            .query(OffsetDateTime.class)
-            .optional()
-            .filter(eventAt::isBefore)
-            .isPresent();
-
+    Optional<UUID> completion = completedMilestone(envelope, eventAt);
     if (completion.isPresent()) {
       complete(envelope.tenantId(), endUserId, completion.get(), eventAt);
-    } else if (stale) {
-      backdateStep(endUserId, eventAt);
+      return new Progress(
+          findCurrentStep(envelope, endUserId),
+          completionIsStale(endUserId, completion.get(), eventAt));
+    }
+
+    // A non-completion event opens the current step unless it predates the step's entry, the newest
+    // completion below it, so an out-of-position completion above never makes fresh activity stale.
+    Integer currentStep = findCurrentStep(envelope, endUserId);
+    int currentPosition = currentStep != null ? currentStep : Integer.MAX_VALUE;
+    boolean stale = entryOf(endUserId, currentPosition).filter(eventAt::isBefore).isPresent();
+    if (stale) {
+      backdateStep(endUserId, eventAt, currentPosition);
     } else {
       startCurrentStep(envelope, endUserId, eventAt);
     }
-    return new Progress(findCurrentStep(envelope, endUserId), stale);
+    return new Progress(currentStep, stale);
+  }
+
+  private Optional<UUID> completedMilestone(EventEnvelope envelope, OffsetDateTime eventAt) {
+    return jdbc.sql(
+            """
+            SELECT id FROM milestone
+            WHERE app_id = :app_id AND name = :name AND created_at <= :event_at
+            """)
+        .param("app_id", envelope.appId())
+        .param("name", envelope.event())
+        .param("event_at", eventAt)
+        .query(UUID.class)
+        .optional();
+  }
+
+  /**
+   * Reports whether the completion lands behind the user's newest other completion, so it only
+   * amended history. Excluding its own row keeps a redelivery on its first apply's decision.
+   */
+  private boolean completionIsStale(UUID endUserId, UUID milestoneId, OffsetDateTime eventAt) {
+    return jdbc.sql(
+            """
+            SELECT max(completed_at) FROM milestone_progress
+            WHERE end_user_id = :end_user_id
+              AND milestone_id IS DISTINCT FROM :milestone_id
+            """)
+        .param("end_user_id", endUserId)
+        .param("milestone_id", milestoneId, Types.OTHER)
+        .query(OffsetDateTime.class)
+        .optional()
+        .filter(eventAt::isBefore)
+        .isPresent();
+  }
+
+  /**
+   * Returns the current step's entry, the newest completion below it. Activity older than that
+   * opened while an earlier step was still running, so it belongs to that finished step.
+   */
+  private Optional<OffsetDateTime> entryOf(UUID endUserId, int currentPosition) {
+    return jdbc.sql(
+            """
+            SELECT max(mp.completed_at)
+            FROM milestone_progress mp
+            JOIN milestone m ON m.id = mp.milestone_id
+            WHERE mp.end_user_id = :end_user_id AND m.position < :current_position
+            """)
+        .param("end_user_id", endUserId)
+        .param("current_position", currentPosition)
+        .query(OffsetDateTime.class)
+        .optional();
   }
 
   /** Resolves the end user for the envelope's hash, created with first_seen_at at first sight. */
@@ -119,9 +152,8 @@ class MilestoneProgressTracker {
   }
 
   /**
-   * Marks the milestone completed. The earliest completion wins when copies of the event arrive out
-   * of order, clamped so completed_at never precedes started_at. least and greatest skip a null
-   * completed_at.
+   * Marks the milestone completed. The earliest valid completion wins when copies arrive out of
+   * order, clamped so completed_at never precedes started_at (least and greatest skip a null).
    */
   private void complete(UUID tenantId, UUID endUserId, UUID milestoneId, OffsetDateTime eventAt) {
     jdbc.sql(
@@ -145,12 +177,12 @@ class MilestoneProgressTracker {
   }
 
   /**
-   * Backdates the entry of the step whose completion window contains the stale event, so late
-   * activity can only move that step's started_at earlier, never past the row's own completion. The
-   * event belongs to one step, so the earliest completion at or after it wins, then the lowest
-   * position breaks a tie when a batch completes two milestones at the same instant.
+   * Backdates the entry of the finished step below the current one whose completion window holds
+   * the stale event, so it only moves that step's started_at earlier, never past its completion.
+   * The earliest such completion wins, then the lowest position breaks a same-instant batch tie, so
+   * one late event moves exactly one step.
    */
-  private void backdateStep(UUID endUserId, OffsetDateTime eventAt) {
+  private void backdateStep(UUID endUserId, OffsetDateTime eventAt, int currentPosition) {
     jdbc.sql(
             """
             UPDATE milestone_progress
@@ -161,18 +193,19 @@ class MilestoneProgressTracker {
                 FROM milestone_progress p
                 JOIN milestone m ON m.id = p.milestone_id
                 WHERE p.end_user_id = :end_user_id AND p.completed_at >= :event_at
+                  AND m.position < :current_position
                 ORDER BY p.completed_at, m.position
                 LIMIT 1)
             """)
         .param("end_user_id", endUserId)
         .param("event_at", eventAt)
+        .param("current_position", currentPosition)
         .update();
   }
 
   /**
-   * Opens the lowest-position non-completed milestone. Only fresh activity reaches here, and the
-   * earliest event on a step is its entry, so a conflict with the existing row (always in progress)
-   * can only move started_at earlier.
+   * Opens the lowest-position non-completed milestone. The earliest event on a step is its entry,
+   * so a conflict with the existing in-progress row can only move started_at earlier.
    */
   private void startCurrentStep(EventEnvelope envelope, UUID endUserId, OffsetDateTime eventAt) {
     jdbc.sql(
