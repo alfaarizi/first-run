@@ -33,6 +33,11 @@ class SessionFeatureStore {
     String key = key(envelope);
     HashOperations<String, String, String> features = redis.opsForHash();
     Map<String, String> session = features.entries(key);
+    // A crash between this apply and the dedupe claim redelivers the event, so the stored id
+    // turns the replay into a no-op instead of a double count.
+    if (envelope.id().toString().equals(session.get("last_event_id"))) {
+      return;
+    }
     Instant eventAt = envelope.timestamp();
     String path = pagePath(envelope);
     String storedPath = path == null ? "" : path;
@@ -68,14 +73,19 @@ class SessionFeatureStore {
         features.delete(key, "step_position", "step_started_at");
       } else {
         updates.put("step_position", step);
-        updates.put("step_started_at", eventAt.toString());
+        // A stale-timestamped completion can open the step, so it starts no earlier than the
+        // session's newest recorded time and dwell never inherits time from before it existed.
+        updates.put(
+            "step_started_at",
+            latest(eventAt, session.get("last_event_at"), session.get("step_started_at"))
+                .toString());
       }
     }
     // Dwell runs from the step's opening, or from the session's start when no step is open.
     String dwellAnchor =
         step == null
             ? session.get("started_at")
-            : stepChanged ? eventAt.toString() : session.get("step_started_at");
+            : stepChanged ? updates.get("step_started_at") : session.get("step_started_at");
     Instant dwellFrom = dwellAnchor == null ? eventAt : Instant.parse(dwellAnchor);
     // Event times can arrive out of order, so dwell never reads negative and, on an unchanged
     // step, never shrinks below what a newer event already recorded.
@@ -86,11 +96,21 @@ class SessionFeatureStore {
     }
     updates.put("dwell_seconds", String.valueOf(dwellSeconds));
 
+    updates.put("last_event_id", envelope.id().toString());
     updates.put("last_event", envelope.event());
     updates.put("last_event_path", storedPath);
     updates.put("last_event_at", eventAt.toString());
     features.putAll(key, updates);
     redis.expire(key, IDLE_EXPIRY);
+  }
+
+  private static Instant latest(Instant eventAt, @Nullable String... recorded) {
+    Instant result = eventAt;
+    for (String time : recorded) {
+      Instant parsed = time == null ? result : Instant.parse(time);
+      result = parsed.isAfter(result) ? parsed : result;
+    }
+    return result;
   }
 
   // Batches may omit session_id, so the user hash carries the same idle-window semantics. The

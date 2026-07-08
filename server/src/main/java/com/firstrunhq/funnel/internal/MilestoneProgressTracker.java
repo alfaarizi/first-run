@@ -15,7 +15,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Advances one user's milestone state machine. An event completes the milestone it names when the
- * milestone predates it, and any other event starts the user's current step.
+ * milestone predates it, and any other event no older than the user's newest completion starts the
+ * current step.
  */
 @Component
 class MilestoneProgressTracker {
@@ -103,6 +104,8 @@ class MilestoneProgressTracker {
         .optional();
   }
 
+  // The earliest completion wins when copies of the event arrive out of order, clamped so
+  // completed_at never precedes started_at. least and greatest skip a null completed_at.
   private void complete(UUID tenantId, UUID endUserId, UUID milestoneId, OffsetDateTime eventAt) {
     jdbc.sql(
             """
@@ -111,8 +114,11 @@ class MilestoneProgressTracker {
             VALUES (:tenant_id, :end_user_id, :milestone_id, 'COMPLETED', :event_at, :event_at)
             ON CONFLICT (end_user_id, milestone_id) DO UPDATE
             SET state = 'COMPLETED',
-                completed_at = greatest(milestone_progress.started_at, excluded.completed_at)
+                completed_at = greatest(
+                  milestone_progress.started_at,
+                  least(milestone_progress.completed_at, excluded.completed_at))
             WHERE milestone_progress.state <> 'COMPLETED'
+               OR excluded.completed_at < milestone_progress.completed_at
             """)
         .param("tenant_id", tenantId)
         .param("end_user_id", endUserId)
@@ -121,6 +127,8 @@ class MilestoneProgressTracker {
         .update();
   }
 
+  // A late event from before the user's newest completion is activity on an already-finished
+  // step, so it never opens the current one with a start time in the past.
   private void startCurrentStep(EventEnvelope envelope, UUID endUserId, OffsetDateTime eventAt) {
     jdbc.sql(
             """
@@ -131,6 +139,9 @@ class MilestoneProgressTracker {
             LEFT JOIN milestone_progress p
               ON p.milestone_id = m.id AND p.end_user_id = :end_user_id
             WHERE m.app_id = :app_id AND (p.state IS NULL OR p.state <> 'COMPLETED')
+              AND :event_at >= coalesce(
+                (SELECT max(completed_at) FROM milestone_progress WHERE end_user_id = :end_user_id),
+                :event_at)
             ORDER BY m.position
             LIMIT 1
             ON CONFLICT (end_user_id, milestone_id) DO NOTHING

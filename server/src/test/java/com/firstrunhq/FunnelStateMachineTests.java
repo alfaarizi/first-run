@@ -12,6 +12,8 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -142,7 +144,44 @@ class FunnelStateMachineTests {
     awaitState(user, MILESTONE_ONE, "COMPLETED");
 
     // completed_at never precedes started_at, so time-to-complete never reads negative.
-    assertThat(completedAtEqualsStartedAt(user, MILESTONE_ONE)).isTrue();
+    assertThat(progressTime(user, MILESTONE_ONE, "completed_at"))
+        .isEqualTo(progressTime(user, MILESTONE_ONE, "started_at"));
+  }
+
+  @Test
+  void keepsTheEarliestCompletionTime() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    // Future times so every out-of-order copy still postdates the milestone's creation.
+    Instant openedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS).plusSeconds(600);
+    send(event(user, "fr.click").at(openedAt));
+    send(event(user, MILESTONE_ONE).at(openedAt.plusSeconds(120)));
+    awaitState(user, MILESTONE_ONE, "COMPLETED");
+
+    // The user fired the completion event twice and the earlier copy arrived second.
+    send(event(user, MILESTONE_ONE).at(openedAt.plusSeconds(60)));
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () ->
+                assertThat(progressTime(user, MILESTONE_ONE, "completed_at"))
+                    .isEqualTo(openedAt.plusSeconds(60)));
+  }
+
+  @Test
+  void ignoresActivityFromBeforeACompletion() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    Instant completedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS).plusSeconds(600);
+    send(event(user, MILESTONE_ONE).at(completedAt));
+    awaitState(user, MILESTONE_ONE, "COMPLETED");
+
+    // A distinct late event from before the completion is activity on the finished step.
+    send(event(user, "fr.click").at(completedAt.minusSeconds(60)));
+    send(event(user, "fr.click").at(completedAt.plusSeconds(60)));
+    awaitState(user, MILESTONE_TWO, "IN_PROGRESS");
+
+    // Step two opened with the fresh event, not the stale one that arrived first.
+    assertThat(progressTime(user, MILESTONE_TWO, "started_at"))
+        .isEqualTo(completedAt.plusSeconds(60));
   }
 
   @Test
@@ -196,7 +235,36 @@ class FunnelStateMachineTests {
     awaitState(user, MILESTONE_TWO, "COMPLETED");
 
     // Step two only ever completed. Had the duplicate opened it, started_at would predate that.
-    assertThat(completedAtEqualsStartedAt(user, MILESTONE_TWO)).isTrue();
+    assertThat(progressTime(user, MILESTONE_TWO, "completed_at"))
+        .isEqualTo(progressTime(user, MILESTONE_TWO, "started_at"));
+  }
+
+  @Test
+  void doesNotDoubleCountWhenAClaimIsLost() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    UUID session = UUID.randomUUID();
+    EventBuilder error = event(user, "fr.error").inSession(session);
+    String key = sessionKey(session);
+
+    send(error);
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () -> assertThat(redis.<String, String>opsForHash().get(key, "errors")).isEqualTo("1"));
+
+    // A crash after the apply but before the claim: the claim is gone and the record redelivers.
+    redis.delete("dedupe:stream-processor:%s:%s".formatted(APP, error.id));
+    send(error);
+    send(event(user, "fr.click").inSession(session));
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () ->
+                assertThat(redis.<String, String>opsForHash().get(key, "last_event"))
+                    .isEqualTo("fr.click"));
+    // The session hash keeps the applied event id, so the replay counts nothing twice.
+    assertThat(redis.<String, String>opsForHash().get(key, "errors")).isEqualTo("1");
+    assertThat(redis.<String, String>opsForHash().get(key, "retries")).isNull();
   }
 
   @Test
@@ -265,6 +333,29 @@ class FunnelStateMachineTests {
                 assertThat(redis.<String, String>opsForHash().get(key, "last_event_at"))
                     .isEqualTo(openedAt.plusSeconds(30).toString()));
     assertThat(redis.<String, String>opsForHash().get(key, "dwell_seconds")).isEqualTo("120");
+  }
+
+  @Test
+  void anchorsANewStepAtTheSessionsNewestActivity() throws JsonProcessingException {
+    String user = "user-" + UUID.randomUUID();
+    UUID session = UUID.randomUUID();
+    Instant openedAt = Instant.now().plusSeconds(600);
+
+    send(event(user, "fr.click").inSession(session).at(openedAt));
+    // A late completion opens step two while carrying a time before the click above.
+    send(event(user, MILESTONE_ONE).inSession(session).at(openedAt.minusSeconds(120)));
+    send(event(user, "fr.click").inSession(session).at(openedAt.plusSeconds(30)));
+
+    String key = sessionKey(session);
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(
+            () ->
+                assertThat(redis.<String, String>opsForHash().get(key, "last_event_at"))
+                    .isEqualTo(openedAt.plusSeconds(30).toString()));
+    // Dwell on step two runs from the click that anchored it, not from the stale completion time.
+    assertThat(redis.<String, String>opsForHash().get(key, "step_position")).isEqualTo("2");
+    assertThat(redis.<String, String>opsForHash().get(key, "dwell_seconds")).isEqualTo("30");
   }
 
   @Test
@@ -476,21 +567,24 @@ class FunnelStateMachineTests {
     }
   }
 
-  private boolean completedAtEqualsStartedAt(String endUserHash, String milestone) {
+  // The column name comes from test constants, never from input.
+  private @Nullable Instant progressTime(String endUserHash, String milestone, String column) {
     try (var connection = dataSource.getConnection();
         var statement =
             connection.prepareStatement(
                 """
-                SELECT p.completed_at = p.started_at
+                SELECT p.%s
                 FROM milestone_progress p
                 JOIN end_user u ON u.id = p.end_user_id
                 JOIN milestone m ON m.id = p.milestone_id
                 WHERE u.external_hash = ? AND m.name = ?
-                """)) {
+                """
+                    .formatted(column))) {
       statement.setString(1, endUserHash);
       statement.setString(2, milestone);
       try (ResultSet row = statement.executeQuery()) {
-        return row.next() && row.getBoolean(1);
+        OffsetDateTime time = row.next() ? row.getObject(1, OffsetDateTime.class) : null;
+        return time == null ? null : time.toInstant();
       }
     } catch (SQLException failure) {
       throw new IllegalStateException(failure);
