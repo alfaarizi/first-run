@@ -1,14 +1,14 @@
 import { useQuery } from '@apollo/client/react'
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { graphql } from '@/gql'
 
 const GET_FUNNEL = graphql(`
-  query GetFunnel($appId: ID!, $from: DateTime) {
+  query GetFunnel($appId: ID!, $from: DateTime, $to: DateTime) {
     app(id: $appId) {
       id
       name
-      funnel(from: $from) {
+      funnel(from: $from, to: $to) {
         from
         to
         steps {
@@ -26,7 +26,8 @@ const GET_FUNNEL = graphql(`
 `)
 
 const RANGE_PRESETS = [7, 30, 90]
-const DAY_MS = 86_400_000
+const DAY_MS = 24 * 60 * 60 * 1000
+const POLL_MS = 15_000
 
 /**
  * Renders users entered and completed per milestone over a selectable range,
@@ -34,10 +35,20 @@ const DAY_MS = 86_400_000
  */
 export function FunnelView({ appId }: { appId: string }) {
   const [days, setDays] = useState(30)
-  const from = useMemo(() => new Date(Date.now() - days * DAY_MS).toISOString(), [days])
+  const [now, setNow] = useState(() => Date.now())
+
+  // Ticking `now` slides the window and drives the refetch, because changed
+  // bounds change the variables. Both bounds hold each fetch to `days` wide, so
+  // a tab left open for hours tracks now instead of widening its own range.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), POLL_MS)
+    return () => clearInterval(timer)
+  }, [])
+
+  const from = new Date(now - days * DAY_MS).toISOString()
+  const to = new Date(now).toISOString()
   const { data, previousData, error, loading } = useQuery(GET_FUNNEL, {
-    variables: { appId, from },
-    pollInterval: 15_000,
+    variables: { appId, from, to },
   })
 
   if (error) {
