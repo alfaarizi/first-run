@@ -49,6 +49,8 @@ export function FunnelView({ appId }: { appId: string }) {
   const to = new Date(now).toISOString()
   const { data, previousData, error, loading } = useQuery(GET_FUNNEL, {
     variables: { appId, from, to },
+    // Fresh bounds every tick would grow the normalized cache without bound.
+    fetchPolicy: 'no-cache',
   })
 
   if (error) {
