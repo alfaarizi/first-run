@@ -226,10 +226,17 @@ services:
 
   web:
     build: ./web
+    environment:
+      # Vite proxies /graphql to the server (web/vite.config.ts), so the
+      # dashboard reads the funnel through the real GraphQL path.
+      FIRSTRUN_SERVER_URL: http://server:8080
     ports:
       - "5173:5173"
     volumes:
       - ./web/src:/app/src
+    depends_on:
+      server:
+        condition: service_healthy
 
   tasklet:
     build: ./tasklet

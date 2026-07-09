@@ -1,0 +1,54 @@
+@import 'tailwindcss';
+
+/* Chart and ink roles, one definition per mode so components stay
+   theme-agnostic. The bar hue clears 3:1 against both surfaces for
+   the WCAG 2.2 non-text contrast floor. */
+:root {
+  --page: #f9f9f7;
+  --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --line: #e1e0d9;
+  --series-1: #2a78d6;
+  --track: #e1e0d9;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #0d0d0d;
+    --surface-1: #1a1a19;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --line: #2c2c2a;
+    --series-1: #3987e5;
+    --track: #2c2c2a;
+  }
+}
+
+body {
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* Count columns align vertically. */
+.numeric {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Decorative: the table cells beside the bar carry the numbers. The fill's
+   box-shadow cuts a surface gap where completed meets the remainder. */
+.funnel-track {
+  height: 1.25rem;
+  border-radius: 0 4px 4px 0;
+  background: var(--track);
+  overflow: hidden;
+}
+
+.funnel-fill {
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  background: var(--series-1);
+  box-shadow: 2px 0 0 var(--surface-1);
+}
