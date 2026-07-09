@@ -4,8 +4,8 @@ BUF := npx --no-install buf
 SPECTRAL := npx --no-install spectral
 GRAPHQL_INSPECTOR := npx --no-install graphql-inspector
 
-.PHONY: up down tools seed generate generate-server test test-server test-agent test-widget \
-	test-web eval e2e lint size migrate load replay rollback
+.PHONY: up down tools seed generate generate-server generate-web test test-server test-agent \
+	test-widget test-web eval e2e lint size migrate load replay rollback
 
 # --wait returns once every healthcheck passes, so seed can run immediately.
 up:
@@ -34,7 +34,7 @@ seed:
 	@echo ">> seeded the demo tenant and replayed demo journeys"
 
 # Regenerates every stub from /api.
-generate: generate-server
+generate: generate-server generate-web
 	@if [ -f server/pom.xml ]; then \
 		(cd server && ./mvnw -q generate-sources); \
 	else echo ">> skipping Java stubs, server/ is not scaffolded"; fi
@@ -43,9 +43,6 @@ generate: generate-server
 			--python_out=src --grpc_python_out=src --pyi_out=src \
 			../api/proto/firstrun/v1/*.proto); \
 	else echo ">> skipping Python stubs, agent/ is not scaffolded"; fi
-	@if [ -f web/package.json ]; then \
-		(cd web && npm run codegen); \
-	else echo ">> skipping GraphQL types, web/ is not scaffolded"; fi
 
 # The SDL the server serves, copied from /api so tests never run a stale schema.
 generate-server:
@@ -53,6 +50,12 @@ generate-server:
 		mkdir -p server/src/main/resources/graphql && \
 		cp api/graphql/*.graphqls server/src/main/resources/graphql/; \
 	else echo ">> skipping the schema copy, server/ is not scaffolded"; fi
+
+# The GraphQL client types the dashboard imports from src/gql, generated from /api.
+generate-web:
+	@if [ -f web/package.json ]; then \
+		(cd web && npm run codegen); \
+	else echo ">> skipping GraphQL types, web/ is not scaffolded"; fi
 
 test: test-server test-agent test-widget test-web
 
@@ -68,7 +71,8 @@ test-widget:
 		(cd widget && npx vitest run); \
 	else echo ">> skipping test-widget, widget/ is not scaffolded"; fi
 
-test-web:
+# Needs the GraphQL client types, which the tests and the type check import from src/gql.
+test-web: generate-web
 	cd web && npm run test && npm run typecheck
 
 eval:
