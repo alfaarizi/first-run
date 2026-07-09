@@ -16,6 +16,10 @@ const config: CodegenConfig = {
         // declarations and value imports of types.
         enumsAsTypes: true,
         useTypeImports: true,
+        // The scalar serializes as an RFC 3339 string on the wire.
+        scalars: {
+          DateTime: 'string',
+        },
       },
     },
   },

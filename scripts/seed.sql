@@ -28,3 +28,41 @@ ON CONFLICT (id) DO UPDATE SET
   hmac_key = EXCLUDED.hmac_key,
   allowed_origins = EXCLUDED.allowed_origins,
   allowed_properties = EXCLUDED.allowed_properties;
+
+-- The activation milestones Tasklet's own events complete, so the funnel
+-- moves end to end out of the box. created_at is backdated because completion
+-- matching binds to it, and scripts/demo-traffic.mjs replays journeys weeks old.
+INSERT INTO milestone (id, tenant_id, app_id, name, title, position, created_at)
+VALUES
+  (
+    '019813f2-0000-7000-8000-000000000003',
+    '019813f2-0000-7000-8000-000000000001',
+    '019813f2-0000-7000-8000-000000000002',
+    'task_created',
+    'Create your first task',
+    1,
+    '2026-04-01T00:00:00Z'
+  ),
+  (
+    '019813f2-0000-7000-8000-000000000004',
+    '019813f2-0000-7000-8000-000000000001',
+    '019813f2-0000-7000-8000-000000000002',
+    'task_completed',
+    'Complete a task',
+    2,
+    '2026-04-01T00:00:00Z'
+  ),
+  (
+    '019813f2-0000-7000-8000-000000000005',
+    '019813f2-0000-7000-8000-000000000001',
+    '019813f2-0000-7000-8000-000000000002',
+    'completed_tasks_cleared',
+    'Clear completed tasks',
+    3,
+    '2026-04-01T00:00:00Z'
+  )
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  title = EXCLUDED.title,
+  position = EXCLUDED.position,
+  created_at = EXCLUDED.created_at;

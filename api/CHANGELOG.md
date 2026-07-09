@@ -3,6 +3,21 @@
 Each entry records the date, the change, the rationale, and whether it is
 additive or breaking.
 
+## 2026-07-09
+
+### Added
+
+- The server serves `Query.app` and `App.funnel`. A step counts the end users
+  who entered inside the half-open range and every completion by that cohort,
+  so conversion never exceeds 100% (Amplitude groups funnel users by when they
+  entered). A backwards range is a bad request, an unknown or foreign app id
+  resolves to null, and a tenant-less request is unauthorized.
+- `FunnelStep.stuckSignals` reads zero until the stuck gate ships, keeping its
+  non-null shape so filling it later is not a schema change.
+
+Additive. The SDL is unchanged, and this pins the read semantics the dashboard
+renders.
+
 ## 2026-07-07
 
 ### Added

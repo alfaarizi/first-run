@@ -5,6 +5,19 @@ body {
   padding: 0 1rem;
 }
 
+main {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 0.5rem 1rem;
+}
+
+h1,
+main > p,
+form {
+  grid-column: 1 / -1;
+}
+
 form {
   display: flex;
   gap: 0.5rem;
@@ -14,4 +27,24 @@ form {
 input {
   flex: 1;
   padding: 0.4rem;
+}
+
+button {
+  cursor: pointer;
+  width: 8rem;
+  height: 2.25rem;
+}
+
+#tasks {
+  list-style: none;
+  padding-left: 1rem;
+}
+
+#tasks li {
+  padding: 0.3rem 0;
+}
+
+#tasks li:has(input:checked) {
+  color: #999;
+  text-decoration: line-through;
 }
