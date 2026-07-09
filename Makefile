@@ -29,8 +29,9 @@ seed:
 	set -a; source ./.env; set +a; \
 	docker compose exec -T postgres psql -v ON_ERROR_STOP=1 \
 		-v sdk_key="$$VITE_FIRSTRUN_KEY" -v hmac_key="$$VITE_FIRSTRUN_HMAC_KEY" \
-		-U postgres -d firstrun < scripts/seed.sql
-	@echo ">> seeded the demo tenant and Tasklet app"
+		-U postgres -d firstrun < scripts/seed.sql; \
+	FIRSTRUN_SERVER_URL=http://localhost:8080 node scripts/demo-traffic.mjs
+	@echo ">> seeded the demo tenant and replayed demo journeys"
 
 # Regenerates every stub from /api.
 generate: generate-server
