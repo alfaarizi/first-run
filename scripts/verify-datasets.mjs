@@ -104,12 +104,12 @@ function createSessionValidator() {
         problems.push(`${where}: keys are [${eventKeys}], not the ingest event shape`)
         continue
       }
-      if (!UUID.test(event.id)) problems.push(`${where}: id is not a UUID`)
+      if (!matches(event.id, UUID)) problems.push(`${where}: id is not a UUID`)
       if (seenEventIds.has(event.id)) problems.push(`${where}: id duplicates an earlier event`)
 
       seenEventIds.add(event.id)
 
-      if (!EVENT_NAME.test(event.event)) problems.push(`${where}: name ${event.event} is invalid`)
+      if (!matches(event.event, EVENT_NAME)) problems.push(`${where}: name ${event.event} is invalid`)
       if (event.session_id !== row.session_id) problems.push(`${where}: session_id differs from the row`)
 
       const hash = event.end_user_hash
@@ -145,7 +145,11 @@ function createSessionValidator() {
   }
 }
 
-/** Accepts a plain object whose values are all scalars, the ingest shape. */
+/** Accepts a string matching the pattern, a bare regex test coerces arrays. */
+function matches(value, pattern) {
+  return typeof value === 'string' && pattern.test(value)
+}
+
 /** Accepts a plain object within the property limit, all values scalar. */
 function isScalarMap(value) {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
