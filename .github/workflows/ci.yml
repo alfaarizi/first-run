@@ -26,38 +26,38 @@ jobs:
         with:
           filters: |
             lint-api:
+              # The recipes and the CI definition are inputs to every leg.
+              - &ci
+                - 'Makefile'
+                - '.github/workflows/ci.yml'
+                - '.github/actions/setup-firstrun/**'
               - 'api/**'
-              - 'Makefile'
-              # buf, spectral, and graphql-inspector resolve from the root lockfile.
               - 'package-lock.json'
-            lint-server:
+            lint-server: &server
+              - *ci
               - 'server/**'
-              - 'Makefile'
             lint-agent: &agent
+              - *ci
               - 'agent/**'
-              - 'Makefile'
-            lint-web:
+            lint-web: &web
+              - *ci
               - 'web/**'
-              - 'Makefile'
             # test-server and test-web regenerate from api/graphql first.
             test-server:
-              - 'server/**'
+              - *server
               - 'api/graphql/**'
-              - 'Makefile'
             test-agent: *agent
             test-web:
-              - 'web/**'
+              - *web
               - 'api/graphql/**'
-              - 'Makefile'
             test-widget: &widget
+              - *ci
               - 'widget/**'
-              - 'Makefile'
             eval:
-              - 'agent/**'
+              - *agent
               - 'api/**'
               - 'evals/**'
               # make eval runs the harness from outside evals/.
-              - 'Makefile'
               - 'scripts/lib/**'
               - 'scripts/verify-datasets.mjs'
             size: *widget
