@@ -2,20 +2,16 @@
 // Records stuck / not_stuck judgments on generated sessions, the Prodigy
 // pattern: JSON Lines in and out, one answer per example, resumable. Each
 // answer appends to the labeled file immediately, so a stopped run loses
-// nothing and a rerun skips every session already labeled. The answer
-// grammar lives with the guide.
+// nothing and a rerun skips every session already labeled.
 
 import { appendFileSync, existsSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 
 import { readJsonl } from './lib/jsonl.mjs'
+import { MILESTONES } from './lib/milestones.mjs'
 
 const OUTPUT_DEFAULT = 'evals/datasets/sessions/samples.jsonl'
 const ANSWER = /^(n|s (\d+))( m=([a-z][a-z0-9_]*))?$/
-
-// Tasklet's activation milestones in funnel order, used to propose the step a
-// session was working toward: the first one the session never reached.
-const MILESTONES = ['task_created', 'task_completed', 'completed_tasks_cleared']
 
 const args = process.argv.slice(2)
 const printOnly = args.includes('--print')
@@ -66,6 +62,10 @@ async function ask(row) {
       continue
     }
     const milestone = match[4] ?? proposed
+    if (!MILESTONES.includes(milestone)) {
+      console.log(`milestone must be one of ${MILESTONES.join(', ')}`)
+      continue
+    }
     if (match[1] === 'n') {
       return { session_id: row.session_id, events: row.events, label: 'not_stuck', stuck_at_ts: null, milestone }
     }
