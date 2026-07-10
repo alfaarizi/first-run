@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Compares two labeled session files on their shared session_ids and prints
 // percent agreement and Cohen's kappa for the stuck / not_stuck label, the
-// reliability check evals/datasets/sessions/LABELING.md prescribes for label
-// audits. Secondary lines report stuck_at_ts and milestone agreement.
+// reliability check prescribes for label audits. Secondary lines report 
+// stuck_at_ts and milestone agreement.
 
 import { readJsonl } from './lib/jsonl.mjs'
 

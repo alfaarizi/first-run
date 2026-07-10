@@ -3,7 +3,7 @@
 // pattern: JSON Lines in and out, one answer per example, resumable. Each
 // answer appends to the labeled file immediately, so a stopped run loses
 // nothing and a rerun skips every session already labeled. The answer
-// grammar lives with the guide in evals/datasets/sessions/LABELING.md.
+// grammar lives with the guide.
 
 import { appendFileSync, existsSync } from 'node:fs'
 import { createInterface } from 'node:readline'
