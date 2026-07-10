@@ -1,0 +1,10 @@
+{
+  "datasets": {
+    "sessions": {
+      "path": "datasets/sessions/samples.jsonl",
+      "version": 1,
+      "sessions": 150,
+      "sha256": "3a0081ff3af3a9053eb5f5d1939c6e5b91d6aabc50fc956dbc79cec18581d77b"
+    }
+  }
+}

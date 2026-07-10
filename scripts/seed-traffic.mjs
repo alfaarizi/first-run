@@ -7,6 +7,8 @@
 
 import { createHmac, randomBytes } from 'node:crypto'
 
+import { mulberry32, uuidv7 } from './lib/random.mjs'
+
 const SERVER = process.env.FIRSTRUN_SERVER_URL
 
 // The gateway gates on Origin, so the replay presents Tasklet's.
@@ -14,7 +16,7 @@ const ORIGIN = 'http://localhost:5174'
 const SDK_KEY = process.env.VITE_FIRSTRUN_KEY
 const HMAC_KEY = process.env.VITE_FIRSTRUN_HMAC_KEY
 if (!SERVER || !SDK_KEY || !HMAC_KEY) {
-  console.error('demo-traffic: missing env, run through `make seed`')
+  console.error('seed-traffic: missing env, run through `make seed`')
   process.exit(1)
 }
 
@@ -48,11 +50,11 @@ function journey(user) {
   const rng = mulberry32(user + 1)
   const hash = `demo_user_${String(user).padStart(3, '0')}`
   let at = Date.now() - (5 + rng() * 70) * DAY_MS
-  const sessionId = uuidv7(at)
+  const sessionId = uuidv7(at, randomBytes(16))
   const trail = []
   const add = (event, properties = {}) =>
     trail.push({
-      id: uuidv7(at),
+      id: uuidv7(at, randomBytes(16)),
       event,
       end_user_hash: hash,
       session_id: sessionId,
@@ -107,34 +109,7 @@ async function post(batch) {
     body,
   })
   if (response.status !== 202) {
-    throw new Error(`demo-traffic: gateway answered ${response.status}: ${await response.text()}`)
+    throw new Error(`seed-traffic: gateway answered ${response.status}: ${await response.text()}`)
   }
 }
 
-/**
- * Builds a UUIDv7 (RFC 9562) at a past timestamp, hand-rolled because scripts/
- * resolves no npm packages. The masks set the version and variant bits.
- */
-function uuidv7(atMs) {
-  const bytes = randomBytes(16)
-  let ms = BigInt(Math.floor(atMs))
-  for (let index = 5; index >= 0; index--) {
-    bytes[index] = Number(ms & 0xffn)
-    ms >>= 8n
-  }
-  bytes[6] = (bytes[6] & 0x0f) | 0x70
-  bytes[8] = (bytes[8] & 0x3f) | 0x80
-  const hex = bytes.toString('hex')
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
-}
-
-/** Returns a seeded mulberry32 PRNG. */
-function mulberry32(seed) {
-  return () => {
-    seed |= 0
-    seed = (seed + 0x6d2b79f5) | 0
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 2 ** 32
-  }
-}

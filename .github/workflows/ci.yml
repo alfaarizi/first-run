@@ -29,6 +29,10 @@ jobs:
               - 'agent/**'
               - 'api/**'
               - 'evals/**'
+              # make eval runs the harness from outside evals/.
+              - 'Makefile'
+              - 'scripts/lib/**'
+              - 'scripts/verify-datasets.mjs'
             widget:
               - 'widget/**'
 
