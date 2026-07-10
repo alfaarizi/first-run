@@ -5,7 +5,8 @@ SPECTRAL := npx --no-install spectral
 GRAPHQL_INSPECTOR := npx --no-install graphql-inspector
 
 .PHONY: up down tools seed generate generate-server generate-web test test-server test-agent \
-	test-widget test-web eval e2e lint size migrate load replay rollback
+	test-widget test-web eval e2e lint lint-api lint-server lint-agent lint-web size migrate \
+	load replay rollback
 
 # --wait returns once every healthcheck passes, so seed can run immediately.
 up:
@@ -86,14 +87,22 @@ eval:
 e2e:
 	cd tasklet && npx playwright test
 
+lint: lint-api lint-server lint-agent lint-web
+
 # The GraphQL self-diff never reports changes. It proves the SDL files parse
 # and compose, and CI diffs against the PR base branch.
-lint:
+lint-api:
 	cd api && $(BUF) lint && $(BUF) format --diff --exit-code
 	$(GRAPHQL_INSPECTOR) diff "api/graphql/*.graphqls" "api/graphql/*.graphqls"
 	$(SPECTRAL) lint --ruleset api/.spectral.yaml --fail-severity warn "api/openapi/*.yaml"
+
+lint-server:
 	cd server && ./mvnw -q spotless:check
+
+lint-agent:
 	cd agent && uv run ruff check && uv run ruff format --check && uv run mypy .
+
+lint-web:
 	cd web && npm run lint
 
 size:

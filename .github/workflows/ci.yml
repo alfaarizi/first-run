@@ -11,21 +11,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Path filters sit on jobs because a workflow skipped by on.paths leaves its
-  # required check pending, and a skipped job reports success.
-  changes:
+  # on.paths would leave required checks pending, and an unspawned leg
+  # reports no status, so branch protection requires only the check job.
+  determine-changes:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
     outputs:
-      evals: ${{ steps.filter.outputs.evals }}
-      widget: ${{ steps.filter.outputs.widget }}
+      targets: ${{ steps.filter.outputs.changes }}
     steps:
+      # Filter names are make targets, and each match spawns one make leg.
       - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
         id: filter
         with:
           filters: |
-            evals:
+            lint-api:
+              - 'api/**'
+              - 'Makefile'
+              # buf, spectral, and graphql-inspector resolve from the root lockfile.
+              - 'package-lock.json'
+            lint-server:
+              - 'server/**'
+              - 'Makefile'
+            lint-agent: &agent
+              - 'agent/**'
+              - 'Makefile'
+            lint-web:
+              - 'web/**'
+              - 'Makefile'
+            # test-server and test-web regenerate from api/graphql first.
+            test-server:
+              - 'server/**'
+              - 'api/graphql/**'
+              - 'Makefile'
+            test-agent: *agent
+            test-web:
+              - 'web/**'
+              - 'api/graphql/**'
+              - 'Makefile'
+            test-widget: &widget
+              - 'widget/**'
+              - 'Makefile'
+            eval:
               - 'agent/**'
               - 'api/**'
               - 'evals/**'
@@ -33,28 +60,28 @@ jobs:
               - 'Makefile'
               - 'scripts/lib/**'
               - 'scripts/verify-datasets.mjs'
-            widget:
-              - 'widget/**'
+            size: *widget
 
-  lint:
+  make:
+    name: ${{ matrix.target }}
+    needs: determine-changes
+    if: needs.determine-changes.outputs.targets != '[]'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.determine-changes.outputs.targets) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-firstrun
-      - run: make lint
+      - env:
+          TARGET: ${{ matrix.target }}
+        run: make "$TARGET"
 
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-firstrun
-      - run: make test
-
-  # Static API lint runs in make lint, never in this job.
+  # Static API lint runs in make lint, never in this job. This job runs on
+  # every PR, because a filter would have to track every generator input.
   contracts:
     runs-on: ubuntu-latest
     steps:
@@ -92,22 +119,14 @@ jobs:
           make generate
           git diff --exit-code
 
-  eval:
-    needs: changes
-    if: needs.changes.outputs.evals == 'true'
+  # The one status branch protection requires. A skipped need means the PR
+  # left that component untouched, so only failure and cancellation block.
+  check:
+    name: all required checks pass
+    needs: [determine-changes, make, contracts]
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      - run: make eval
-
-  size:
-    needs: changes
-    if: needs.changes.outputs.widget == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      - run: make size
+      - name: fail when a needed job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
