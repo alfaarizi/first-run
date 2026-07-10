@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -78,7 +79,12 @@ jobs:
     # CI_IMAGE holds a digest-pinned ref of the toolchain image and stays
     # unset until one is published, so legs fall back to bare-runner setup.
     # test-server stays on the runner because Testcontainers needs its Docker.
-    container: ${{ matrix.target != 'test-server' && vars.CI_IMAGE || '' }} # zizmor: ignore[unpinned-images]
+    container:
+      image: ${{ matrix.target != 'test-server' && vars.CI_IMAGE || '' }} # zizmor: ignore[unpinned-images]
+      # GHCR packages are private by default, so pulls authenticate with the job token.
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -113,7 +119,11 @@ jobs:
   # every PR, because a filter would have to track every generator input.
   contracts:
     runs-on: ubuntu-latest
-    container: ${{ vars.CI_IMAGE }} # zizmor: ignore[unpinned-images]
+    container:
+      image: ${{ vars.CI_IMAGE }} # zizmor: ignore[unpinned-images]
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
