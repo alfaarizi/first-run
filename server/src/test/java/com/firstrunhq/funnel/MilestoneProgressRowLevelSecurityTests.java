@@ -38,12 +38,13 @@ class MilestoneProgressRowLevelSecurityTests {
       statement.execute(
           """
           DO $$ BEGIN
+            PERFORM pg_advisory_xact_lock(hashtext('rls_probe'));
             IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'rls_probe') THEN
               CREATE ROLE rls_probe LOGIN;
             END IF;
+            GRANT SELECT ON end_user, milestone_progress TO rls_probe;
           END $$
           """);
-      statement.execute("GRANT SELECT ON end_user, milestone_progress TO rls_probe");
       // The container's default user is a superuser, so these inserts bypass RLS.
       statement.execute(
           "INSERT INTO tenant (id, name) VALUES ('%s', 'Tenant A'), ('%s', 'Tenant B')"
