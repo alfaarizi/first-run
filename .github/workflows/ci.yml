@@ -126,19 +126,21 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      # The base commit GitHub recorded when the run started, buf-action's default.
+      BASE_BRANCH_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          fetch-depth: 0
           persist-credentials: false
+      # Depth 1 plus a targeted fetch stays O(1) as the history grows.
+      - name: fetch the base commit
+        run: git fetch --depth=1 origin "$BASE_BRANCH_SHA"
       - uses: ./.github/actions/setup-firstrun
         with:
           skip-toolchains: ${{ job.container.id != '' }}
-      # The base commit GitHub recorded when the run started, buf-action's default.
       - name: buf breaking against the base branch
         working-directory: api
-        env:
-          BASE_BRANCH_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: |
           if git cat-file -e "${BASE_BRANCH_SHA}:api/buf.yaml" 2>/dev/null; then
             npx --no-install buf breaking --against "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git#format=git,commit=${BASE_BRANCH_SHA},subdir=api"
@@ -146,8 +148,6 @@ jobs:
             echo "::notice::api/buf.yaml is not on the base branch yet, nothing to break against"
           fi
       - name: graphql-inspector diff against the base branch
-        env:
-          BASE_BRANCH_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: |
           if git cat-file -e "${BASE_BRANCH_SHA}:api/graphql" 2>/dev/null; then
             git worktree add "$RUNNER_TEMP/base" "$BASE_BRANCH_SHA"
@@ -159,7 +159,7 @@ jobs:
           fi
       - name: regenerate stubs
         run: |
-          make generate
+          make -j3 --output-sync generate
           git diff --exit-code
 
   # The one status branch protection requires. A skipped need means the PR
