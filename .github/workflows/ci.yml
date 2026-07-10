@@ -76,8 +76,7 @@ jobs:
     needs: determine-changes
     if: needs.determine-changes.outputs.targets != '[]'
     runs-on: ubuntu-latest
-    # CI_IMAGE holds a digest-pinned ref of the toolchain image and stays
-    # unset until one is published, so legs fall back to bare-runner setup.
+    # CI_IMAGE is a digest-pinned image ref, unset until the first publish.
     # test-server stays on the runner because Testcontainers needs its Docker.
     container:
       image: ${{ matrix.target != 'test-server' && vars.CI_IMAGE || '' }} # zizmor: ignore[unpinned-images]
@@ -95,7 +94,8 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-firstrun
         with:
-          dependencies-only: ${{ job.container.id != '' }}
+          target: ${{ matrix.target }}
+          skip-toolchains: ${{ job.container.id != '' }}
       # The build cache extension validates the restore per input checksum, so
       # a server leg whose inputs are unchanged skips its build and tests.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -115,8 +115,7 @@ jobs:
           MAVEN_ARGS="-Dmaven.build.cache.enabled=true
           -Dmaven.build.cache.location=$HOME/.m2/build-cache" make "$TARGET"
 
-  # Static API lint runs in make lint, never in this job. This job runs on
-  # every PR, because a filter would have to track every generator input.
+  # Runs on every PR, because a filter would have to track every generator input.
   contracts:
     runs-on: ubuntu-latest
     container:
@@ -131,9 +130,8 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-firstrun
         with:
-          dependencies-only: ${{ job.container.id != '' }}
-      # Compares against the base commit GitHub recorded when the run started,
-      # the same default bufbuild/buf-action computes.
+          skip-toolchains: ${{ job.container.id != '' }}
+      # The base commit GitHub recorded when the run started, buf-action's default.
       - name: buf breaking against the base branch
         working-directory: api
         env:
