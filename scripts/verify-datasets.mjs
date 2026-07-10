@@ -18,7 +18,9 @@ const RFC3339_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/
 // A session closes after 30 idle minutes, so a longer gap means two sessions.
 const IDLE_LIMIT_MS = 30 * 60_000
 
-// The gateway accepts at most 20 properties per event.
+// Per-event caps the gateway enforces, mirrored from the ingest contract.
+const EVENT_NAME_LIMIT = 64
+const END_USER_HASH_LIMIT = 128
 const PROPERTIES_LIMIT = 20
 
 // Validator factories by dataset name. A pin without one fails, so every
@@ -109,13 +111,15 @@ function createSessionValidator() {
 
       seenEventIds.add(event.id)
 
-      if (!matches(event.event, EVENT_NAME)) problems.push(`${where}: name ${event.event} is invalid`)
+      if (!matches(event.event, EVENT_NAME) || event.event.length > EVENT_NAME_LIMIT) {
+        problems.push(`${where}: name ${event.event} is invalid`)
+      }
       if (event.session_id !== row.session_id) problems.push(`${where}: session_id differs from the row`)
 
       const hash = event.end_user_hash
 
-      if (typeof hash !== 'string' || hash.length === 0 || hash.length > 128) {
-        problems.push(`${where}: end_user_hash is not a string of 1 to 128 chars`)
+      if (typeof hash !== 'string' || hash.length === 0 || hash.length > END_USER_HASH_LIMIT) {
+        problems.push(`${where}: end_user_hash is not a string of 1 to ${END_USER_HASH_LIMIT} chars`)
       }
       if (hash !== firstHash) problems.push(`${where}: end_user_hash differs within the session`)
 

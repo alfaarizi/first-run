@@ -43,13 +43,14 @@ for (const [index, row] of pending.entries()) {
   const answer = await ask(row)
   if (answer === null) break
   appendFileSync(outputPath, `${JSON.stringify(answer)}\n`)
+  console.error(`saved ${answer.label}, milestone ${answer.milestone}`)
 }
 reader.close()
 console.error(`labeled file: ${outputPath}`)
 
 /** Prompts until one session has a valid answer; null means quit. */
 async function ask(row) {
-  const proposed = proposeMilestone(row)
+  const proposed = proposeMilestone(row.events)
   for (;;) {
     process.stdout.write(`label [n | s <event#> | q] (milestone ${proposed})> `)
     const { value, done: closed } = await answers.next()
@@ -62,13 +63,19 @@ async function ask(row) {
       console.log('answer with n, s <event#>, or q, plus m=<milestone> to override')
       continue
     }
-    const milestone = match[4] ?? proposed
-    if (!MILESTONES.includes(milestone)) {
+    const override = match[4]
+    if (override && !MILESTONES.includes(override)) {
       console.log(`milestone must be one of ${MILESTONES.join(', ')}`)
       continue
     }
     if (match[1] === 'n') {
-      return { session_id: row.session_id, events: row.events, label: 'not_stuck', stuck_at_ts: null, milestone }
+      return {
+        session_id: row.session_id,
+        events: row.events,
+        label: 'not_stuck',
+        stuck_at_ts: null,
+        milestone: override ?? proposed,
+      }
     }
     const eventAt = Number(match[2])
     if (eventAt < 1 || eventAt > row.events.length) {
@@ -76,12 +83,13 @@ async function ask(row) {
       continue
     }
 
+    // Defaults to the step in play at the stall.
     return {
       session_id: row.session_id,
       events: row.events,
       label: 'stuck',
       stuck_at_ts: row.events[eventAt - 1].timestamp,
-      milestone,
+      milestone: override ?? proposeMilestone(row.events.slice(0, eventAt)),
     }
   }
 }
@@ -158,9 +166,9 @@ function summarize(events) {
   )
 }
 
-/** Proposes the first milestone the session never reached, in funnel order. */
-function proposeMilestone(row) {
-  const seen = new Set(row.events.map((event) => event.event))
+/** Proposes the first milestone the events never reach, in funnel order. */
+function proposeMilestone(events) {
+  const seen = new Set(events.map((event) => event.event))
   return MILESTONES.find((name) => !seen.has(name)) ?? MILESTONES.at(-1)
 }
 
