@@ -19,9 +19,9 @@ runs:
         version: "0.11.26"
         enable-cache: true
         cache-dependency-glob: agent/uv.lock
-    - run: npm ci
+    - run: npm ci --no-audit --no-fund
       shell: bash
     - name: install web dependencies
       working-directory: web
-      run: npm ci
+      run: npm ci --no-audit --no-fund
       shell: bash
