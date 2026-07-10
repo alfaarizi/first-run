@@ -100,12 +100,15 @@ jobs:
       # a server leg whose inputs are unchanged skips its build and tests.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: startsWith(matrix.target, 'test-server')
+        env:
+          # The &ci files steer the Maven run but sit outside the extension's checksum.
+          CI_INPUTS: ${{ hashFiles('Makefile', '.github/workflows/ci.yml', '.github/actions/setup-firstrun/**') }}
         with:
           path: ~/.m2/build-cache
           # Keys are per target so the unit leg never serves the full leg a
           # cache entry whose surefire filters excluded the integration tests.
-          key: maven-build-cache-${{ matrix.target }}-${{ github.sha }}
-          restore-keys: maven-build-cache-${{ matrix.target }}-
+          key: maven-build-cache-${{ matrix.target }}-${{ env.CI_INPUTS }}-${{ github.sha }}
+          restore-keys: maven-build-cache-${{ matrix.target }}-${{ env.CI_INPUTS }}-
       - name: make ${{ matrix.target }}
         env:
           TARGET: ${{ matrix.target }}
