@@ -1,22 +1,20 @@
-package com.firstrunhq;
+package com.firstrunhq.apps;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.firstrunhq.IntegrationTest;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 
 /**
  * Proves the V1 row-level security policies isolate tenants. A non-superuser role scoped to one
  * tenant sees nothing of another, and an unset tenant context sees nothing at all.
  */
-@SpringBootTest
-@Import(TestcontainersConfiguration.class)
+@IntegrationTest
 class AppRowLevelSecurityTests {
 
   private static final String TENANT_A = "019813f2-0000-7000-8000-00000000000a";

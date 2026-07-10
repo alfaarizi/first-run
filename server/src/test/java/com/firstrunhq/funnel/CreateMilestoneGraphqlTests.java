@@ -1,7 +1,8 @@
-package com.firstrunhq;
+package com.firstrunhq.funnel;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.firstrunhq.IntegrationTest;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.OffsetDateTime;
@@ -10,10 +11,6 @@ import java.util.UUID;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.autoconfigure.graphql.tester.AutoConfigureHttpGraphQlTester;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
-import org.springframework.context.annotation.Import;
 import org.springframework.graphql.execution.ErrorType;
 import org.springframework.graphql.test.tester.GraphQlTester;
 import org.springframework.graphql.test.tester.HttpGraphQlTester;
@@ -22,11 +19,7 @@ import org.springframework.graphql.test.tester.HttpGraphQlTester;
  * Exercises {@code createMilestone} over HTTP: name grammar, the reserved {@code fr.} prefix,
  * per-app uniqueness, the ten-milestone cap, and another tenant's app resolving to not found.
  */
-@SpringBootTest(
-    webEnvironment = WebEnvironment.RANDOM_PORT,
-    properties = "firstrun.identity.trusted-tenant-header=true")
-@AutoConfigureHttpGraphQlTester
-@Import(TestcontainersConfiguration.class)
+@IntegrationTest
 class CreateMilestoneGraphqlTests {
 
   private static final String TENANT_A = "019813f2-0000-7000-8000-0000000000e1";

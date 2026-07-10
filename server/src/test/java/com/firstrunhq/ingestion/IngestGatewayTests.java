@@ -1,11 +1,11 @@
-package com.firstrunhq;
+package com.firstrunhq.ingestion;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.firstrunhq.ingestion.EventTopics;
+import com.firstrunhq.TestcontainersConfiguration;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;

@@ -2,7 +2,7 @@ package com.firstrunhq.funnel.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.firstrunhq.TestcontainersConfiguration;
+import com.firstrunhq.IntegrationTest;
 import com.firstrunhq.ingestion.EventEnvelope;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -11,16 +11,13 @@ import java.util.UUID;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 
 /**
  * Drives {@link MilestoneProgressTracker#advance} directly for the one contract the stream hides: a
  * redelivered event reads the same staleness its first delivery read, so a crash between the
  * progress write and the session write never flips the session gate and drops the event.
  */
-@SpringBootTest
-@Import(TestcontainersConfiguration.class)
+@IntegrationTest
 class MilestoneProgressTrackerTests {
 
   private static final String TENANT = "019813f2-0000-7000-8000-0000000000c1";
