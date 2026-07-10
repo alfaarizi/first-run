@@ -18,6 +18,9 @@ const RFC3339_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/
 // A session closes after 30 idle minutes, so a longer gap means two sessions.
 const IDLE_LIMIT_MS = 30 * 60_000
 
+// The gateway accepts at most 20 properties per event.
+const PROPERTIES_LIMIT = 20
+
 // Validator factories by dataset name. A pin without one fails, so every
 // dataset that gates CI is schema-checked, never only hashed. Each dataset
 // gets a fresh validator, so cross-row state like seen IDs never leaks.
@@ -74,7 +77,7 @@ function createSessionValidator() {
     if (keys !== 'events,label,milestone,session_id,stuck_at_ts') {
       return [`keys are [${keys}], not the labeled-session shape`]
     }
-    if (!UUID.test(row.session_id)) problems.push('session_id is not a UUID')
+    if (!matches(row.session_id, UUID)) problems.push('session_id is not a UUID')
     if (seenSessionIds.has(row.session_id)) problems.push('session_id duplicates an earlier row')
 
     seenSessionIds.add(row.session_id)
@@ -126,7 +129,9 @@ function createSessionValidator() {
 
       previousMs = timestampMs
 
-      if (!isScalarMap(event.properties)) problems.push(`${where}: properties is not an object of scalars`)
+      if (!isScalarMap(event.properties)) {
+        problems.push(`${where}: properties is not an object of at most ${PROPERTIES_LIMIT} scalars`)
+      }
     }
 
     if (row.label === 'stuck') {
@@ -141,9 +146,14 @@ function createSessionValidator() {
 }
 
 /** Accepts a plain object whose values are all scalars, the ingest shape. */
+/** Accepts a plain object within the property limit, all values scalar. */
 function isScalarMap(value) {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-  return Object.values(value).every((entry) => ['string', 'number', 'boolean'].includes(typeof entry))
+  const entries = Object.values(value)
+  return (
+    entries.length <= PROPERTIES_LIMIT &&
+    entries.every((entry) => ['string', 'number', 'boolean'].includes(typeof entry))
+  )
 }
 
 /**
