@@ -4,9 +4,9 @@ BUF := npx --no-install buf
 SPECTRAL := npx --no-install spectral
 GRAPHQL_INSPECTOR := npx --no-install graphql-inspector
 
-.PHONY: up down tools seed generate generate-server generate-web test test-server \
-	test-server-unit test-agent test-widget test-web eval e2e lint lint-api lint-server \
-	lint-agent lint-web size migrate load replay rollback
+.PHONY: up down tools seed generate generate-schema generate-server generate-web \
+	generate-agent test test-server test-server-unit test-agent test-widget test-web \
+	eval e2e lint lint-api lint-server lint-agent lint-web size migrate load replay rollback
 
 # --wait returns once every healthcheck passes, so seed can run immediately.
 up:
@@ -34,23 +34,22 @@ seed:
 	FIRSTRUN_SERVER_URL=http://localhost:8080 node scripts/seed-traffic.mjs
 	@echo ">> seeded the demo tenant and replayed demo journeys"
 
-# Regenerates every stub from /api.
-generate: generate-server generate-web
-	@if [ -f server/pom.xml ]; then \
-		(cd server && ./mvnw -q generate-sources); \
-	else echo ">> skipping Java stubs, server/ is not scaffolded"; fi
-	@if [ -f agent/pyproject.toml ]; then \
-		(cd agent && uv run python -m grpc_tools.protoc -I ../api/proto \
-			--python_out=src --grpc_python_out=src --pyi_out=src \
-			../api/proto/firstrun/v1/*.proto); \
-	else echo ">> skipping Python stubs, agent/ is not scaffolded"; fi
+# Regenerates every stub from /api, one target per component so make -j parallelizes.
+generate: generate-server generate-web generate-agent
 
 # The SDL the server serves, copied from /api so tests never run a stale schema.
-generate-server:
+generate-schema:
 	@if [ -f server/pom.xml ]; then \
 		mkdir -p server/src/main/resources/graphql && \
 		cp api/graphql/*.graphqls server/src/main/resources/graphql/; \
 	else echo ">> skipping the schema copy, server/ is not scaffolded"; fi
+
+# Java stubs from /api/proto. mvnw verify reruns this phase, so test-server
+# needs only the schema copy.
+generate-server: generate-schema
+	@if [ -f server/pom.xml ]; then \
+		(cd server && ./mvnw -q generate-sources); \
+	else echo ">> skipping Java stubs, server/ is not scaffolded"; fi
 
 # The GraphQL client types the dashboard imports from src/gql, generated from /api.
 generate-web:
@@ -58,10 +57,17 @@ generate-web:
 		(cd web && npm run codegen); \
 	else echo ">> skipping GraphQL types, web/ is not scaffolded"; fi
 
+generate-agent:
+	@if [ -f agent/pyproject.toml ]; then \
+		(cd agent && uv run python -m grpc_tools.protoc -I ../api/proto \
+			--python_out=src --grpc_python_out=src --pyi_out=src \
+			../api/proto/firstrun/v1/*.proto); \
+	else echo ">> skipping Python stubs, agent/ is not scaffolded"; fi
+
 test: test-server test-agent test-widget test-web
 
 # Needs the Docker daemon because Testcontainers starts throwaway Postgres and Redpanda.
-test-server: generate-server
+test-server: generate-schema
 	cd server && ./mvnw -q verify
 
 # Excluding the integration tag leaves the unit and ArchUnit tests, which need no Docker.
