@@ -56,6 +56,7 @@ async function ask(row) {
     if (closed) return null
     const line = value.trim()
     if (line === 'q') return null
+
     const match = line.match(ANSWER)
     if (!match) {
       console.log('answer with n, s <event#>, or q, plus m=<milestone> to override')
@@ -74,6 +75,7 @@ async function ask(row) {
       console.log(`event number must be 1..${row.events.length}`)
       continue
     }
+
     return {
       session_id: row.session_id,
       events: row.events,

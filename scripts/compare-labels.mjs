@@ -40,8 +40,8 @@ for (const id of shared) {
   if (rowA.milestone === rowB.milestone) sameMilestone++
 }
 
-// Cohen's kappa over the two label classes: observed agreement corrected by
-// the agreement two annotators with these marginals would reach by chance.
+// Cohen's kappa corrects observed label agreement for the chance agreement
+// implied by each annotator's stuck/not_stuck rate.
 const n = shared.length
 const po = agree / n
 const pe = (stuckA / n) * (stuckB / n) + ((n - stuckA) / n) * ((n - stuckB) / n)

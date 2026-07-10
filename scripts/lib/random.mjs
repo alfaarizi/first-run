@@ -1,6 +1,6 @@
 // Shared randomness for repo scripts, hand-rolled because scripts/ resolves
-// no npm packages. The UUIDv7 builder takes its random bits from the caller:
-// seeded bits keep fixtures byte-stable, crypto bits suit live traffic.
+// no npm packages. The UUIDv7 builder takes its random bits from the caller.
+// Seeded bits keep fixtures byte-stable, while crypto bits suit live traffic.
 
 /** Returns a seeded mulberry32 PRNG. */
 export function mulberry32(seed) {
@@ -15,8 +15,7 @@ export function mulberry32(seed) {
 
 /**
  * Builds a UUIDv7 (RFC 9562) at a past timestamp. `bits` is 16 bytes whose
- * positions 6-15 supply the random content; the masks set version and
- * variant.
+ * positions 6-15 supply random content. The masks set version and variant.
  */
 export function uuidv7(atMs, bits) {
   let ms = BigInt(Math.floor(atMs))

@@ -34,10 +34,9 @@ const NEW_TASK = '/tasks/new'
 const SIDE_PATHS = ['/archive', '/settings', '/help']
 
 // The journey mixture, a sampling weight per journey type. Clean progress
-// mixes with the stall signals the funnel reads (dwell, retries,
-// backtracking, errors), and stall patterns land in roughly two fifths of
-// sessions, oversampled because measuring precision and recall needs
-// positives. The labeling guide records the caveat.
+// mixes with stall signals the funnel reads (dwell, retries, backtracking,
+// errors), and stall patterns land in roughly two fifths of sessions,
+// oversampled because measuring precision and recall needs positives.
 const JOURNEYS = [
   [0.18, smoothCompleter],
   [0.12, quickBounce],

@@ -13,6 +13,7 @@ import { MILESTONES } from './lib/milestones.mjs'
 const EVALS_DIR = 'evals'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const EVENT_NAME = /^(fr\.[a-z][a-z0-9_]*|[a-z][a-z0-9_]*)$/
+const RFC3339_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/
 
 // A session closes after 30 idle minutes, so a longer gap means two sessions.
 const IDLE_LIMIT_MS = 30 * 60_000
@@ -35,6 +36,7 @@ for (const [name, pin] of Object.entries(baselines.datasets ?? {})) {
   if (rows.length !== pin.sessions) {
     failures.push(`${name}: ${rows.length} rows, pin says ${pin.sessions}`)
   }
+
   const createValidator = VALIDATORS[name]
   if (!createValidator) {
     failures.push(`${name}: no row validator in VALIDATORS`)
@@ -56,7 +58,8 @@ console.log(`>> datasets verified against ${join(EVALS_DIR, 'baselines.json')}`)
 
 /** Returns a validator that checks one labeled-session row per call. */
 function createSessionValidator() {
-  const seenIds = new Set()
+  const seenSessionIds = new Set()
+  const seenEventIds = new Set()
   return (line) => {
     let row
     try {
@@ -64,14 +67,18 @@ function createSessionValidator() {
     } catch {
       return ['not valid JSON']
     }
+
     const problems = []
     const keys = Object.keys(row).sort().join(',')
+
     if (keys !== 'events,label,milestone,session_id,stuck_at_ts') {
       return [`keys are [${keys}], not the labeled-session shape`]
     }
     if (!UUID.test(row.session_id)) problems.push('session_id is not a UUID')
-    if (seenIds.has(row.session_id)) problems.push('session_id duplicates an earlier row')
-    seenIds.add(row.session_id)
+    if (seenSessionIds.has(row.session_id)) problems.push('session_id duplicates an earlier row')
+
+    seenSessionIds.add(row.session_id)
+
     if (!MILESTONES.includes(row.milestone)) {
       problems.push(`milestone ${row.milestone} is not in the catalog`)
     }
@@ -81,26 +88,44 @@ function createSessionValidator() {
       return problems
     }
 
-    // Timestamps compare as parsed instants: string order breaks across the
-    // mixed fractional-second precision rfc3339Utc admits (RFC 3339, 5.1).
+    const firstHash = row.events[0].end_user_hash
+
+    // Instants, not strings: string order breaks across the mixed
+    // fractional-second precision parseRfc3339Utc admits (RFC 3339, 5.1).
     let previousMs = -Infinity
     for (const [at, event] of row.events.entries()) {
       const where = `event ${at + 1}`
       const eventKeys = Object.keys(event).sort().join(',')
+
       if (eventKeys !== 'end_user_hash,event,id,properties,session_id,timestamp') {
         problems.push(`${where}: keys are [${eventKeys}], not the ingest event shape`)
         continue
       }
       if (!UUID.test(event.id)) problems.push(`${where}: id is not a UUID`)
+      if (seenEventIds.has(event.id)) problems.push(`${where}: id duplicates an earlier event`)
+
+      seenEventIds.add(event.id)
+
       if (!EVENT_NAME.test(event.event)) problems.push(`${where}: name ${event.event} is invalid`)
       if (event.session_id !== row.session_id) problems.push(`${where}: session_id differs from the row`)
-      if (!rfc3339Utc(event.timestamp)) problems.push(`${where}: timestamp is not RFC 3339 UTC`)
-      const timestampMs = Date.parse(event.timestamp)
+
+      const hash = event.end_user_hash
+
+      if (typeof hash !== 'string' || hash.length === 0 || hash.length > 128) {
+        problems.push(`${where}: end_user_hash is not a string of 1 to 128 chars`)
+      }
+      if (hash !== firstHash) problems.push(`${where}: end_user_hash differs within the session`)
+
+      const timestampMs = parseRfc3339Utc(event.timestamp)
+
+      if (Number.isNaN(timestampMs)) problems.push(`${where}: timestamp is not RFC 3339 UTC`)
       if (timestampMs < previousMs) problems.push(`${where}: timestamps go backward`)
       if (at > 0 && timestampMs - previousMs > IDLE_LIMIT_MS) {
         problems.push(`${where}: a gap over 30 minutes splits the session`)
       }
+
       previousMs = timestampMs
+
       if (!isScalarMap(event.properties)) problems.push(`${where}: properties is not an object of scalars`)
     }
 
@@ -121,7 +146,12 @@ function isScalarMap(value) {
   return Object.values(value).every((entry) => ['string', 'number', 'boolean'].includes(typeof entry))
 }
 
-/** Accepts an RFC 3339 UTC timestamp, the only wire form timestamps take. */
-function rfc3339Utc(value) {
-  return typeof value === 'string' && value.endsWith('Z') && Number.isFinite(Date.parse(value))
+/**
+ * Parses an RFC 3339 UTC date-time to epoch ms, or NaN: the regex fixes the
+ * shape and the round-trip rejects rolled-over dates like Feb 30.
+ */
+function parseRfc3339Utc(value) {
+  if (typeof value !== 'string' || !RFC3339_UTC.test(value)) return NaN
+  const ms = Date.parse(value)
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 19) === value.slice(0, 19) ? ms : NaN
 }
