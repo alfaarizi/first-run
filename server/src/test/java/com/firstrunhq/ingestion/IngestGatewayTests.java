@@ -1,11 +1,11 @@
-package com.firstrunhq;
+package com.firstrunhq.ingestion;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.firstrunhq.ingestion.EventTopics;
+import com.firstrunhq.TestcontainersConfiguration;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
@@ -28,6 +28,7 @@ import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
@@ -52,6 +53,7 @@ import org.springframework.kafka.core.KafkaTemplate;
  * the origin gate, signature window, dedupe, property scrub, IP truncation, clock-skew correction,
  * rate shedding, and the dead-letter route every listener inherits.
  */
+@Tag("integration")
 @SpringBootTest(
     webEnvironment = WebEnvironment.RANDOM_PORT,
     properties = {

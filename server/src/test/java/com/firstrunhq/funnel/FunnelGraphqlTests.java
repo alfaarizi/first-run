@@ -1,7 +1,8 @@
-package com.firstrunhq;
+package com.firstrunhq.funnel;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.firstrunhq.IntegrationTest;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.OffsetDateTime;
@@ -9,10 +10,6 @@ import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.autoconfigure.graphql.tester.AutoConfigureHttpGraphQlTester;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
-import org.springframework.context.annotation.Import;
 import org.springframework.graphql.execution.ErrorType;
 import org.springframework.graphql.test.tester.GraphQlTester;
 import org.springframework.graphql.test.tester.HttpGraphQlTester;
@@ -23,11 +20,7 @@ import org.springframework.graphql.test.tester.HttpGraphQlTester;
  * separately under a non-superuser role in the row-level security test classes, because this
  * harness connects as the container's superuser.
  */
-@SpringBootTest(
-    webEnvironment = WebEnvironment.RANDOM_PORT,
-    properties = "firstrun.identity.trusted-tenant-header=true")
-@AutoConfigureHttpGraphQlTester
-@Import(TestcontainersConfiguration.class)
+@IntegrationTest
 class FunnelGraphqlTests {
 
   private static final String TENANT = "019813f2-0000-7000-8000-000000000101";

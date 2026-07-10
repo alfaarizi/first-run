@@ -1,10 +1,11 @@
-package com.firstrunhq;
+package com.firstrunhq.funnel;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.firstrunhq.IntegrationTest;
 import com.firstrunhq.ingestion.EventEnvelope;
 import com.firstrunhq.ingestion.EventTopics;
 import java.sql.ResultSet;
@@ -24,8 +25,6 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -35,12 +34,11 @@ import org.springframework.kafka.core.KafkaTemplate;
  * machine advance, event-UUID dedupe, session features with their idle expiry, and the poison route
  * to the dead-letter queue.
  */
-@SpringBootTest
-@Import(TestcontainersConfiguration.class)
+@IntegrationTest
 class FunnelStateMachineTests {
 
-  private static final String TENANT = "019813f2-0000-7000-8000-0000000000e1";
-  private static final String APP = "019813f2-0000-7000-8000-0000000000e2";
+  private static final String TENANT = "019813f2-0000-7000-8000-000000000201";
+  private static final String APP = "019813f2-0000-7000-8000-000000000202";
   private static final String MILESTONE_ONE = "task_created";
   private static final String MILESTONE_TWO = "report_shared";
 
@@ -82,8 +80,8 @@ class FunnelStateMachineTests {
           """
           INSERT INTO milestone (id, tenant_id, app_id, name, title, position)
           VALUES
-            ('019813f2-0000-7000-8000-0000000000e3', '%s', '%s', '%s', 'Create a task', 1),
-            ('019813f2-0000-7000-8000-0000000000e4', '%s', '%s', '%s', 'Share a report', 2)
+            ('019813f2-0000-7000-8000-000000000203', '%s', '%s', '%s', 'Create a task', 1),
+            ('019813f2-0000-7000-8000-000000000204', '%s', '%s', '%s', 'Share a report', 2)
           ON CONFLICT (id) DO NOTHING
           """
               .formatted(TENANT, APP, MILESTONE_ONE, TENANT, APP, MILESTONE_TWO));
@@ -771,7 +769,7 @@ class FunnelStateMachineTests {
       statement.execute(
           """
           INSERT INTO milestone (id, tenant_id, app_id, name, title, position)
-          VALUES ('019813f2-0000-7000-8000-0000000000e5', '%s', '%s', '%s', 'Invite a teammate', %d)
+          VALUES ('019813f2-0000-7000-8000-000000000205', '%s', '%s', '%s', 'Invite a teammate', %d)
           ON CONFLICT (id) DO NOTHING
           """
               .formatted(TENANT, APP, name, position));

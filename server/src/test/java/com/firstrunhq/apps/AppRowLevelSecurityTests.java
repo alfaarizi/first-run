@@ -1,22 +1,20 @@
-package com.firstrunhq;
+package com.firstrunhq.apps;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.firstrunhq.IntegrationTest;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 
 /**
  * Proves the V1 row-level security policies isolate tenants. A non-superuser role scoped to one
  * tenant sees nothing of another, and an unset tenant context sees nothing at all.
  */
-@SpringBootTest
-@Import(TestcontainersConfiguration.class)
+@IntegrationTest
 class AppRowLevelSecurityTests {
 
   private static final String TENANT_A = "019813f2-0000-7000-8000-00000000000a";
@@ -36,12 +34,13 @@ class AppRowLevelSecurityTests {
       statement.execute(
           """
           DO $$ BEGIN
+            PERFORM pg_advisory_xact_lock(hashtext('rls_probe'));
             IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'rls_probe') THEN
               CREATE ROLE rls_probe LOGIN;
             END IF;
+            GRANT SELECT ON tenant, app TO rls_probe;
           END $$
           """);
-      statement.execute("GRANT SELECT ON tenant, app TO rls_probe");
 
       // The container's default user is a superuser, so these inserts bypass RLS.
       statement.execute(
@@ -77,12 +76,13 @@ class AppRowLevelSecurityTests {
       statement.execute(
           """
           DO $$ BEGIN
+            PERFORM pg_advisory_xact_lock(hashtext('rls_probe'));
             IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'rls_probe') THEN
               CREATE ROLE rls_probe LOGIN;
             END IF;
+            GRANT SELECT ON tenant, app TO rls_probe;
           END $$
           """);
-      statement.execute("GRANT SELECT ON tenant, app TO rls_probe");
       statement.execute(
           """
           INSERT INTO tenant (id, name)
