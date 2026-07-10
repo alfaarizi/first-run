@@ -30,7 +30,7 @@ seed:
 	docker compose exec -T postgres psql -v ON_ERROR_STOP=1 \
 		-v sdk_key="$$VITE_FIRSTRUN_KEY" -v hmac_key="$$VITE_FIRSTRUN_HMAC_KEY" \
 		-U postgres -d firstrun < scripts/seed.sql; \
-	FIRSTRUN_SERVER_URL=http://localhost:8080 node scripts/demo-traffic.mjs
+	FIRSTRUN_SERVER_URL=http://localhost:8080 node scripts/seed-traffic.mjs
 	@echo ">> seeded the demo tenant and replayed demo journeys"
 
 # Regenerates every stub from /api.
@@ -75,9 +75,10 @@ test-widget:
 test-web: generate-web
 	cd web && npm run test && npm run typecheck
 
+# Verifies every pinned dataset: schema, row count, and SHA-256.
 eval:
 	@if [ -f evals/baselines.json ]; then \
-		echo "eval: harness not wired yet" >&2; exit 1; \
+		node scripts/verify-datasets.mjs; \
 	else echo ">> skipping eval, evals/ is not scaffolded"; fi
 
 # Needs the compose stack up and Playwright browsers installed once:

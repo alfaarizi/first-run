@@ -31,7 +31,7 @@ ON CONFLICT (id) DO UPDATE SET
 
 -- The activation milestones Tasklet's own events complete, so the funnel
 -- moves end to end out of the box. created_at is backdated because completion
--- matching binds to it, and scripts/demo-traffic.mjs replays journeys weeks old.
+-- matching binds to it, and scripts/seed-traffic.mjs replays journeys weeks old.
 INSERT INTO milestone (id, tenant_id, app_id, name, title, position, created_at)
 VALUES
   (
