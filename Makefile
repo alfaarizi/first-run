@@ -4,9 +4,9 @@ BUF := npx --no-install buf
 SPECTRAL := npx --no-install spectral
 GRAPHQL_INSPECTOR := npx --no-install graphql-inspector
 
-.PHONY: up down tools seed generate generate-server generate-web test test-server test-agent \
-	test-widget test-web eval e2e lint lint-api lint-server lint-agent lint-web size migrate \
-	load replay rollback
+.PHONY: up down tools seed generate generate-server generate-web test test-server \
+	test-server-unit test-agent test-widget test-web eval e2e lint lint-api lint-server \
+	lint-agent lint-web size migrate load replay rollback
 
 # --wait returns once every healthcheck passes, so seed can run immediately.
 up:
@@ -63,6 +63,10 @@ test: test-server test-agent test-widget test-web
 # Needs the Docker daemon because Testcontainers starts throwaway Postgres and Redpanda.
 test-server: generate-server
 	cd server && ./mvnw -q verify
+
+# Excluding the integration tag leaves the unit and ArchUnit tests, which need no Docker.
+test-server-unit:
+	cd server && ./mvnw -q verify -DexcludedGroups=integration
 
 test-agent:
 	cd agent && uv run pytest

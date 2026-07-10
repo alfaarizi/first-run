@@ -1,0 +1,44 @@
+name: CI image
+
+# Rebuilds when a dependency lockfile or the image definition changes on main.
+# workflow_dispatch bootstraps the first image before any lockfile changes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/ci-image/**'
+      - '.github/workflows/ci-image.yml'
+      - 'package-lock.json'
+      - 'web/package-lock.json'
+      - 'agent/uv.lock'
+      - 'server/pom.xml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: .github/ci-image/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/ci:latest
+            ghcr.io/${{ github.repository }}/ci:${{ github.sha }}

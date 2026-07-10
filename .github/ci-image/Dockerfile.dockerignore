@@ -1,0 +1,10 @@
+*
+!package.json
+!package-lock.json
+!web/package.json
+!web/package-lock.json
+!agent/pyproject.toml
+!agent/uv.lock
+!server/pom.xml
+!server/mvnw
+!server/.mvn

@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+  merge_group:
 
 permissions:
   contents: read
@@ -18,10 +19,11 @@ jobs:
     permissions:
       pull-requests: read
     outputs:
-      targets: ${{ steps.filter.outputs.changes }}
+      targets: ${{ steps.filter.outputs.changes || steps.all.outputs.changes }}
     steps:
       # Filter names are make targets, and each match spawns one make leg.
       - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        if: github.event_name == 'pull_request'
         id: filter
         with:
           filters: |
@@ -46,6 +48,7 @@ jobs:
             test-server:
               - *server
               - 'api/graphql/**'
+            test-server-unit: *server
             test-agent: *agent
             test-web:
               - *web
@@ -61,12 +64,21 @@ jobs:
               - 'scripts/lib/**'
               - 'scripts/verify-datasets.mjs'
             size: *widget
+      # A queued result is what lands on main, so it runs every target. The
+      # list mirrors the filter names, minus the unit slice test-server covers.
+      - id: all
+        if: github.event_name == 'merge_group'
+        run: echo 'changes=["lint-api","lint-server","lint-agent","lint-web","test-server","test-agent","test-web","test-widget","eval","size"]' >> "$GITHUB_OUTPUT"
 
   make:
     name: ${{ matrix.target }}
     needs: determine-changes
     if: needs.determine-changes.outputs.targets != '[]'
     runs-on: ubuntu-latest
+    # CI_IMAGE holds a digest-pinned ref of the toolchain image and stays
+    # unset until one is published, so legs fall back to bare-runner setup.
+    # test-server stays on the runner because Testcontainers needs its Docker.
+    container: ${{ matrix.target != 'test-server' && vars.CI_IMAGE || '' }} # zizmor: ignore[unpinned-images]
     strategy:
       fail-fast: false
       matrix:
@@ -76,26 +88,46 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-firstrun
-      - env:
+        with:
+          dependencies-only: ${{ job.container.id != '' }}
+      # The build cache extension validates the restore per input checksum, so
+      # a server leg whose inputs are unchanged skips its build and tests.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: startsWith(matrix.target, 'test-server')
+        with:
+          path: ~/.m2/build-cache
+          # Keys are per target so the unit leg never serves the full leg a
+          # cache entry whose surefire filters excluded the integration tests.
+          key: maven-build-cache-${{ matrix.target }}-${{ github.sha }}
+          restore-keys: maven-build-cache-${{ matrix.target }}-
+      - name: make ${{ matrix.target }}
+        env:
           TARGET: ${{ matrix.target }}
-        run: make "$TARGET"
+        # The location is pinned because java resolves user.home from passwd,
+        # which diverges from the HOME the cache step sees in container jobs.
+        run: >-
+          MAVEN_ARGS="-Dmaven.build.cache.enabled=true
+          -Dmaven.build.cache.location=$HOME/.m2/build-cache" make "$TARGET"
 
   # Static API lint runs in make lint, never in this job. This job runs on
   # every PR, because a filter would have to track every generator input.
   contracts:
     runs-on: ubuntu-latest
+    container: ${{ vars.CI_IMAGE }} # zizmor: ignore[unpinned-images]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           persist-credentials: false
       - uses: ./.github/actions/setup-firstrun
+        with:
+          dependencies-only: ${{ job.container.id != '' }}
       # Compares against the base commit GitHub recorded when the run started,
       # the same default bufbuild/buf-action computes.
       - name: buf breaking against the base branch
         working-directory: api
         env:
-          BASE_BRANCH_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_BRANCH_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: |
           if git cat-file -e "${BASE_BRANCH_SHA}:api/buf.yaml" 2>/dev/null; then
             npx --no-install buf breaking --against "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git#format=git,commit=${BASE_BRANCH_SHA},subdir=api"
@@ -104,7 +136,7 @@ jobs:
           fi
       - name: graphql-inspector diff against the base branch
         env:
-          BASE_BRANCH_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_BRANCH_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: |
           if git cat-file -e "${BASE_BRANCH_SHA}:api/graphql" 2>/dev/null; then
             git worktree add "$RUNNER_TEMP/base" "$BASE_BRANCH_SHA"
