@@ -133,6 +133,10 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      # Container steps run as root but the host runner owns the mounted
+      # workspace, and checkout's safe.directory entry dies with the action.
+      - name: mark the workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       # Depth 1 plus a targeted fetch stays O(1) as the history grows.
       - name: fetch the base commit
         run: git fetch --depth=1 origin "$BASE_BRANCH_SHA"
