@@ -63,6 +63,8 @@ jobs:
               - 'evals/**'
               # make eval runs the harness from outside evals/.
               - 'scripts/lib/**'
+              - 'scripts/measure-gate.mjs'
+              - 'scripts/*.test.mjs'
               - 'scripts/verify-datasets.mjs'
             size: *widget
       # A queued result is what lands on main, so it runs every target. The

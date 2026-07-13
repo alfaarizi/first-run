@@ -4,6 +4,7 @@
 // Secondary lines report stuck_at_ts and milestone agreement.
 
 import { readJsonl } from './lib/jsonl.mjs'
+import { STUCK } from './lib/labels.mjs'
 
 const [pathA, pathB] = process.argv.slice(2)
 if (!pathA || !pathB) {
@@ -11,12 +12,12 @@ if (!pathA || !pathB) {
   process.exit(1)
 }
 
-const byId = (path) => new Map(readJsonl(path).map((row) => [row.session_id, row]))
+const readRowsById = (path) => new Map(readJsonl(path).map((row) => [row.session_id, row]))
 
-const a = byId(pathA)
-const b = byId(pathB)
-const shared = [...a.keys()].filter((id) => b.has(id))
-if (shared.length === 0) {
+const rowsA = readRowsById(pathA)
+const rowsB = readRowsById(pathB)
+const sharedIds = [...rowsA.keys()].filter((id) => rowsB.has(id))
+if (sharedIds.length === 0) {
   console.error('compare-labels: no shared session_ids')
   process.exit(1)
 }
@@ -27,13 +28,13 @@ let sameStuckAt = 0
 let sameMilestone = 0
 let stuckA = 0
 let stuckB = 0
-for (const id of shared) {
-  const rowA = a.get(id)
-  const rowB = b.get(id)
+for (const id of sharedIds) {
+  const rowA = rowsA.get(id)
+  const rowB = rowsB.get(id)
   if (rowA.label === rowB.label) agree++
-  if (rowA.label === 'stuck') stuckA++
-  if (rowB.label === 'stuck') stuckB++
-  if (rowA.label === 'stuck' && rowB.label === 'stuck') {
+  if (rowA.label === STUCK) stuckA++
+  if (rowB.label === STUCK) stuckB++
+  if (rowA.label === STUCK && rowB.label === STUCK) {
     bothStuck++
     if (rowA.stuck_at_ts === rowB.stuck_at_ts) sameStuckAt++
   }
@@ -42,7 +43,7 @@ for (const id of shared) {
 
 // Cohen's kappa corrects observed label agreement for the chance agreement
 // implied by each annotator's stuck/not_stuck rate.
-const n = shared.length
+const n = sharedIds.length
 const po = agree / n
 const pe = (stuckA / n) * (stuckB / n) + ((n - stuckA) / n) * ((n - stuckB) / n)
 const kappa = (po - pe) / (1 - pe)

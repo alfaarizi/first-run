@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 // Replays probabilistic Tasklet journeys with per-step drop-off through the
 // real ingest path (PostHog's demo-environment pattern). Signing and batch
-// shape follow api/openapi/ingest.yaml. End-user hashes are deterministic, so a
-// re-run hits the same users and the pipeline's monotone per-user writes absorb
-// the copies.
+// shape follow api/openapi/ingest.yaml.
 
 import { createHmac, randomBytes } from 'node:crypto'
 
+import { MILESTONES, TASK_LIST_VIEWED } from './lib/milestones.mjs'
 import { mulberry32, uuidv7 } from './lib/random.mjs'
 
-const SERVER = process.env.FIRSTRUN_SERVER_URL
+// Named in funnel order to match the shared catalog.
+const [TASK_CREATED, TASK_COMPLETED, COMPLETED_TASKS_CLEARED] = MILESTONES
 
-// The gateway gates on Origin, so the replay presents Tasklet's.
+const SERVER = process.env.FIRSTRUN_SERVER_URL
 const ORIGIN = 'http://localhost:5174'
 const SDK_KEY = process.env.VITE_FIRSTRUN_KEY
 const HMAC_KEY = process.env.VITE_FIRSTRUN_HMAC_KEY
@@ -20,10 +20,9 @@ if (!SERVER || !SDK_KEY || !HMAC_KEY) {
   process.exit(1)
 }
 
-const USERS = 60
-
 // The ingest contract caps a batch at 50 events.
-const BATCH_MAX = 50
+const USERS = 60
+const EVENTS_BATCH_MAX = 50
 const MINUTE_MS = 60_000
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
@@ -37,8 +36,8 @@ for (let user = 0; user < USERS; user++) {
 // pipeline's per-user partitioning relies on.
 events.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
 
-for (let at = 0; at < events.length; at += BATCH_MAX) {
-  await post(events.slice(at, at + BATCH_MAX))
+for (let at = 0; at < events.length; at += EVENTS_BATCH_MAX) {
+  await post(events.slice(at, at + EVENTS_BATCH_MAX))
 }
 
 /**
@@ -64,32 +63,32 @@ function journey(user) {
 
   if (rng() < 0.05) {
     // Completes a task with no prior creation, so the created step stays pending.
-    add('task_completed', { task_count: 1 + Math.floor(rng() * 5) })
+    add(TASK_COMPLETED, { task_count: 1 + Math.floor(rng() * 5) })
     return trail
   }
 
-  add('task_list_viewed')
+  add(TASK_LIST_VIEWED)
   if (rng() >= 0.85) return trail
 
   at += (1 + rng() * 120) * MINUTE_MS
-  add('task_created', { task_count: 1 + Math.floor(rng() * 8) })
+  add(TASK_CREATED, { task_count: 1 + Math.floor(rng() * 8) })
   if (rng() >= 0.75) return trail
 
   // A later visit opens the next step, and completing stays a separate act.
   at += (1 + rng() * 40) * HOUR_MS
-  add('task_list_viewed')
+  add(TASK_LIST_VIEWED)
   if (rng() >= 0.65) return trail
 
   at += (1 + rng() * 60) * HOUR_MS
-  add('task_completed', { task_count: 1 + Math.floor(rng() * 8) })
+  add(TASK_COMPLETED, { task_count: 1 + Math.floor(rng() * 8) })
   if (rng() >= 0.7) return trail
 
   at += (10 + rng() * 300) * MINUTE_MS
-  add('task_list_viewed')
+  add(TASK_LIST_VIEWED)
   if (rng() >= 0.55) return trail
 
   at += (5 + rng() * 600) * MINUTE_MS
-  add('completed_tasks_cleared', { task_count: Math.floor(rng() * 4) })
+  add(COMPLETED_TASKS_CLEARED, { task_count: Math.floor(rng() * 4) })
   return trail
 }
 

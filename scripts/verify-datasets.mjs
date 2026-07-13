@@ -1,19 +1,19 @@
 #!/usr/bin/env node
-// Verifies every dataset pinned in evals/baselines.json: the SHA-256 and row
-// count match the pin, and each row passes its dataset's schema. An unpinned
-// dataset could drift under the metrics measured on it, the risk Bazel closes
-// by requiring sha256 on remote archives. `make eval` runs this in CI.
+// Verifies every dataset pinned in evals/baselines.json. The SHA-256 and row
+// count must match the pin, and each row must pass its dataset's schema. An
+// unpinned dataset could drift under the metrics measured on it, the risk Bazel
+// closes by requiring sha256 on remote archives. `make eval` runs this in CI.
 
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 
+import { BASELINES, resolveDatasetUrl } from './lib/baselines.mjs'
+import { NOT_STUCK, STUCK } from './lib/labels.mjs'
 import { MILESTONES } from './lib/milestones.mjs'
+import { parseRfc3339Utc } from './lib/time.mjs'
 
-const EVALS_DIR = 'evals'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const EVENT_NAME = /^(fr\.[a-z][a-z0-9_]*|[a-z][a-z0-9_]*)$/
-const RFC3339_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/
 
 // A session closes after 30 idle minutes, so a longer gap means two sessions.
 const IDLE_LIMIT_MS = 30 * 60_000
@@ -24,42 +24,41 @@ const END_USER_HASH_LIMIT = 128
 const PROPERTIES_LIMIT = 20
 
 // Validator factories by dataset name. A pin without one fails, so every
-// dataset that gates CI is schema-checked, never only hashed. Each dataset
-// gets a fresh validator, so cross-row state like seen IDs never leaks.
+// dataset that gates CI is schema-checked, never only hashed.
 const VALIDATORS = { sessions: createSessionValidator }
 
-const baselines = JSON.parse(readFileSync(join(EVALS_DIR, 'baselines.json'), 'utf8'))
-const failures = []
+const failures = Object.entries(BASELINES.datasets ?? {}).flatMap(verifyDataset)
 
-for (const [name, pin] of Object.entries(baselines.datasets ?? {})) {
-  const raw = readFileSync(join(EVALS_DIR, pin.path), 'utf8')
+if (failures.length > 0) {
+  for (const failure of failures) console.error(`verify-datasets: ${failure}`)
+  process.exitCode = 1
+} else {
+  console.log('>> datasets verified against evals/baselines.json')
+}
+
+/** Verifies one pinned dataset, returning every hash, count, and schema failure. */
+function verifyDataset([name, pin]) {
+  const raw = readFileSync(resolveDatasetUrl(pin), 'utf8')
+  const failures = []
+
   const sha256 = createHash('sha256').update(raw).digest('hex')
-  if (sha256 !== pin.sha256) {
-    failures.push(`${name}: sha256 ${sha256} does not match the pin ${pin.sha256}`)
-  }
+  if (sha256 !== pin.sha256) failures.push(`${name}: sha256 ${sha256} does not match the pin ${pin.sha256}`)
+
   const rows = raw.split('\n').filter((line) => line.length > 0)
-  if (rows.length !== pin.sessions) {
-    failures.push(`${name}: ${rows.length} rows, pin says ${pin.sessions}`)
-  }
+  if (rows.length !== pin.sessions) failures.push(`${name}: ${rows.length} rows, pin says ${pin.sessions}`)
 
   const createValidator = VALIDATORS[name]
   if (!createValidator) {
     failures.push(`${name}: no row validator in VALIDATORS`)
-    continue
+    return failures
   }
+
   const validate = createValidator()
   rows.forEach((line, at) => {
-    for (const problem of validate(line)) {
-      failures.push(`${name} line ${at + 1}: ${problem}`)
-    }
+    for (const problem of validate(line)) failures.push(`${name} line ${at + 1}: ${problem}`)
   })
+  return failures
 }
-
-if (failures.length > 0) {
-  for (const failure of failures) console.error(`verify-datasets: ${failure}`)
-  process.exit(1)
-}
-console.log(`>> datasets verified against ${join(EVALS_DIR, 'baselines.json')}`)
 
 /** Returns a validator that checks one labeled-session row per call. */
 function createSessionValidator() {
@@ -87,7 +86,7 @@ function createSessionValidator() {
     if (!MILESTONES.includes(row.milestone)) {
       problems.push(`milestone ${row.milestone} is not in the catalog`)
     }
-    if (row.label !== 'stuck' && row.label !== 'not_stuck') problems.push(`label is ${row.label}`)
+    if (row.label !== STUCK && row.label !== NOT_STUCK) problems.push(`label is ${row.label}`)
     if (!Array.isArray(row.events) || row.events.length === 0) {
       problems.push('events is empty')
       return problems
@@ -95,7 +94,7 @@ function createSessionValidator() {
 
     const firstHash = row.events[0].end_user_hash
 
-    // Instants, not strings: string order breaks across the mixed
+    // Instants, not strings, because string order breaks across the mixed
     // fractional-second precision parseRfc3339Utc admits (RFC 3339, 5.1).
     let previousMs = -Infinity
     for (const [at, event] of row.events.entries()) {
@@ -138,7 +137,7 @@ function createSessionValidator() {
       }
     }
 
-    if (row.label === 'stuck') {
+    if (row.label === STUCK) {
       if (!row.events.some((event) => event.timestamp === row.stuck_at_ts)) {
         problems.push("stuck_at_ts does not match any event's timestamp")
       }
@@ -162,14 +161,4 @@ function isScalarMap(value) {
     entries.length <= PROPERTIES_LIMIT &&
     entries.every((entry) => ['string', 'number', 'boolean'].includes(typeof entry))
   )
-}
-
-/**
- * Parses an RFC 3339 UTC date-time to epoch ms, or NaN: the regex fixes the
- * shape and the round-trip rejects rolled-over dates like Feb 30.
- */
-function parseRfc3339Utc(value) {
-  if (typeof value !== 'string' || !RFC3339_UTC.test(value)) return NaN
-  const ms = Date.parse(value)
-  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 19) === value.slice(0, 19) ? ms : NaN
 }

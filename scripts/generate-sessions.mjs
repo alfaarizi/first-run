@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // Generates unlabeled Tasklet sessions for the stuck-detection dataset, one
 // JSON Lines session per line on stdout, in the event shape of
-// api/openapi/ingest.yaml. Every byte derives from the session index and a
-// fixed time anchor, so a larger count appends sessions without rewriting
-// earlier lines and the labeled file stays hash-stable.
+// api/openapi/ingest.yaml.
 
+import { CLICK, ERROR, PAGE_VIEW } from './lib/events.mjs'
+import { MILESTONES, TASK_LIST_VIEWED } from './lib/milestones.mjs'
 import { mulberry32, uuidv7 } from './lib/random.mjs'
+
+// Named in funnel order to match the shared catalog.
+const [TASK_CREATED, TASK_COMPLETED, COMPLETED_TASKS_CLEARED] = MILESTONES
 
 const COUNT = Number(process.argv[2] ?? 150)
 if (!Number.isInteger(COUNT) || COUNT < 1) {
@@ -13,8 +16,7 @@ if (!Number.isInteger(COUNT) || COUNT < 1) {
   process.exit(1)
 }
 
-// A downstream reader such as `head` may close the pipe early, which is an
-// end of demand, not a failure.
+// A downstream reader such as `head` may close the pipe early.
 process.stdout.on('error', (error) => {
   if (error.code === 'EPIPE') process.exit(0)
   throw error
@@ -26,16 +28,17 @@ const MINUTE_MS = 60_000
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
 
-// The pages Tasklet's traffic touches. `path` is on the app's allowlist and
-// rides the auto-captured events.
-const HOME = '/'
-const TASKS = '/tasks'
-const NEW_TASK = '/tasks/new'
-const SIDE_PATHS = ['/archive', '/settings', '/help']
+// The pages Tasklet's traffic. `path` is on the app's allowlist
+// and allows auto-captured events.
+const HOME_PATH = '/'
+const TASKS_PATH = '/tasks'
+const NEW_TASK_PATH = '/tasks/new'
+const HELP_PATH = '/help'
+const SIDE_PATHS = ['/archive', '/settings', HELP_PATH]
 
 // The journey mixture, a sampling weight per journey type. Clean progress
 // mixes with stall signals the funnel reads (dwell, retries, backtracking,
-// errors), and stall patterns land in roughly two fifths of sessions,
+// errors), and stall patterns is roughly two fifths of sessions,
 // oversampled because measuring precision and recall needs positives.
 const JOURNEYS = [
   [0.18, smoothCompleter],
@@ -49,11 +52,11 @@ const JOURNEYS = [
 ]
 
 for (let index = 0; index < COUNT; index++) {
-  process.stdout.write(`${JSON.stringify(session(index))}\n`)
+  process.stdout.write(`${JSON.stringify(buildSession(index))}\n`)
 }
 
 /** Builds one session, deterministic in its index. */
-function session(index) {
+function buildSession(index) {
   const rng = mulberry32(index + 1)
   const startAt = ANCHOR_MS + Math.floor(index / 5) * DAY_MS + Math.floor(rng() * 12 * HOUR_MS)
   const sessionId = seededUuid(startAt, rng)
@@ -83,7 +86,7 @@ function session(index) {
   return { session_id: sessionId, events }
 }
 
-/** Samples a journey type by mixture weight; the last absorbs rounding leftover. */
+/** Samples a journey type by mixture weight, and the last absorbs rounding leftover. */
 function sampleJourney(draw) {
   for (const [weight, journey] of JOURNEYS) {
     draw -= weight
@@ -93,155 +96,155 @@ function sampleJourney(draw) {
 }
 
 /** Opens the app on the landing page and settles on the task list. */
-function arrive(t) {
-  t.add('fr.page_view', { path: HOME })
-  t.wait(2, 10)
-  t.add('fr.page_view', { path: TASKS })
-  t.add('task_list_viewed')
-  t.wait(5, 40)
+function arrive(trail) {
+  trail.add(PAGE_VIEW, { path: HOME_PATH })
+  trail.wait(2, 10)
+  trail.add(PAGE_VIEW, { path: TASKS_PATH })
+  trail.add(TASK_LIST_VIEWED)
+  trail.wait(5, 40)
 }
 
 /** Progresses through creation and completion with short, easy gaps. */
-function smoothCompleter(t) {
-  arrive(t)
-  t.add('fr.click', { path: TASKS })
-  t.wait(5, 30)
-  t.add('fr.page_view', { path: NEW_TASK })
-  t.wait(10, 90)
-  const count = 1 + Math.floor(t.rng() * 5)
-  t.add('task_created', { task_count: count })
-  t.wait(60, 600)
-  t.add('fr.page_view', { path: TASKS })
-  t.add('task_list_viewed')
-  t.wait(10, 120)
-  t.add('task_completed', { task_count: count })
-  if (t.rng() < 0.4) {
-    t.wait(30, 300)
-    t.add('fr.click', { path: TASKS })
-    t.add('completed_tasks_cleared', { task_count: Math.floor(t.rng() * count) })
+function smoothCompleter(trail) {
+  arrive(trail)
+  trail.add(CLICK, { path: TASKS_PATH })
+  trail.wait(5, 30)
+  trail.add(PAGE_VIEW, { path: NEW_TASK_PATH })
+  trail.wait(10, 90)
+  const count = 1 + Math.floor(trail.rng() * 5)
+  trail.add(TASK_CREATED, { task_count: count })
+  trail.wait(60, 600)
+  trail.add(PAGE_VIEW, { path: TASKS_PATH })
+  trail.add(TASK_LIST_VIEWED)
+  trail.wait(10, 120)
+  trail.add(TASK_COMPLETED, { task_count: count })
+  if (trail.rng() < 0.4) {
+    trail.wait(30, 300)
+    trail.add(CLICK, { path: TASKS_PATH })
+    trail.add(COMPLETED_TASKS_CLEARED, { task_count: Math.floor(trail.rng() * count) })
   }
 }
 
 /** Looks around briefly and leaves. Too little evidence to call anything. */
-function quickBounce(t) {
-  t.add('fr.page_view', { path: HOME })
-  t.wait(3, 20)
-  if (t.rng() < 0.7) {
-    t.add('fr.page_view', { path: TASKS })
-    t.add('task_list_viewed')
+function quickBounce(trail) {
+  trail.add(PAGE_VIEW, { path: HOME_PATH })
+  trail.wait(3, 20)
+  if (trail.rng() < 0.7) {
+    trail.add(PAGE_VIEW, { path: TASKS_PATH })
+    trail.add(TASK_LIST_VIEWED)
   }
-  if (t.rng() < 0.4) {
-    t.wait(5, 60)
-    t.add('fr.click', { path: TASKS })
+  if (trail.rng() < 0.4) {
+    trail.wait(5, 60)
+    trail.add(CLICK, { path: TASKS_PATH })
   }
 }
 
 /** Wanders side pages at an unhurried pace, sometimes creating late. */
-function explorer(t) {
-  arrive(t)
-  const stops = 2 + Math.floor(t.rng() * 3)
+function explorer(trail) {
+  arrive(trail)
+  const stops = 2 + Math.floor(trail.rng() * 3)
   for (let stop = 0; stop < stops; stop++) {
-    const path = SIDE_PATHS[Math.floor(t.rng() * SIDE_PATHS.length)]
-    t.add('fr.page_view', { path })
-    t.wait(20, 180)
-    if (t.rng() < 0.5) {
-      t.add('fr.click', { path })
-      t.wait(10, 120)
+    const path = SIDE_PATHS[Math.floor(trail.rng() * SIDE_PATHS.length)]
+    trail.add(PAGE_VIEW, { path })
+    trail.wait(20, 180)
+    if (trail.rng() < 0.5) {
+      trail.add(CLICK, { path })
+      trail.wait(10, 120)
     }
   }
-  t.add('fr.page_view', { path: TASKS })
-  t.add('task_list_viewed')
-  if (t.rng() < 0.5) {
-    t.wait(15, 120)
-    t.add('fr.page_view', { path: NEW_TASK })
-    t.wait(10, 90)
-    t.add('task_created', { task_count: 1 + Math.floor(t.rng() * 3) })
+  trail.add(PAGE_VIEW, { path: TASKS_PATH })
+  trail.add(TASK_LIST_VIEWED)
+  if (trail.rng() < 0.5) {
+    trail.wait(15, 120)
+    trail.add(PAGE_VIEW, { path: NEW_TASK_PATH })
+    trail.wait(10, 90)
+    trail.add(TASK_CREATED, { task_count: 1 + Math.floor(trail.rng() * 3) })
   }
 }
 
 /** Hits the same failure over and over on the creation form. */
-function errorLooper(t) {
-  arrive(t)
-  t.add('fr.page_view', { path: NEW_TASK })
-  t.wait(10, 60)
-  const attempts = 3 + Math.floor(t.rng() * 5)
+function errorLooper(trail) {
+  arrive(trail)
+  trail.add(PAGE_VIEW, { path: NEW_TASK_PATH })
+  trail.wait(10, 60)
+  const attempts = 3 + Math.floor(trail.rng() * 5)
   for (let attempt = 0; attempt < attempts; attempt++) {
-    t.add('fr.click', { path: NEW_TASK })
-    t.wait(2, 15)
-    t.add('fr.error', { path: NEW_TASK })
-    t.wait(20, 180)
+    trail.add(CLICK, { path: NEW_TASK_PATH })
+    trail.wait(2, 15)
+    trail.add(ERROR, { path: NEW_TASK_PATH })
+    trail.wait(20, 180)
   }
-  if (t.rng() < 0.3) {
-    t.add('fr.page_view', { path: '/help' })
+  if (trail.rng() < 0.3) {
+    trail.add(PAGE_VIEW, { path: HELP_PATH })
   }
 }
 
 /** Stays active on one step for a long stretch without progressing. */
-function longDweller(t) {
-  arrive(t)
-  const page = t.rng() < 0.5 ? TASKS : NEW_TASK
-  if (page === NEW_TASK) t.add('fr.page_view', { path: NEW_TASK })
-  const clicks = 4 + Math.floor(t.rng() * 6)
+function longDweller(trail) {
+  arrive(trail)
+  const page = trail.rng() < 0.5 ? TASKS_PATH : NEW_TASK_PATH
+  if (page === NEW_TASK_PATH) trail.add(PAGE_VIEW, { path: NEW_TASK_PATH })
+  const clicks = 4 + Math.floor(trail.rng() * 6)
   for (let click = 0; click < clicks; click++) {
-    t.wait(120, 420)
-    t.add('fr.click', { path: page })
+    trail.wait(120, 420)
+    trail.add(CLICK, { path: page })
   }
 }
 
 /** Ping-pongs between the list and the form without ever committing. */
-function backtracker(t) {
-  arrive(t)
-  const loops = 3 + Math.floor(t.rng() * 4)
+function backtracker(trail) {
+  arrive(trail)
+  const loops = 3 + Math.floor(trail.rng() * 4)
   for (let loop = 0; loop < loops; loop++) {
-    t.add('fr.page_view', { path: NEW_TASK })
-    t.wait(15, 120)
-    if (t.rng() < 0.3) t.add('fr.click', { path: NEW_TASK })
-    t.add('fr.page_view', { path: TASKS })
-    t.wait(15, 150)
+    trail.add(PAGE_VIEW, { path: NEW_TASK_PATH })
+    trail.wait(15, 120)
+    if (trail.rng() < 0.3) trail.add(CLICK, { path: NEW_TASK_PATH })
+    trail.add(PAGE_VIEW, { path: TASKS_PATH })
+    trail.wait(15, 150)
   }
 }
 
 /** Stalls hard on the form, then breaks through and creates the task. */
-function recoveredStruggler(t) {
-  arrive(t)
-  t.add('fr.page_view', { path: NEW_TASK })
-  const attempts = 2 + Math.floor(t.rng() * 4)
+function recoveredStruggler(trail) {
+  arrive(trail)
+  trail.add(PAGE_VIEW, { path: NEW_TASK_PATH })
+  const attempts = 2 + Math.floor(trail.rng() * 4)
   for (let attempt = 0; attempt < attempts; attempt++) {
-    t.add('fr.click', { path: NEW_TASK })
-    t.wait(2, 15)
-    t.add('fr.error', { path: NEW_TASK })
-    t.wait(60, 300)
+    trail.add(CLICK, { path: NEW_TASK_PATH })
+    trail.wait(2, 15)
+    trail.add(ERROR, { path: NEW_TASK_PATH })
+    trail.wait(60, 300)
   }
-  t.add('fr.click', { path: NEW_TASK })
-  t.wait(5, 30)
-  t.add('task_created', { task_count: 1 + Math.floor(t.rng() * 3) })
-  if (t.rng() < 0.5) {
-    t.wait(120, 900)
-    t.add('fr.page_view', { path: TASKS })
-    t.add('task_list_viewed')
-    t.add('task_completed', { task_count: 1 })
+  trail.add(CLICK, { path: NEW_TASK_PATH })
+  trail.wait(5, 30)
+  trail.add(TASK_CREATED, { task_count: 1 + Math.floor(trail.rng() * 3) })
+  if (trail.rng() < 0.5) {
+    trail.wait(120, 900)
+    trail.add(PAGE_VIEW, { path: TASKS_PATH })
+    trail.add(TASK_LIST_VIEWED)
+    trail.add(TASK_COMPLETED, { task_count: 1 })
   }
 }
 
 /** Shows one faint signal of each kind, then progresses or leaves. */
-function mixedSignals(t) {
-  arrive(t)
-  t.add('fr.page_view', { path: NEW_TASK })
-  t.wait(10, 90)
-  if (t.rng() < 0.5) {
-    t.add('fr.click', { path: NEW_TASK })
-    t.wait(2, 10)
-    t.add('fr.error', { path: NEW_TASK })
-    t.wait(30, 120)
+function mixedSignals(trail) {
+  arrive(trail)
+  trail.add(PAGE_VIEW, { path: NEW_TASK_PATH })
+  trail.wait(10, 90)
+  if (trail.rng() < 0.5) {
+    trail.add(CLICK, { path: NEW_TASK_PATH })
+    trail.wait(2, 10)
+    trail.add(ERROR, { path: NEW_TASK_PATH })
+    trail.wait(30, 120)
   }
-  t.add('fr.page_view', { path: TASKS })
-  t.wait(30, 240)
-  t.add('fr.page_view', { path: NEW_TASK })
-  t.wait(10, 90)
-  if (t.rng() < 0.6) {
-    t.add('task_created', { task_count: 1 + Math.floor(t.rng() * 3) })
+  trail.add(PAGE_VIEW, { path: TASKS_PATH })
+  trail.wait(30, 240)
+  trail.add(PAGE_VIEW, { path: NEW_TASK_PATH })
+  trail.wait(10, 90)
+  if (trail.rng() < 0.6) {
+    trail.add(TASK_CREATED, { task_count: 1 + Math.floor(trail.rng() * 3) })
   } else {
-    t.add('fr.click', { path: NEW_TASK })
+    trail.add(CLICK, { path: NEW_TASK_PATH })
   }
 }
 

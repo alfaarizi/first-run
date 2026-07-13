@@ -86,11 +86,11 @@ test-widget:
 test-web: generate-web
 	cd web && npm run test && npm run typecheck
 
-# Verifies every pinned dataset: schema, row count, and SHA-256.
+# Verifies the pinned data, tests the eval tooling, and enforces the gate floors.
 eval:
-	@if [ -f evals/baselines.json ]; then \
-		node scripts/verify-datasets.mjs; \
-	else echo ">> skipping eval, evals/ is not scaffolded"; fi
+	node scripts/verify-datasets.mjs
+	node --test "scripts/*.test.mjs"
+	node scripts/measure-gate.mjs
 
 # Needs the compose stack up and Playwright browsers installed once:
 # (cd tasklet && npx playwright install chromium)
