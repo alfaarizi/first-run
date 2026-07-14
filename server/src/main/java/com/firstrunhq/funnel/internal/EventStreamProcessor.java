@@ -4,13 +4,15 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.firstrunhq.ingestion.EventEnvelope;
 import com.firstrunhq.ingestion.EventTopics;
+import java.util.Map;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 /**
- * Consumes {@code events.raw}, advances milestone progress, and refreshes session features. A
- * malformed record fails before any write, so the shared error handler retries and then
- * dead-letters it.
+ * Consumes {@code events.raw}, advances milestone progress, refreshes session features, and runs
+ * the stuck gate over them. A malformed record fails before any write, so the shared error handler
+ * retries and then dead-letters it.
  */
 @Component
 class EventStreamProcessor {
@@ -21,21 +23,24 @@ class EventStreamProcessor {
   private final StreamDeduper deduper;
   private final MilestoneProgressTracker progressTracker;
   private final SessionFeatureStore sessionFeatures;
+  private final StuckGate stuckGate;
 
   EventStreamProcessor(
       ObjectMapper objectMapper,
       StreamDeduper deduper,
       MilestoneProgressTracker progressTracker,
-      SessionFeatureStore sessionFeatures) {
+      SessionFeatureStore sessionFeatures,
+      StuckGate stuckGate) {
     this.objectMapper = objectMapper;
     this.deduper = deduper;
     this.progressTracker = progressTracker;
     this.sessionFeatures = sessionFeatures;
+    this.stuckGate = stuckGate;
   }
 
   @KafkaListener(topics = EventTopics.EVENTS_RAW, groupId = GROUP)
-  void onEvent(String value) throws JsonProcessingException {
-    EventEnvelope envelope = objectMapper.readValue(value, EventEnvelope.class);
+  void onEvent(ConsumerRecord<String, String> record) throws JsonProcessingException {
+    EventEnvelope envelope = objectMapper.readValue(record.value(), EventEnvelope.class);
 
     // Jackson does not enforce the record's non-null components, so a malformed envelope is
     // rejected to the dead-letter queue before any side effect.
@@ -50,9 +55,11 @@ class EventStreamProcessor {
     MilestoneProgressTracker.Progress progress = progressTracker.advance(envelope);
 
     // Stale activity only amended history, so it is no live signal for the stuck gate.
-    if (!progress.stale()) {
-      sessionFeatures.record(envelope, progress.currentStep());
-    }
+    Map<String, String> features =
+        progress.stale() ? null : sessionFeatures.record(envelope, progress.currentStep());
+
+    // Candidates inherit the record's key, so one user's candidates stay ordered like the events.
+    stuckGate.flag(envelope, progress.currentStep(), features, record.key());
 
     deduper.claim(envelope.appId(), envelope.id());
   }

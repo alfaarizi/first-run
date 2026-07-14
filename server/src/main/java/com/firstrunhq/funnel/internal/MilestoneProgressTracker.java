@@ -36,7 +36,10 @@ class MilestoneProgressTracker {
    * The current step, {@code null} once every milestone is complete, and whether the event was
    * stale.
    */
-  record Progress(@Nullable Integer currentStep, boolean stale) {}
+  record Progress(@Nullable CurrentStep currentStep, boolean stale) {}
+
+  /** The lowest-position milestone the user has not completed. */
+  record CurrentStep(UUID id, String name, int position) {}
 
   /** Applies the event and returns the user's progress after it. */
   @Transactional
@@ -57,14 +60,16 @@ class MilestoneProgressTracker {
 
     // A non-completion event opens the current step unless it predates the step's entry, the newest
     // completion below it, so an out-of-position completion above never makes fresh activity stale.
-    Integer currentStep = findCurrentStep(envelope, endUserId);
-    int currentPosition = currentStep != null ? currentStep : Integer.MAX_VALUE;
-    boolean stale = entryOf(endUserId, currentPosition).filter(eventAt::isBefore).isPresent();
+    CurrentStep currentStep = findCurrentStep(envelope, endUserId);
+    int currentStepPosition = currentStep != null ? currentStep.position() : Integer.MAX_VALUE;
+
+    boolean stale = entryOf(endUserId, currentStepPosition).filter(eventAt::isBefore).isPresent();
     if (stale) {
-      backdateStep(endUserId, eventAt, currentPosition);
+      backdateStep(endUserId, eventAt, currentStepPosition);
     } else {
       startCurrentStep(envelope, endUserId, eventAt);
     }
+
     return new Progress(currentStep, stale);
   }
 
@@ -231,10 +236,10 @@ class MilestoneProgressTracker {
   }
 
   /** Returns the lowest-position milestone the user has not completed, absent as {@code null}. */
-  private @Nullable Integer findCurrentStep(EventEnvelope envelope, UUID endUserId) {
+  private @Nullable CurrentStep findCurrentStep(EventEnvelope envelope, UUID endUserId) {
     return jdbc.sql(
             """
-            SELECT m.position
+            SELECT m.id, m.name, m.position
             FROM milestone m
             LEFT JOIN milestone_progress p
               ON p.milestone_id = m.id AND p.end_user_id = :end_user_id
@@ -244,7 +249,10 @@ class MilestoneProgressTracker {
             """)
         .param("end_user_id", endUserId)
         .param("app_id", envelope.appId())
-        .query(Integer.class)
+        .query(
+            (row, rowNumber) ->
+                new CurrentStep(
+                    row.getObject("id", UUID.class), row.getString("name"), row.getInt("position")))
         .optional()
         .orElse(null);
   }
