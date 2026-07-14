@@ -1,9 +1,8 @@
 package com.firstrunhq.ingestion;
 
 /**
- * The reserved auto-capture event names. The widget emits these three under its reserved
- * {@code fr.} prefix, and the funnel reads page views and errors. A founder-defined milestone
- * can never take one of these names.
+ * The reserved {@code fr.} prefix names the three events the widget captures on its own. The funnel
+ * reads page views and errors, and no founder-defined milestone can take one of these names.
  */
 public final class AutoCapturedEvents {
 
