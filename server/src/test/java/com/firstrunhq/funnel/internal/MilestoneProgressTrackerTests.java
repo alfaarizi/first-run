@@ -1,11 +1,12 @@
 package com.firstrunhq.funnel.internal;
 
+import static com.firstrunhq.ingestion.AutoCapturedEvents.CLICK;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.firstrunhq.IntegrationTest;
 import com.firstrunhq.ingestion.EventEnvelope;
+import com.firstrunhq.testfixture.TestSeeder;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.time.Instant;
 import java.util.UUID;
 import javax.sql.DataSource;
@@ -22,6 +23,7 @@ class MilestoneProgressTrackerTests {
 
   private static final String TENANT = "019813f2-0000-7000-8000-0000000000c1";
   private static final String APP = "019813f2-0000-7000-8000-0000000000c2";
+  private static final String MILESTONE_ID = "019813f2-0000-7000-8000-0000000000c3";
   private static final String MILESTONE = "task_created";
 
   private final MilestoneProgressTracker tracker;
@@ -34,34 +36,16 @@ class MilestoneProgressTrackerTests {
 
   @BeforeEach
   void seedTenantAppAndMilestone() throws SQLException {
-    // The container's default user is a superuser, so these inserts bypass RLS.
-    try (var connection = dataSource.getConnection();
-        Statement statement = connection.createStatement()) {
-      statement.execute(
-          "INSERT INTO tenant (id, name) VALUES ('%s', 'Tracker Tenant') ON CONFLICT (id) DO NOTHING"
-              .formatted(TENANT));
-      statement.execute(
-          """
-          INSERT INTO app (id, tenant_id, name, sdk_key, hmac_key)
-          VALUES ('%s', '%s', 'Tracker App', 'key_tracker', 'hmac_tracker')
-          ON CONFLICT (id) DO NOTHING
-          """
-              .formatted(APP, TENANT));
-      statement.execute(
-          """
-          INSERT INTO milestone (id, tenant_id, app_id, name, title, position)
-          VALUES ('019813f2-0000-7000-8000-0000000000c3', '%s', '%s', '%s', 'Create a task', 1)
-          ON CONFLICT (id) DO NOTHING
-          """
-              .formatted(TENANT, APP, MILESTONE));
-    }
+    TestSeeder.tenant(dataSource, TENANT, "Tracker Tenant");
+    TestSeeder.app(dataSource, APP, TENANT, "Tracker App");
+    TestSeeder.milestone(dataSource, MILESTONE_ID, TENANT, APP, MILESTONE, "Create a task", 1);
   }
 
   @Test
   void aRedeliveredCompletionReadsTheSameStaleness() {
     String user = "user-" + UUID.randomUUID();
     Instant openedAt = Instant.now().plusSeconds(600);
-    tracker.advance(envelope(user, "fr.click", openedAt));
+    tracker.advance(envelope(user, CLICK, openedAt));
 
     // The completion predates the step's entry, so its stored time clamps up past the event's
     // own and becomes the user's newest completion.

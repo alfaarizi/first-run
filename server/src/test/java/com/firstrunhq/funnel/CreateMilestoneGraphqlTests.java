@@ -3,8 +3,9 @@ package com.firstrunhq.funnel;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.firstrunhq.IntegrationTest;
+import com.firstrunhq.ingestion.AutoCapturedEvents;
+import com.firstrunhq.testfixture.TestSeeder;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
@@ -47,26 +48,11 @@ class CreateMilestoneGraphqlTests {
 
   @BeforeEach
   void seedTenantsAndApps() throws SQLException {
-    try (var connection = dataSource.getConnection();
-        Statement statement = connection.createStatement()) {
-      statement.execute(
-          """
-          INSERT INTO tenant (id, name) VALUES
-            ('%s', 'Milestone Tenant A'), ('%s', 'Milestone Tenant B')
-          ON CONFLICT (id) DO NOTHING
-          """
-              .formatted(TENANT_A, TENANT_B));
-      statement.execute(
-          """
-          INSERT INTO app (id, tenant_id, name, sdk_key, hmac_key)
-          VALUES
-            ('%s', '%s', 'App A', 'key_milestone_e2', 'hmac_a'),
-            ('%s', '%s', 'App B', 'key_milestone_e4', 'hmac_b'),
-            ('%s', '%s', 'App Cap', 'key_milestone_e5', 'hmac_cap')
-          ON CONFLICT (id) DO NOTHING
-          """
-              .formatted(APP_A, TENANT_A, APP_B, TENANT_B, APP_CAP, TENANT_A));
-    }
+    TestSeeder.tenant(dataSource, TENANT_A, "Milestone Tenant A");
+    TestSeeder.tenant(dataSource, TENANT_B, "Milestone Tenant B");
+    TestSeeder.app(dataSource, APP_A, TENANT_A, "App A");
+    TestSeeder.app(dataSource, APP_B, TENANT_B, "App B");
+    TestSeeder.app(dataSource, APP_CAP, TENANT_A, "App Cap");
   }
 
   @Test
@@ -83,9 +69,11 @@ class CreateMilestoneGraphqlTests {
         .entity(String.class)
         .isEqualTo("Create a project");
     response.path("createMilestone.milestone.position").entity(Integer.class).isEqualTo(1);
+
     UUID id =
         UUID.fromString(response.path("createMilestone.milestone.id").entity(String.class).get());
     assertThat(id.version()).isEqualTo(7);
+
     String createdAt =
         response.path("createMilestone.milestone.createdAt").entity(String.class).get();
     assertThat(OffsetDateTime.parse(createdAt)).isNotNull();
@@ -94,7 +82,7 @@ class CreateMilestoneGraphqlTests {
   @Test
   void rejectsAReservedAutoCaptureName() {
     GraphQlTester.Response response =
-        create(asTenant(TENANT_A), APP_A, "fr.page_view", "Visited a page", 2);
+        create(asTenant(TENANT_A), APP_A, AutoCapturedEvents.PAGE_VIEW, "Visited a page", 2);
 
     expectSingleError(
         response, ErrorType.BAD_REQUEST, "The fr. prefix is reserved for auto-captured events.");
