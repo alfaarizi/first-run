@@ -245,7 +245,8 @@ export class NudgeUi {
       this.messages,
       this.createCloseButton("Close chat", () => {
         card.remove();
-        this.chatCard = this.messages = this.answer = undefined;
+        // a streaming answer keeps its slot, so late frames never cross into the next chat
+        this.chatCard = this.messages = undefined;
       }),
     );
 
