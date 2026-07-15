@@ -30,8 +30,9 @@ paths:
       summary: Ingest a batch of events
       description: |
         Accepts 1 to 50 events per request. The widget batches on an interval
-        and flushes with `sendBeacon` on page hide. Delivery is at-least-once,
-        so the gateway deduplicates on each event's `id` for 24 hours.
+        and flushes with a keepalive fetch on page hide. Delivery is
+        at-least-once, so the gateway deduplicates on each event's `id` for
+        24 hours.
       security:
         - hmacSignature: []
       parameters:
