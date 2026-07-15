@@ -167,9 +167,9 @@ const CSS = `
 `;
 
 /**
- * The widget surface, a dismissible nudge that expands into chat.
- * Everything renders inside a closed shadow root, and dynamic strings only
- * land in textContent, so server text stays text.
+ * The widget surface, a dismissible nudge that expands into chat. Dynamic
+ * strings land in textContent inside a closed shadow root, so server text
+ * stays text.
  */
 export class NudgeUi {
   private readonly callbacks: NudgeCallbacks;
@@ -197,6 +197,13 @@ export class NudgeUi {
   /** Where the confirmation card mounts, above the nudge. */
   get container(): HTMLElement {
     return this.root;
+  }
+
+  /** Clears every card, used when the identified end user changes. */
+  reset(): void {
+    this.root.replaceChildren();
+    this.nudgeCard = this.chatCard = this.messages = this.answer = undefined;
+    this.nudgeId = "";
   }
 
   showNudge(nudge: NudgePayload): void {

@@ -12,14 +12,12 @@ export interface StreamHandlers {
 }
 
 /**
- * Opens the server-push channel. The browser resumes a dropped stream with
- * Last-Event-ID on its own, so only a server-closed stream reopens here
- * with backoff. EventSource cannot set headers, which puts identity on the
- * query string.
+ * Opens the server-push channel, keyed by the end user. A server-closed
+ * stream reopens with backoff, carrying the last seen event id because a
+ * fresh EventSource starts without one.
  */
 export function connectStream(
   config: Config,
-  session: string,
   endUserHash: string,
   handlers: StreamHandlers,
 ): () => void {
@@ -27,38 +25,42 @@ export function connectStream(
   let retryTimer: number | undefined;
   let retries = 0;
   let closed = false;
+  let lastEventId = "";
 
   const open = () => {
     source = new EventSource(
       `${config.host}${STREAM_PATH}?key=${encodeURIComponent(config.key)}` +
-        `&session_id=${session}&end_user_hash=${encodeURIComponent(endUserHash)}`,
+        `&end_user_hash=${encodeURIComponent(endUserHash)}` +
+        (lastEventId ? `&last_event_id=${encodeURIComponent(lastEventId)}` : ""),
     );
 
     const on = (name: string, handle: (data: string) => void) => {
       source?.addEventListener(name, (e) => {
+        const message = e as MessageEvent<string>;
+        lastEventId = message.lastEventId || lastEventId;
         try {
-          handle((e as MessageEvent<string>).data);
+          handle(message.data);
         } catch {
           // a malformed frame never breaks the host app
         }
       });
     };
 
-    on("open", () => {
-      retries = 0;
-    });
     on("nudge", (data) => handlers.nudge(JSON.parse(data) as NudgePayload));
     on("token", (data) => handlers.token((JSON.parse(data) as { text: string }).text));
     on("done", (data) => handlers.done((JSON.parse(data) as { citations?: Citation[] }).citations ?? []));
     on("action", (data) => handlers.action(JSON.parse(data) as ActionPayload));
 
+    source.addEventListener("open", () => {
+      retries = 0;
+    });
     source.addEventListener("error", () => {
       // CONNECTING means the browser is already retrying on its own
       if (closed || source?.readyState !== EventSource.CLOSED) return;
       retryTimer = setTimeout(open, RETRY_MS * Math.min(++retries, MAX_BACKOFF_STEPS));
     });
   };
-  
+
   open();
 
   return () => {

@@ -9,8 +9,8 @@ let memoryTouchedAt = 0;
 
 /**
  * Returns the current session id, rotating it after 30 idle minutes. When
- * storage is blocked the id lives in memory only, which shortens sessions
- * but never throws into the host app.
+ * storage is blocked the id lives in memory, so sessions shorten but never
+ * throw into the host app.
  */
 export function sessionId(now = Date.now()): string {
   let id = memoryId;
