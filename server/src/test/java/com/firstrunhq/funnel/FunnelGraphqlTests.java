@@ -186,7 +186,7 @@ class FunnelGraphqlTests {
   }
 
   @Test
-  void reportsNoStuckSignalsBeforeTheGateExists() {
+  void reportsNoStuckSignalsUntilCandidatesPersist() {
     GraphQlTester.Response response = funnel(APP);
     response
         .path("app.funnel.steps[*].stuckSignals")

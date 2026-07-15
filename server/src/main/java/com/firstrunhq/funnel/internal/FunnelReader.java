@@ -63,7 +63,8 @@ class FunnelReader {
             row.getInt("position"),
             row.getObject("created_at", OffsetDateTime.class));
 
-    // No stuck gate exists yet to emit signals, so every step reads zero.
+    // The stuck gate emits candidates to Kafka only. Nothing durable records them per step
+    // until the decision ledger holds one row per candidate, so every step reads zero.
     return new FunnelStep(
         milestone,
         row.getInt("entered"),
