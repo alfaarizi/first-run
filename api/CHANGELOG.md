@@ -13,6 +13,13 @@ additive or breaking.
   A redelivery can emit a copy, so consumers dedupe on `event_id`, which
   stays fixed across copies. Failed consumption dead-letters to
   `intervention.candidates.dlq`.
+- Contracts the widget size spike assumed. `GET /v1/stream` pushes the SSE 
+  events `nudge`, `token`, `done`, and `action`, authenticated by query string 
+  because `EventSource` cannot set headers. Chat posts to `/v1/messages` and 
+  confirmations to `/v1/confirmations` keyed by `execution_id`. The page-hide 
+  beacon signs into the query string because `sendBeacon` cannot carry the 
+  HMAC headers. The widget emits `fr.nudge_dismissed`, `fr.nudge_engaged`, and 
+  `fr.action_cancelled`.
 
 ### Changed
 
