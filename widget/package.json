@@ -1,0 +1,17 @@
+{
+  "name": "widget",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --minify --format=iife --target=safari16 --drop:console --outfile=dist/firstrun.js --metafile=dist/meta.json",
+    "size": "npm run build && node scripts/check-size.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1",
+    "typescript": "~5.9.0",
+    "vitest": "^4.1.10"
+  }
+}
