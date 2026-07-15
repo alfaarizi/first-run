@@ -2,8 +2,8 @@ import { INGEST_PATH } from "./constants";
 import { post } from "./request";
 import type { CapturedEvent, Config } from "./types";
 
-const BATCH_SIZE = 20;
-const FLUSH_MS = 5000;
+const FLUSH_AT = 20;
+const FLUSH_INTERVAL_MS = 5000;
 const MAX_BATCH = 50;
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = 2000;
@@ -45,9 +45,10 @@ export class RequestQueue {
     if (bytes > MAX_EVENT_BYTES) return;
 
     this.queue.push({ event, bytes });
+
     // a scheduled retry owns the queue while backing off
-    if (this.queue.length >= BATCH_SIZE && this.attempts === 0) void this.flush();
-    else this.timer ??= setTimeout(() => void this.flush(), FLUSH_MS);
+    if (this.queue.length >= FLUSH_AT && this.attempts === 0) void this.flush();
+    else this.timer ??= setTimeout(() => void this.flush(), FLUSH_INTERVAL_MS);
   }
 
   private async flush(): Promise<void> {
@@ -65,28 +66,36 @@ export class RequestQueue {
       this.queue.splice(0, batch.length);
       this.attempts = 0;
       if (this.queue.length > 0) {
-        this.timer = setTimeout(() => void this.flush(), FLUSH_MS);
+        this.timer = setTimeout(() => void this.flush(), FLUSH_INTERVAL_MS);
       }
     } else {
       this.timer = setTimeout(() => void this.flush(), BACKOFF_MS * this.attempts);
     }
   }
 
-  private nextBatch(): CapturedEvent[] {
+  private nextBatch(offset = 0): CapturedEvent[] {
     const batch: CapturedEvent[] = [];
     let bytes = 0;
-    for (const queued of this.queue) {
+    for (let i = offset; i < this.queue.length; i++) {
+      const queued = this.queue[i];
       if (batch.length === MAX_BATCH || bytes + queued.bytes > MAX_BODY_BYTES) break;
+
       bytes += queued.bytes;
       batch.push(queued.event);
     }
     return batch;
   }
 
-  // the events stay queued, because the id dedupe makes a second send safe
+  // events stay queued because the id dedupe makes a second send safe, and
+  // the browser's keepalive quota bounds how much of the tail can go
   private flushOnHide(): void {
-    if (this.queue.length === 0) return;
-    void post(this.config, INGEST_PATH, batchBody(this.nextBatch()));
+    for (let offset = 0; offset < this.queue.length; ) {
+      const batch = this.nextBatch(offset);
+      if (batch.length === 0) break;
+
+      void post(this.config, INGEST_PATH, batchBody(batch));
+      offset += batch.length;
+    }
   }
 }
 

@@ -88,7 +88,7 @@ function start(config: Config): void {
   let disconnect: (() => void) | undefined;
   const identify = safe((hash: string) => {
     // one bad hash would poison every later batch, so the contract's cap gates here
-    if (typeof hash !== "string" || !hash || hash.length > MAX_END_USER_HASH_LENGTH) return;
+    if (typeof hash !== "string" || !hash.trim() || hash.length > MAX_END_USER_HASH_LENGTH) return;
     if (hash === endUserHash) return;
 
     // an account switch gets a fresh session, and the old surface never leaks

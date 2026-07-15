@@ -1,4 +1,5 @@
 import { STREAM_PATH } from "./constants";
+import { sign } from "./request";
 import type { ActionPayload, Citation, Config, NudgePayload } from "./types";
 
 const RETRY_MS = 5000;
@@ -27,10 +28,17 @@ export function connectStream(
   let closed = false;
   let lastEventId = "";
 
-  const open = () => {
+  const open = async () => {
+    // the signature binds the hash, so one signed url cannot subscribe another
+    // user, and an empty sig means signing is unavailable so the stream stays shut
+    const ts = new Date().toISOString();
+    const sig = await sign(config.secret, ts, endUserHash).catch(() => "");
+    if (closed || !sig) return;
+
     source = new EventSource(
       `${config.host}${STREAM_PATH}?key=${encodeURIComponent(config.key)}` +
         `&end_user_hash=${encodeURIComponent(endUserHash)}` +
+        `&ts=${encodeURIComponent(ts)}&sig=${sig}` +
         (lastEventId ? `&last_event_id=${encodeURIComponent(lastEventId)}` : ""),
     );
 
@@ -61,7 +69,7 @@ export function connectStream(
     });
   };
 
-  open();
+  void open();
 
   return () => {
     closed = true;
