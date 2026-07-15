@@ -7,10 +7,11 @@ const BUDGET_BYTES = 30 * 1024;
 const raw = readFileSync(new URL("../dist/firstrun.js", import.meta.url));
 const gzipped = gzipSync(raw, { level: 9 }).length;
 const percent = ((gzipped / BUDGET_BYTES) * 100).toFixed(1);
+const toKB = (bytes) => (bytes / 1024).toFixed(2);
 
 console.log(
-  `firstrun.js: ${raw.length} B raw, ${gzipped} B gzipped, ` +
-    `budget ${BUDGET_BYTES} B (${percent}% used)`,
+  `firstrun.js: ${toKB(raw.length)} KB raw, ${toKB(gzipped)} KB gzipped, ` +
+    `budget ${BUDGET_BYTES / 1024} KB (${percent}% used)`,
 );
 
 if (gzipped > BUDGET_BYTES) {
