@@ -7,7 +7,7 @@ export function filterProperties(
   properties: Properties,
   allowlist: Set<string>,
 ): Properties {
-  const kept: Properties = {};
+  const allowed: Properties = {};
   let count = 0;
   for (const [key, value] of Object.entries(properties)) {
     const kind = typeof value;
@@ -16,7 +16,7 @@ export function filterProperties(
     // JSON turns non-finite numbers into null, which the contract rejects
     if (kind === "number" && !Number.isFinite(value)) continue;
     if (++count > MAX_PROPERTIES) break;
-    kept[key] = value;
+    allowed[key] = value;
   }
-  return kept;
+  return allowed;
 }

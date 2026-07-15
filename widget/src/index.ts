@@ -57,26 +57,40 @@ function start(config: Config): void {
   let endUserHash = "";
   let pendingEvents: PendingEvent[] = [];
 
-  const send = (event: string, properties: Properties | undefined, timestamp: string) => {
+  const enqueueEvent = (
+    event: string,
+    properties: Properties | undefined,
+    timestamp: string,
+    ref?: string,
+  ) => {
     queue.enqueue({
       id: uuidv7(),
       event,
       end_user_hash: endUserHash,
       session_id: sessionId(),
       timestamp,
-      ...(properties && { properties }),
+      ...(ref && { ref }),
+      ...(properties && Object.keys(properties).length > 0 && { properties }),
     });
   };
 
+  // every captured property passes the allowlist client-side, autocapture included
   const capture = (event: string, properties?: Properties) => {
     const timestamp = new Date().toISOString();
-    if (endUserHash) send(event, properties, timestamp);
-    else if (pendingEvents.length < MAX_PENDING) pendingEvents.push([event, properties, timestamp]);
+    const allowedProperties = properties && filterProperties(properties, config.allowlist);
+    if (endUserHash) enqueueEvent(event, allowedProperties, timestamp);
+    else if (pendingEvents.length < MAX_PENDING) {
+      pendingEvents.push([event, allowedProperties, timestamp]);
+    }
   };
 
+  // an intervention event answers a nudge or action the stream rendered, so identity is already set
+  const enqueueInterventionEvent = (event: string, ref: string) =>
+    enqueueEvent(event, undefined, new Date().toISOString(), ref);
+
   const ui = new NudgeUi({
-    onDismiss: safe((nudgeId) => capture("fr.nudge_dismissed", { nudge_id: nudgeId })),
-    onEngage: safe((nudgeId) => capture("fr.nudge_engaged", { nudge_id: nudgeId })),
+    onDismiss: safe((nudgeId) => enqueueInterventionEvent("fr.nudge_dismissed", nudgeId)),
+    onEngage: safe((nudgeId) => enqueueInterventionEvent("fr.nudge_engaged", nudgeId)),
     onSend: (text) =>
       post(
         config,
@@ -98,7 +112,7 @@ function start(config: Config): void {
     }
     endUserHash = hash;
 
-    for (const args of pendingEvents) send(...args);
+    for (const args of pendingEvents) enqueueEvent(...args);
     pendingEvents = [];
 
     disconnect?.();
@@ -121,7 +135,7 @@ function start(config: Config): void {
             return result.ok;
           },
           onCancel: safe((executionId) =>
-            capture("fr.action_cancelled", { execution_id: executionId }),
+            enqueueInterventionEvent("fr.action_cancelled", executionId),
           ),
         }),
       ),
@@ -131,8 +145,7 @@ function start(config: Config): void {
   const track = safe((event: string, properties?: Properties) => {
     // one rejected name never poisons a batch the gateway validates as a whole
     if (typeof event !== "string" || !EVENT_NAME.test(event)) return;
-    const kept = filterProperties(properties ?? {}, config.allowlist);
-    capture(event, Object.keys(kept).length > 0 ? kept : undefined);
+    capture(event, properties);
   });
 
   startAutocapture(safe(capture));

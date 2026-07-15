@@ -22,15 +22,15 @@ interface QueuedEvent {
 
 /**
  * Batches events under the contract's count and body caps. A retryable
- * failure backs off before the batch drops, and the gateway dedupes on
- * each event's id, so retries and the page-hide flush overlap safely.
+ * failure backs off before the batch drops, and page hide flushes the
+ * unsent tail once, the last send the browser allows.
  */
 export class RequestQueue {
   private readonly config: Config;
   private queue: QueuedEvent[] = [];
   private timer: number | undefined;
   private attempts = 0;
-  private sending = false;
+  private inFlightCount = 0;
 
   constructor(config: Config) {
     this.config = config;
@@ -54,13 +54,13 @@ export class RequestQueue {
   private async flush(): Promise<void> {
     clearTimeout(this.timer);
     this.timer = undefined;
-    if (this.sending || this.queue.length === 0) return;
+    if (this.inFlightCount > 0 || this.queue.length === 0) return;
 
     const batch = this.nextBatch();
-    this.sending = true;
+    this.inFlightCount = batch.length;
 
     const result = await post(this.config, INGEST_PATH, batchBody(batch));
-    this.sending = false;
+    this.inFlightCount = 0;
 
     if (result.ok || !result.retryable || ++this.attempts >= MAX_ATTEMPTS) {
       this.queue.splice(0, batch.length);
@@ -86,16 +86,23 @@ export class RequestQueue {
     return batch;
   }
 
-  // events stay queued because the id dedupe makes a second send safe, and
-  // the browser's keepalive quota bounds how much of the tail can go
+  // The unsent tail goes out once over keepalive and drops, because a tail left
+  // queued would resend on the timer and burn quota the gateway meters before deduping
   private flushOnHide(): void {
-    for (let offset = 0; offset < this.queue.length; ) {
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    for (let offset = this.inFlightCount; offset < this.queue.length; ) {
       const batch = this.nextBatch(offset);
       if (batch.length === 0) break;
 
       void post(this.config, INGEST_PATH, batchBody(batch));
       offset += batch.length;
     }
+
+    // an in-flight batch stays for its own flush to settle, and a dropped
+    // backing-off head retires its attempt count with it
+    this.queue.length = this.inFlightCount;
+    if (this.inFlightCount === 0) this.attempts = 0;
   }
 }
 

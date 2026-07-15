@@ -26,6 +26,8 @@ export interface CapturedEvent {
   end_user_hash: string;
   session_id: string;
   timestamp: string;
+  /** The server-issued entity an intervention event responds to, a nudge or an action execution. */
+  ref?: string;
   properties?: Properties;
 }
 
