@@ -86,8 +86,8 @@ export class RequestQueue {
     return batch;
   }
 
-  // The unsent tail goes out once over keepalive and drops, because a tail left
-  // queued would resend on the timer and burn quota the gateway meters before deduping
+  // The unsent tail goes out once over keepalive, because a tail left queued
+  // would resend on the timer and burn quota the gateway meters before deduping
   private flushOnHide(): void {
     clearTimeout(this.timer);
     this.timer = undefined;
@@ -95,7 +95,14 @@ export class RequestQueue {
       const batch = this.nextBatch(offset);
       if (batch.length === 0) break;
 
-      void post(this.config, INGEST_PATH, batchBody(batch));
+      const queuedBatch = this.queue.slice(offset, offset + batch.length);
+      void post(this.config, INGEST_PATH, batchBody(batch)).then((result) => {
+        // a batch the network refused returns to the queue, so a tab that survives retries it
+        if (!result.ok && result.retryable) {
+          this.queue.push(...queuedBatch);
+          this.timer ??= setTimeout(() => void this.flush(), FLUSH_INTERVAL_MS);
+        }
+      });
       offset += batch.length;
     }
 
