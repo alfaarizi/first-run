@@ -1,10 +1,11 @@
+import { TRY_AGAIN_TEXT } from "./constants";
 import { el } from "./dom";
 import type { Citation, NudgePayload } from "./types";
 
 export interface NudgeCallbacks {
   onDismiss(nudgeId: string): void;
   onEngage(nudgeId: string): void;
-  onSend(text: string): void;
+  onSend(text: string): Promise<boolean>;
 }
 
 const CSS = `
@@ -248,11 +249,21 @@ export class NudgeUi {
     const submit = () => {
       const text = input.value.trim();
       if (!text || this.answer) return;
+
       input.value = "";
       this.messages?.append(el("div", "fr-message fr-message-user", text));
-      this.answer = el("div", "fr-message fr-message-agent");
-      this.messages?.append(this.answer);
-      this.callbacks.onSend(text);
+
+      const answer = el("div", "fr-message fr-message-agent");
+      this.answer = answer;
+      this.messages?.append(answer);
+
+      void this.callbacks.onSend(text).then((delivered) => {
+        // a failed send frees the slot, so the user can try again
+        if (!delivered && this.answer === answer) {
+          answer.textContent = TRY_AGAIN_TEXT;
+          this.answer = undefined;
+        }
+      });
     };
     send.onclick = submit;
     input.onkeydown = (e) => {

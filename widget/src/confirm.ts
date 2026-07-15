@@ -1,3 +1,4 @@
+import { TRY_AGAIN_TEXT } from "./constants";
 import { el } from "./dom";
 import type { ActionPayload } from "./types";
 
@@ -34,7 +35,7 @@ export function showConfirmation(
       card.remove();
     } else {
       confirm.disabled = cancel.disabled = false;
-      copy.textContent = `${action.copy}\n\nThat did not go through. Try again.`;
+      copy.textContent = `${action.copy}\n\n${TRY_AGAIN_TEXT}`;
     }
   };
 
