@@ -40,3 +40,9 @@ firstrun:
     rate-capacity: 1000
     rate-refill-per-second: 500
     produce-timeout: 5s
+  gate:
+    # Stuck-signal thresholds for the in-stream gate. Raising dwell trades
+    # detection speed for candidate volume.
+    errors-threshold: 3
+    dwell-threshold: 10m
+    backtracks-threshold: 3

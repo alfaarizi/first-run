@@ -137,6 +137,7 @@ class IngestGatewayTests {
     ConsumerRecord<String, String> record =
         awaitRecord(EventTopics.EVENTS_RAW, value -> value.contains(endUserHash));
     assertThat(record.key()).isEqualTo(sha256Hex(TENANT_A + ":" + endUserHash));
+
     JsonNode envelope = objectMapper.readTree(record.value());
     assertThat(envelope.get("tenant_id").asText()).isEqualTo(TENANT_A);
     assertThat(envelope.get("app_id").asText()).isEqualTo(APP_A);
@@ -159,6 +160,7 @@ class IngestGatewayTests {
 
     ConsumerRecord<String, String> record =
         awaitRecord(EventTopics.EVENTS_RAW, value -> value.contains(endUserHash));
+
     JsonNode envelope = objectMapper.readTree(record.value());
     assertThat(envelope.get("timestamp").asText()).isEqualTo(envelope.get("received_at").asText());
   }
@@ -176,6 +178,7 @@ class IngestGatewayTests {
 
     ConsumerRecord<String, String> record =
         awaitRecord(EventTopics.EVENTS_RAW, value -> value.contains(endUserHash));
+
     JsonNode envelope = objectMapper.readTree(record.value());
     assertThat(envelope.get("timestamp").asText()).isEqualTo(envelope.get("received_at").asText());
   }

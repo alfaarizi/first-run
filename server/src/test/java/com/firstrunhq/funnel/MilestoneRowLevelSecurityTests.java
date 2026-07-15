@@ -3,8 +3,9 @@ package com.firstrunhq.funnel;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.firstrunhq.IntegrationTest;
+import com.firstrunhq.testfixture.RowLevelSecurityProbe;
+import com.firstrunhq.testfixture.TestSeeder;
 import java.sql.Connection;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import javax.sql.DataSource;
@@ -20,6 +21,7 @@ class MilestoneRowLevelSecurityTests {
   private static final String TENANT_A = "019813f2-0000-7000-8000-0000000000d1";
   private static final String TENANT_B = "019813f2-0000-7000-8000-0000000000d2";
   private static final String APP_A = "019813f2-0000-7000-8000-0000000000d3";
+  private static final String MILESTONE_A = "019813f2-0000-7000-8000-0000000000d4";
 
   private final DataSource dataSource;
 
@@ -29,58 +31,28 @@ class MilestoneRowLevelSecurityTests {
 
   @Test
   void crossTenantReadReturnsNothing() throws SQLException {
+    TestSeeder.tenant(dataSource, TENANT_A, "Tenant A");
+    TestSeeder.tenant(dataSource, TENANT_B, "Tenant B");
+    TestSeeder.app(dataSource, APP_A, TENANT_A, "App A");
+    TestSeeder.milestone(
+        dataSource, MILESTONE_A, TENANT_A, APP_A, "project_created", "Create a project", 1);
+
     // SET ROLE and the tenant GUC are session state, so everything shares a connection.
     try (Connection connection = dataSource.getConnection();
         Statement statement = connection.createStatement()) {
-      statement.execute(
-          """
-          DO $$ BEGIN
-            PERFORM pg_advisory_xact_lock(hashtext('rls_probe'));
-            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'rls_probe') THEN
-              CREATE ROLE rls_probe LOGIN;
-            END IF;
-            GRANT SELECT ON milestone TO rls_probe;
-          END $$
-          """);
-
-      // The container's default user is a superuser, so these inserts bypass RLS.
-      statement.execute(
-          "INSERT INTO tenant (id, name) VALUES ('%s', 'Tenant A'), ('%s', 'Tenant B')"
-              .formatted(TENANT_A, TENANT_B));
-
-      statement.execute(
-          """
-          INSERT INTO app (id, tenant_id, name, sdk_key, hmac_key)
-          VALUES ('%s', '%s', 'App A', 'key_milestone_a', 'hmac_milestone_a')
-          """
-              .formatted(APP_A, TENANT_A));
-      statement.execute(
-          """
-          INSERT INTO milestone (id, tenant_id, app_id, name, title, position)
-          VALUES ('019813f2-0000-7000-8000-0000000000d4', '%s', '%s',
-                  'project_created', 'Create a project', 1)
-          """
-              .formatted(TENANT_A, APP_A));
-
+      RowLevelSecurityProbe.grantSelect(statement, "milestone");
       statement.execute("SET ROLE rls_probe");
 
       statement.execute("SET app.tenant_id = '%s'".formatted(TENANT_A));
-      assertThat(countMilestones(statement)).isEqualTo(1);
+      assertThat(RowLevelSecurityProbe.count(statement, "milestone")).isEqualTo(1);
 
       statement.execute("SET app.tenant_id = '%s'".formatted(TENANT_B));
-      assertThat(countMilestones(statement)).isZero();
+      assertThat(RowLevelSecurityProbe.count(statement, "milestone")).isZero();
 
       statement.execute("RESET app.tenant_id");
-      assertThat(countMilestones(statement)).isZero();
+      assertThat(RowLevelSecurityProbe.count(statement, "milestone")).isZero();
 
       statement.execute("RESET ROLE");
-    }
-  }
-
-  private int countMilestones(Statement statement) throws SQLException {
-    try (ResultSet resultSet = statement.executeQuery("SELECT count(*) FROM milestone")) {
-      resultSet.next();
-      return resultSet.getInt(1);
     }
   }
 }

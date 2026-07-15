@@ -3,6 +3,7 @@ package com.firstrunhq.funnel;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.firstrunhq.IntegrationTest;
+import com.firstrunhq.testfixture.TestSeeder;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.OffsetDateTime;
@@ -66,50 +67,42 @@ class FunnelGraphqlTests {
 
   @BeforeEach
   void seedFunnelState() throws SQLException {
+    TestSeeder.tenant(dataSource, TENANT, "Funnel Tenant");
+    TestSeeder.app(dataSource, APP, TENANT, "Funnel App");
+    TestSeeder.app(dataSource, APP_RECENT, TENANT, "Recent App");
+
+    // The second step lands first so ordering comes from position, not insertion.
+    TestSeeder.milestone(
+        dataSource,
+        MILESTONE_SECOND,
+        TENANT,
+        APP,
+        "data_source_connected",
+        "Connect a data source",
+        2);
+    TestSeeder.milestone(
+        dataSource, MILESTONE_FIRST, TENANT, APP, "project_created", "Create a project", 1);
+    TestSeeder.milestone(
+        dataSource,
+        MILESTONE_RECENT,
+        TENANT,
+        APP_RECENT,
+        "report_generated",
+        "Generate a report",
+        1);
+
+    for (int user = 1; user <= 8; user++) {
+      TestSeeder.endUser(
+          dataSource,
+          endUserId(user),
+          TENANT,
+          user <= 7 ? APP : APP_RECENT,
+          "hash_funnel_" + user,
+          "2026-05-01T00:00:00Z");
+    }
+
     try (var connection = dataSource.getConnection();
         Statement statement = connection.createStatement()) {
-      statement.execute(
-          "INSERT INTO tenant (id, name) VALUES ('%s', 'Funnel Tenant') ON CONFLICT (id) DO NOTHING"
-              .formatted(TENANT));
-      statement.execute(
-          """
-          INSERT INTO app (id, tenant_id, name, sdk_key, hmac_key)
-          VALUES
-            ('%s', '%s', 'Funnel App', 'key_funnel_102', 'hmac_funnel_102'),
-            ('%s', '%s', 'Recent App', 'key_funnel_103', 'hmac_funnel_103')
-          ON CONFLICT (id) DO NOTHING
-          """
-              .formatted(APP, TENANT, APP_RECENT, TENANT));
-
-      // The second step lands first so ordering comes from position, not insertion.
-      statement.execute(
-          """
-          INSERT INTO milestone (id, tenant_id, app_id, name, title, position) VALUES
-            ('%s', '%s', '%s', 'data_source_connected', 'Connect a data source', 2),
-            ('%s', '%s', '%s', 'project_created', 'Create a project', 1),
-            ('%s', '%s', '%s', 'report_generated', 'Generate a report', 1)
-          ON CONFLICT (id) DO NOTHING
-          """
-              .formatted(
-                  MILESTONE_SECOND,
-                  TENANT,
-                  APP,
-                  MILESTONE_FIRST,
-                  TENANT,
-                  APP,
-                  MILESTONE_RECENT,
-                  TENANT,
-                  APP_RECENT));
-
-      for (int user = 1; user <= 8; user++) {
-        statement.execute(
-            """
-            INSERT INTO end_user (id, tenant_id, app_id, external_hash, first_seen_at)
-            VALUES ('%s', '%s', '%s', 'hash_funnel_%d', '2026-05-01T00:00:00Z')
-            ON CONFLICT (id) DO NOTHING
-            """
-                .formatted(endUser(user), TENANT, user <= 7 ? APP : APP_RECENT, user));
-      }
       statement.execute(
           """
           INSERT INTO milestone_progress
@@ -136,14 +129,14 @@ class FunnelGraphqlTests {
           """
               .formatted(
                   TENANT,
-                  endUser(1),
+                  endUserId(1),
                   MILESTONE_FIRST,
-                  endUser(2),
-                  endUser(3),
-                  endUser(4),
-                  endUser(5),
-                  endUser(6),
-                  endUser(7),
+                  endUserId(2),
+                  endUserId(3),
+                  endUserId(4),
+                  endUserId(5),
+                  endUserId(6),
+                  endUserId(7),
                   MILESTONE_SECOND));
       statement.execute(
           """
@@ -152,7 +145,7 @@ class FunnelGraphqlTests {
           VALUES ('%s', '%s', '%s', 'IN_PROGRESS', now() - interval '1 day', NULL)
           ON CONFLICT (end_user_id, milestone_id) DO NOTHING
           """
-              .formatted(TENANT, endUser(8), MILESTONE_RECENT));
+              .formatted(TENANT, endUserId(8), MILESTONE_RECENT));
     }
   }
 
@@ -193,7 +186,7 @@ class FunnelGraphqlTests {
   }
 
   @Test
-  void reportsNoStuckSignalsBeforeTheGateExists() {
+  void reportsNoStuckSignalsUntilCandidatesPersist() {
     GraphQlTester.Response response = funnel(APP);
     response
         .path("app.funnel.steps[*].stuckSignals")
@@ -205,11 +198,13 @@ class FunnelGraphqlTests {
   void defaultsToTheLastThirtyDays() {
     GraphQlTester.Response response =
         asTenant().document(GET_FUNNEL).variable("appId", APP_RECENT).execute();
+
     OffsetDateTime from =
         OffsetDateTime.parse(response.path("app.funnel.from").entity(String.class).get());
     OffsetDateTime to =
         OffsetDateTime.parse(response.path("app.funnel.to").entity(String.class).get());
     assertThat(from).isEqualTo(to.minusDays(30));
+
     response.path("app.funnel.steps[0].entered").entity(Integer.class).isEqualTo(1);
     response.path("app.funnel.steps[0].completed").entity(Integer.class).isEqualTo(0);
     response.path("app.funnel.steps[0].medianSecondsToComplete").valueIsNull();
@@ -278,7 +273,7 @@ class FunnelGraphqlTests {
     return tester.mutate().headers(headers -> headers.set("X-FirstRun-Tenant", TENANT)).build();
   }
 
-  private static String endUser(int user) {
+  private static String endUserId(int user) {
     return "019813f2-0000-7000-8000-00000000011%d".formatted(user);
   }
 }

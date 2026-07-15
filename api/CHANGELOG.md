@@ -3,6 +3,25 @@
 Each entry records the date, the change, the rationale, and whether it is
 additive or breaking.
 
+## 2026-07-15
+
+### Added
+
+- `intervention.candidates` record contract. The stuck gate emits at most one
+  candidate per session, snake_case and keyed like `events.raw`, carrying the
+  open step, the firing rule, and the session's stuck signals at flag time.
+  A redelivery can emit a copy, so consumers dedupe on `event_id`, which
+  stays fixed across copies. Failed consumption dead-letters to
+  `intervention.candidates.dlq`.
+
+### Changed
+
+- `FunnelStep.stuckSignals` still reads zero as the gate only writes to Kafka,
+  and the count fills once decisioning ledgers one decision per candidate.
+
+Additive. The SDL is unchanged, and this pins what candidate consumers may
+rely on before the first one ships.
+
 ## 2026-07-09
 
 ### Added
