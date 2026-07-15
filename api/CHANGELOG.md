@@ -18,9 +18,7 @@ additive or breaking.
   alone so a rotated session never strands the channel. It authenticates by
   query string because `EventSource` cannot set headers, a `ts` and `sig`
   HMAC-SHA256 pair over the hash, and a manual reopen resumes from a
-  `last_event_id` query parameter (the Mercure pattern). Reserved `fr.` event
-  properties (`path`, `nudge_id`, `execution_id`) must survive the gateway's
-  allowlist drop, a gap the ingest controller still has. Chat
+  `last_event_id` query parameter (the Mercure pattern). Chat
   posts to `/v1/messages` and confirmations to `/v1/confirmations` keyed by
   `execution_id`. The widget emits `fr.nudge_dismissed`, `fr.nudge_engaged`,
   and `fr.action_cancelled`.
