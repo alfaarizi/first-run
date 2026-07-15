@@ -14,9 +14,11 @@ additive or breaking.
   stays fixed across copies. Failed consumption dead-letters to
   `intervention.candidates.dlq`.
 - Contracts the widget size spike assumed. `GET /v1/stream` pushes the SSE
-  events `nudge`, `token`, `done`, and `action`, authenticated by query
-  string because `EventSource` cannot set headers. Chat posts to
-  `/v1/messages` and confirmations to `/v1/confirmations` keyed by
+  events `nudge`, `token`, `done`, and `action`, keyed by `end_user_hash`
+  alone so a rotated session never strands the channel. It authenticates by
+  query string because `EventSource` cannot set headers, and a manual reopen
+  resumes from a `last_event_id` query parameter (the Mercure pattern). Chat
+  posts to `/v1/messages` and confirmations to `/v1/confirmations` keyed by
   `execution_id`. The widget emits `fr.nudge_dismissed`, `fr.nudge_engaged`,
   and `fr.action_cancelled`.
 

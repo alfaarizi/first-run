@@ -13,6 +13,8 @@ export function filterProperties(
     const kind = typeof value;
     if (!allowlist.has(key)) continue;
     if (kind !== "string" && kind !== "number" && kind !== "boolean") continue;
+    // JSON turns non-finite numbers into null, which the contract rejects
+    if (kind === "number" && !Number.isFinite(value)) continue;
     if (++count > MAX_PROPERTIES) break;
     kept[key] = value;
   }

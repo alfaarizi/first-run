@@ -10,8 +10,10 @@ test("keeps only allowlisted scalar properties", () => {
       trial: false,
       password: "hunter2",
       nested: { plan: "pro" } as unknown as string,
+      dwell: NaN,
+      depth: Infinity,
     },
-    new Set(["plan", "seats", "trial", "nested"]),
+    new Set(["plan", "seats", "trial", "nested", "dwell", "depth"]),
   );
   expect(filtered).toEqual({ plan: "pro", seats: 4, trial: false });
 });
