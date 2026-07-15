@@ -14,6 +14,7 @@ export async function sign(
     await importKey(secret),
     encoder.encode(`${timestamp}.${body}`),
   );
+
   let hex = "";
   for (const byte of new Uint8Array(mac)) hex += byte.toString(16).padStart(2, "0");
   return hex;
@@ -25,8 +26,9 @@ export interface PostResult {
 }
 
 /**
- * Signs and posts a JSON body. A 5xx or network failure is retryable and a
- * 4xx is not, because resending the same request cannot improve it.
+ * Signs and posts a JSON body with keepalive set, so a flush issued on page
+ * hide survives the unload. A 429 or 5xx is retryable and other 4xx are
+ * not, because resending the same request cannot improve it.
  */
 export async function post(
   config: Config,
@@ -46,31 +48,10 @@ export async function post(
       },
       body,
     });
-    return { ok: response.ok, retryable: response.status >= 500 };
+    return { ok: response.ok, retryable: response.status === 429 || response.status >= 500 };
   } catch {
     return { ok: false, retryable: true };
   }
-}
-
-/**
- * Fires a beacon on page hide. Beacons cannot carry headers, so the
- * signature rides the query string.
- */
-export async function beacon(
-  config: Config,
-  path: string,
-  body: string,
-): Promise<void> {
-  const timestamp = new Date().toISOString();
-  const signature = await sign(config.secret, timestamp, body);
-  const query =
-    `?key=${encodeURIComponent(config.key)}` +
-    `&ts=${encodeURIComponent(timestamp)}&sig=${signature}`;
-
-  navigator.sendBeacon(
-    config.host + path + query,
-    new Blob([body], { type: "application/json" }),
-  );
 }
 
 function importKey(secret: string): Promise<CryptoKey> {

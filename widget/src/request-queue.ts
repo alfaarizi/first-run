@@ -1,5 +1,5 @@
 import { INGEST_PATH } from "./constants";
-import { beacon, post } from "./request";
+import { post } from "./request";
 import type { CapturedEvent, Config } from "./types";
 
 const BATCH_SIZE = 20;
@@ -11,7 +11,7 @@ const BACKOFF_MS = 2000;
 /**
  * Batches events and flushes at 20 events or 5 seconds. A retryable failure
  * backs off and drops the batch after 3 attempts. The gateway dedupes on
- * each event's id, so retries and the page-hide beacon overlap safely.
+ * each event's id, so retries and the page-hide flush overlap safely.
  */
 export class RequestQueue {
   private readonly config: Config;
@@ -22,15 +22,16 @@ export class RequestQueue {
 
   constructor(config: Config) {
     this.config = config;
-    addEventListener("pagehide", () => this.flushWithBeacon());
+    addEventListener("pagehide", () => this.flushOnHide());
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") this.flushWithBeacon();
+      if (document.visibilityState === "hidden") this.flushOnHide();
     });
   }
 
   enqueue(event: CapturedEvent): void {
     this.queue.push(event);
-    if (this.queue.length >= BATCH_SIZE) void this.flush();
+    // a scheduled retry owns the queue while backing off
+    if (this.queue.length >= BATCH_SIZE && this.attempts === 0) void this.flush();
     else this.timer ??= setTimeout(() => void this.flush(), FLUSH_MS);
   }
 
@@ -56,10 +57,10 @@ export class RequestQueue {
     }
   }
 
-  private flushWithBeacon(): void {
+  // the events stay queued, because the id dedupe makes a second send safe
+  private flushOnHide(): void {
     if (this.queue.length === 0) return;
-    const batch = this.queue.splice(0, MAX_BATCH);
-    void beacon(this.config, INGEST_PATH, batchBody(batch));
+    void post(this.config, INGEST_PATH, batchBody(this.queue.slice(0, MAX_BATCH)));
   }
 }
 
