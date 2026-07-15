@@ -28,13 +28,22 @@ export function sessionId(now = Date.now()): string {
 
   // a corrupt store rotates instead of poisoning every batch
   if (!UUID.test(id) || !Number.isFinite(touchedAt) || now - touchedAt > IDLE_MS) id = uuidv7();
-  memoryId = id;
-  memoryTouchedAt = now;
+  storeSession(now, id);
+  return id;
+}
 
+/** Starts a fresh session, used when the identified end user changes. */
+export function rotateSession(now = Date.now()): void {
+  storeSession(now, uuidv7());
+}
+
+/** Records the id as the active session, in memory and in storage. */
+function storeSession(now: number, sessionId: string): void {
+  memoryId = sessionId;
+  memoryTouchedAt = now;
   try {
-    sessionStorage.setItem(STORAGE_KEY, `${now}:${id}`);
+    sessionStorage.setItem(STORAGE_KEY, `${now}:${sessionId}`);
   } catch {
     // best effort
   }
-  return id;
 }

@@ -5,7 +5,7 @@ import { showConfirmation } from "./confirm";
 import { NudgeUi } from "./nudge";
 import { post } from "./request";
 import { RequestQueue } from "./request-queue";
-import { sessionId } from "./sessionid";
+import { rotateSession, sessionId } from "./sessionid";
 import { connectStream } from "./stream";
 import type { Config, Properties } from "./types";
 import { uuidv7 } from "./uuidv7";
@@ -13,6 +13,7 @@ import { uuidv7 } from "./uuidv7";
 // the ingest grammar for custom names, which also excludes the reserved fr. prefix
 const EVENT_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
+const END_USER_HASH_MAX = 128;
 const PENDING_LIMIT = 100;
 
 /** An event held until identify supplies the customer's hash. */
@@ -85,13 +86,21 @@ function start(config: Config): void {
       ).then((result) => result.ok),
   });
 
+  let disconnect: (() => void) | undefined;
   const identify = safe((hash: string) => {
-    if (!hash || endUserHash) return;
+    // one bad hash would poison every later batch, so the contract's cap gates here
+    if (typeof hash !== "string" || !hash || hash.length > END_USER_HASH_MAX) return;
+    if (hash === endUserHash) return;
+
+    // an account switch gets its own session, so features never mix users
+    if (endUserHash) rotateSession();
     endUserHash = hash;
 
     for (const args of pendingEvents) send(...args);
     pendingEvents = [];
-    connectStream(config, sessionId(), hash, {
+
+    disconnect?.();
+    disconnect = connectStream(config, sessionId(), hash, {
       nudge: safe((payload) => ui.showNudge(payload)),
       token: safe((text) => ui.appendToken(text)),
       done: safe((citations) => ui.finishAnswer(citations)),
