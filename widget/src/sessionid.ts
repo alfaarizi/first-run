@@ -1,5 +1,6 @@
 import { uuidv7 } from "./uuidv7";
 
+const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const STORAGE_KEY = "fr_session";
 const IDLE_MS = 30 * 60 * 1000;
 
@@ -25,7 +26,8 @@ export function sessionId(now = Date.now()): string {
     // storage is blocked, use the in-memory copy
   }
 
-  if (!id || now - touchedAt > IDLE_MS) id = uuidv7();
+  // a corrupt store rotates instead of poisoning every batch
+  if (!UUID.test(id) || !Number.isFinite(touchedAt) || now - touchedAt > IDLE_MS) id = uuidv7();
   memoryId = id;
   memoryTouchedAt = now;
 

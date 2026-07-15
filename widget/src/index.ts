@@ -1,6 +1,6 @@
 import { filterProperties } from "./allowlist";
 import { startAutocapture } from "./autocapture";
-import { CONFIRMATIONS_PATH, MESSAGES_PATH, RESERVED_PREFIX } from "./constants";
+import { CONFIRMATIONS_PATH, MESSAGES_PATH } from "./constants";
 import { showConfirmation } from "./confirm";
 import { NudgeUi } from "./nudge";
 import { post } from "./request";
@@ -9,6 +9,9 @@ import { sessionId } from "./sessionid";
 import { connectStream } from "./stream";
 import type { Config, Properties } from "./types";
 import { uuidv7 } from "./uuidv7";
+
+// the ingest grammar for custom names, which also excludes the reserved fr. prefix
+const EVENT_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
 const PENDING_LIMIT = 100;
 
@@ -74,13 +77,12 @@ function start(config: Config): void {
   const ui = new NudgeUi({
     onDismiss: safe((nudgeId) => capture("fr.nudge_dismissed", { nudge_id: nudgeId })),
     onEngage: safe((nudgeId) => capture("fr.nudge_engaged", { nudge_id: nudgeId })),
-    onSend: safe((text) => {
-      void post(
+    onSend: (text) =>
+      post(
         config,
         MESSAGES_PATH,
         JSON.stringify({ session_id: sessionId(), end_user_hash: endUserHash, text }),
-      );
-    }),
+      ).then((result) => result.ok),
   });
 
   const identify = safe((hash: string) => {
@@ -116,7 +118,8 @@ function start(config: Config): void {
   });
 
   const track = safe((event: string, properties?: Properties) => {
-    if (typeof event !== "string" || event.startsWith(RESERVED_PREFIX)) return;
+    // one rejected name never poisons a batch the gateway validates as a whole
+    if (typeof event !== "string" || !EVENT_NAME.test(event)) return;
     const kept = filterProperties(properties ?? {}, config.allowlist);
     capture(event, Object.keys(kept).length > 0 ? kept : undefined);
   });
