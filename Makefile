@@ -79,7 +79,7 @@ test-agent:
 
 test-widget:
 	@if [ -f widget/package.json ]; then \
-		(cd widget && npx vitest run); \
+		(cd widget && npm run typecheck && npx vitest run); \
 	else echo ">> skipping test-widget, widget/ is not scaffolded"; fi
 
 # Needs the GraphQL client types, which the tests and the type check import from src/gql.

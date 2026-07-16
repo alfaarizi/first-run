@@ -22,12 +22,24 @@ runs:
     - name: restore node_modules
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       id: node-modules
-      if: ${{ !contains(inputs.target, 'server') && !contains(inputs.target, 'agent') && !endsWith(inputs.target, '-web') }}
+      if: ${{ !contains(inputs.target, 'server') && !contains(inputs.target, 'agent') && !endsWith(inputs.target, '-web') && !contains(inputs.target, 'widget') && inputs.target != 'size' }}
       with:
         path: node_modules
         key: node-modules-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('package-lock.json') }}
     - name: install dependencies
       if: ${{ steps.node-modules.outcome == 'success' && steps.node-modules.outputs.cache-hit != 'true' }}
+      run: npm ci --no-audit --no-fund
+      shell: bash
+    - name: restore widget node_modules
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      id: widget-node-modules
+      if: ${{ inputs.target == '' || contains(inputs.target, 'widget') || inputs.target == 'size' }}
+      with:
+        path: widget/node_modules
+        key: widget-node-modules-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('widget/package-lock.json') }}
+    - name: install widget dependencies
+      if: ${{ steps.widget-node-modules.outcome == 'success' && steps.widget-node-modules.outputs.cache-hit != 'true' }}
+      working-directory: widget
       run: npm ci --no-audit --no-fund
       shell: bash
     - name: restore web node_modules

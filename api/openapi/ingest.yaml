@@ -30,8 +30,9 @@ paths:
       summary: Ingest a batch of events
       description: |
         Accepts 1 to 50 events per request. The widget batches on an interval
-        and flushes with `sendBeacon` on page hide. Delivery is at-least-once,
-        so the gateway deduplicates on each event's `id` for 24 hours.
+        and flushes with a keepalive fetch on page hide. Delivery is
+        at-least-once, so the gateway deduplicates on each event's `id` for
+        24 hours.
       security:
         - hmacSignature: []
       parameters:
@@ -164,6 +165,14 @@ components:
           type: string
           format: uuid
           description: Widget-generated session ID. The widget rotates it after 30 idle minutes.
+        ref:
+          type: string
+          format: uuid
+          description: >
+            References the server-issued entity an intervention event responds to,
+            the nudge for `fr.nudge_dismissed` and `fr.nudge_engaged` and the
+            action execution for `fr.action_cancelled`. Structural, so it
+            reaches the stream without passing the property allowlist.
         timestamp:
           type: string
           format: date-time

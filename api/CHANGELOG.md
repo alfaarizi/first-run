@@ -13,11 +13,22 @@ additive or breaking.
   A redelivery can emit a copy, so consumers dedupe on `event_id`, which
   stays fixed across copies. Failed consumption dead-letters to
   `intervention.candidates.dlq`.
+- Contracts the widget size spike assumed. `GET /v1/stream` pushes the SSE
+  events `nudge`, `token`, `done`, and `action`, keyed by `end_user_hash`
+  alone so a rotated session never strands the channel. It authenticates by
+  query string because `EventSource` cannot set headers, a `ts` and `sig`
+  HMAC-SHA256 pair over the hash, and a manual reopen resumes from a
+  `last_event_id` query parameter (the Mercure pattern). Chat
+  posts to `/v1/messages` and confirmations to `/v1/confirmations` keyed by
+  `execution_id`. The widget emits `fr.nudge_dismissed`, `fr.nudge_engaged`,
+  and `fr.action_cancelled`.
 
 ### Changed
 
 - `FunnelStep.stuckSignals` still reads zero as the gate only writes to Kafka,
   and the count fills once decisioning ledgers one decision per candidate.
+- The ingest description names the page-hide flush a keepalive fetch, because
+  `sendBeacon` cannot carry the signature headers the contract requires.
 
 Additive. The SDL is unchanged, and this pins what candidate consumers may
 rely on before the first one ships.
