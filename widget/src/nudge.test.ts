@@ -45,7 +45,8 @@ test("boots as a collapsed launcher with the face", () => {
   const launcher = query<HTMLButtonElement>(".fr-launcher");
   expect(launcher?.getAttribute("aria-expanded")).toBe("false");
   expect(shadow.querySelectorAll(".fr-eye")).toHaveLength(2);
-  expect(query(".fr-header")?.textContent).toBe("Support");
+  expect(query(".fr-title")?.textContent).toBe("FirstRun");
+  expect(query(".fr-subtitle")?.textContent).toBe("Here to help");
   expect(query(".fr-shell")?.classList.contains("fr-expanded")).toBe(false);
 });
 
@@ -80,7 +81,7 @@ test("opening from the bubble engages the nudge into the conversation", () => {
   expect(query(".fr-shell")?.classList.contains("fr-unread")).toBe(false);
   expect(query(".fr-launcher")?.getAttribute("aria-expanded")).toBe("true");
   expect(query(".fr-bubble")).toBeNull();
-  expect(query(".fr-message-agent")?.textContent).toBe("Stuck?");
+  expect(query(".fr-message-agent .fr-body")?.textContent).toBe("Stuck?");
 });
 
 test("the launcher engages a pending nudge and toggles the panel", () => {
@@ -126,7 +127,7 @@ test("a nudge with the panel open joins the conversation without an outcome", ()
 
   ui.showNudge({ id: "n2", text: "Try connecting a source." });
 
-  expect(query(".fr-message-agent")?.textContent).toBe("Try connecting a source.");
+  expect(query(".fr-message-agent .fr-body")?.textContent).toBe("Try connecting a source.");
   expect(query(".fr-bubble")).toBeNull();
   expect(query(".fr-shell")?.classList.contains("fr-unread")).toBe(false);
   expect(callbacks.onEngage).not.toHaveBeenCalled();
@@ -155,10 +156,11 @@ test("a send renders the user text and a failed send frees the slot", async () =
   input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
 
   expect(callbacks.onSend).toHaveBeenCalledWith("how do I connect?");
-  expect(query(".fr-message-user")?.textContent).toBe("how do I connect?");
+  expect(query(".fr-message-user .fr-body")?.textContent).toBe("how do I connect?");
+  expect(query(".fr-message-user .fr-time")?.textContent).toMatch(/^\d{1,2}:\d{2}/);
 
   await vi.waitFor(() =>
-    expect(query(".fr-message-agent")?.textContent).toBe(TRY_AGAIN_TEXT),
+    expect(query(".fr-message-agent .fr-body")?.textContent).toBe(TRY_AGAIN_TEXT),
   );
 });
 
@@ -172,7 +174,7 @@ test("a rejected send reads as a failed delivery", async () => {
   input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
 
   await vi.waitFor(() =>
-    expect(query(".fr-message-agent")?.textContent).toBe(TRY_AGAIN_TEXT),
+    expect(query(".fr-message-agent .fr-body")?.textContent).toBe(TRY_AGAIN_TEXT),
   );
 });
 
@@ -222,7 +224,18 @@ test("an answer that ends without tokens or citations reads as a failure", async
 
   ui.finishAnswer([]);
 
-  expect(query(".fr-message-agent")?.textContent).toBe(TRY_AGAIN_TEXT);
+  expect(query(".fr-message-agent .fr-body")?.textContent).toBe(TRY_AGAIN_TEXT);
+});
+
+test("the header close button collapses the panel without the morph", () => {
+  const { query } = createUi();
+  query<HTMLButtonElement>(".fr-launcher")?.click();
+
+  query<HTMLButtonElement>(".fr-header .fr-close")?.click();
+
+  expect(query(".fr-shell")?.classList.contains("fr-expanded")).toBe(false);
+  expect(query(".fr-shell")?.classList.contains("fr-morph")).toBe(false);
+  expect(shadow.activeElement).toBe(query(".fr-launcher"));
 });
 
 test("reset returns the surface to a fresh collapsed launcher", () => {

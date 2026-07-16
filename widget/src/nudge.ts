@@ -13,6 +13,9 @@ const ANSWER_IDLE_MS = 20_000;
 // within this distance of the newest message the view still follows the stream
 const NEAR_BOTTOM_PX = 40;
 
+// built once, because Intl formatter construction dwarfs the per-message format call
+const TIME_FORMAT = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+
 export interface NudgeCallbacks {
   onDismiss(nudgeId: string): void;
   onEngage(nudgeId: string): void;
@@ -44,7 +47,7 @@ export class NudgeUi {
     this.callbacks = callbacks;
 
     this.launcher = el("button", "fr-launcher");
-    this.launcher.setAttribute("aria-label", "Product assistant");
+    this.launcher.setAttribute("aria-label", "FirstRun assistant");
     this.launcher.setAttribute("aria-expanded", "false");
     this.launcher.append(createFace());
     this.launcher.onclick = () => (this.expanded ? this.collapse() : this.open());
@@ -55,8 +58,21 @@ export class NudgeUi {
 
     this.composer = createComposer(() => this.submit());
 
+    const heading = el("div", "");
+    heading.append(el("h2", "fr-title", "FirstRun"), el("p", "fr-subtitle", "Here to help"));
+
+    const close = el("button", "fr-close", "×");
+    close.setAttribute("aria-label", "Close");
+    close.onclick = () => {
+      this.collapse(false);
+      this.launcher.focus({ preventScroll: true });
+    };
+
+    const header = el("div", "fr-header");
+    header.append(heading, close);
+
     this.panel = el("div", "fr-panel");
-    this.panel.append(el("h2", "fr-header", "Support"), this.messages, this.composer.root);
+    this.panel.append(header, this.messages, this.composer.root);
 
     const dot = el("span", "fr-dot");
     dot.setAttribute("aria-hidden", "true");
@@ -97,7 +113,7 @@ export class NudgeUi {
     this.panel.querySelector(".fr-confirm")?.remove();
     this.composer.clear();
     this.shell.classList.remove("fr-unread");
-    this.collapse();
+    this.collapse(false);
   }
 
   /** Announces a frame the collapsed shell would otherwise hide, with the dot and chime. */
@@ -188,8 +204,13 @@ export class NudgeUi {
   }
 
   // the conversation keeps its DOM, so reopening restores it
-  private collapse(): void {
-    this.morph();
+  private collapse(animate = true): void {
+    if (animate) this.morph();
+    else {
+      // cancel any running morph, so the close lands instantly
+      clearTimeout(this.morphTimer);
+      this.shell.classList.remove("fr-morph");
+    }
     this.expanded = false;
     this.shell.classList.remove("fr-expanded");
     this.launcher.setAttribute("aria-expanded", "false");
@@ -230,11 +251,14 @@ export class NudgeUi {
       });
   }
 
+  /** Appends a bubble and returns its body, the element streaming writes into. */
   private appendMessage(kind: "user" | "agent", text = ""): HTMLElement {
-    const message = el("div", `fr-message fr-message-${kind}`, text);
+    const message = el("div", `fr-message fr-message-${kind}`);
+    const body = el("span", "fr-body", text);
+    message.append(body, el("span", "fr-time", TIME_FORMAT.format(Date.now())));
     this.messages.append(message);
     this.scrollToBottom();
-    return message;
+    return body;
   }
 
   private isAtBottom(): boolean {
