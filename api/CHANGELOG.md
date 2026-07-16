@@ -9,7 +9,9 @@ additive or breaking.
 
 - `api/openapi/stream.yaml` documents `GET /v1/stream`, the widget's SSE
   channel the 2026-07-15 entry pinned. The gateway serves the `nudge` frame,
-  whose data carries `id` and `text`, and accepts `last_event_id`.
+  whose data carries `id` and `text`, and accepts `last_event_id`. It answers
+  429 past the app's concurrent stream budget, because the signing key ships
+  in the page and cannot gate connections.
 
 Additive. The ingest schema already carried `ref`; the server envelope now
 carries it too, so intervention events keep their nudge or execution link

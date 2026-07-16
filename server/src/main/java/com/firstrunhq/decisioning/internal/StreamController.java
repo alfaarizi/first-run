@@ -66,6 +66,10 @@ class StreamController {
             app.hmacKey(), timestamp, endUserHash.getBytes(StandardCharsets.UTF_8), signature)) {
       return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
     }
-    return ResponseEntity.ok(streams.register(app.id(), endUserHash));
+    SseEmitter stream = streams.register(app.id(), endUserHash);
+    if (stream == null) {
+      return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
+    }
+    return ResponseEntity.ok(stream);
   }
 }

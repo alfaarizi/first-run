@@ -95,6 +95,10 @@ paths:
             outside the window.
         '403':
           description: Origin sent and not on the app's allowed origins.
+        '429':
+          description: >
+            The app's concurrent stream budget is spent. The widget retries
+            with backoff.
 components:
   securitySchemes:
     hmacSignature:

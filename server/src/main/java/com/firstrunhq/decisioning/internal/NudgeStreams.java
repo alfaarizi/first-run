@@ -2,11 +2,14 @@ package com.firstrunhq.decisioning.internal;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.jspecify.annotations.Nullable;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -21,22 +24,44 @@ class NudgeStreams {
   // Under the 30-minute session idle window, so an abandoned tab's stream closes with its session.
   private static final Duration STREAM_TIMEOUT = Duration.ofMinutes(25);
 
-  private final Map<String, List<SseEmitter>> streams = new ConcurrentHashMap<>();
+  // The signing key ships in the page, so anyone can mint a valid stream URL. The user cap retires
+  // the oldest tab, and the app budget keeps one flooded app from starving the other tenants.
+  private static final int MAX_STREAMS_PER_USER = 8;
+  private static final int MAX_STREAMS_PER_APP = 1000;
 
-  SseEmitter register(UUID appId, String endUserHash) {
+  private final Map<String, List<SseEmitter>> streams = new ConcurrentHashMap<>();
+  private final Map<UUID, AtomicInteger> appStreamCounts = new ConcurrentHashMap<>();
+
+  /** Opens a stream for the user, or returns null when the app's budget is spent. */
+  @Nullable SseEmitter register(UUID appId, String endUserHash) {
+    AtomicInteger appCount = appStreamCounts.computeIfAbsent(appId, id -> new AtomicInteger());
+    if (appCount.incrementAndGet() > MAX_STREAMS_PER_APP) {
+      appCount.decrementAndGet();
+      return null;
+    }
+
     SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT.toMillis());
     String key = key(appId, endUserHash);
 
     // compute serializes with removal per key, so a concurrent removal never strands a live stream
+    List<SseEmitter> evicted = new ArrayList<>();
     streams.compute(
         key,
         (unused, emitters) -> {
           List<SseEmitter> live = emitters == null ? new CopyOnWriteArrayList<>() : emitters;
+          while (live.size() >= MAX_STREAMS_PER_USER) {
+            evicted.add(live.removeFirst());
+          }
           live.add(emitter);
           return live;
         });
+    // completing inside compute would re-enter the map through the removal callback
+    for (SseEmitter retired : evicted) {
+      appCount.decrementAndGet();
+      retired.complete();
+    }
 
-    Runnable remove = () -> remove(key, emitter);
+    Runnable remove = () -> remove(appCount, key, emitter);
     emitter.onCompletion(remove);
     emitter.onTimeout(remove);
     emitter.onError(error -> remove.run());
@@ -67,11 +92,15 @@ class NudgeStreams {
     }
   }
 
-  private void remove(String key, SseEmitter emitter) {
+  // One stream can fire onError and then onCompletion, so only the call that wins the list
+  // removal pays back the app budget.
+  private void remove(AtomicInteger appCount, String key, SseEmitter emitter) {
     streams.computeIfPresent(
         key,
         (unused, emitters) -> {
-          emitters.remove(emitter);
+          if (emitters.remove(emitter)) {
+            appCount.decrementAndGet();
+          }
           return emitters.isEmpty() ? null : emitters;
         });
   }

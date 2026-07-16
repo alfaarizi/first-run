@@ -18,7 +18,9 @@ import java.security.GeneralSecurityException;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -29,6 +31,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import javax.sql.DataSource;
 import org.jspecify.annotations.Nullable;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -41,9 +44,9 @@ import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 
 /**
- * Exercises the widget stream end to end: the signature gate on {@code /v1/stream}, and a candidate
- * on {@code intervention.candidates} arriving as one {@code nudge} frame on the connected user's
- * stream.
+ * Exercises the widget stream end to end: the signature gate on {@code /v1/stream}, a candidate on
+ * {@code intervention.candidates} arriving as one {@code nudge} frame on the connected user's
+ * stream, and the per-user stream cap.
  */
 @IntegrationTest
 class NudgeStreamTests {
@@ -58,6 +61,7 @@ class NudgeStreamTests {
   private final DataSource dataSource;
   private final ObjectMapper objectMapper;
   private final KafkaTemplate<String, String> kafkaTemplate;
+  private final List<HttpClient> streamClients = new ArrayList<>();
 
   NudgeStreamTests(
       TestRestTemplate rest,
@@ -78,6 +82,12 @@ class NudgeStreamTests {
     TestSeeder.app(dataSource, APP, TENANT, "Stream App");
     TestSeeder.milestone(
         dataSource, MILESTONE, TENANT, APP, "task_created", "Create your first task", 1);
+  }
+
+  @AfterEach
+  void closeStreamClients() {
+    // an open SSE connection holds Tomcat's graceful shutdown for the stream's full timeout
+    streamClients.forEach(HttpClient::shutdownNow);
   }
 
   @Test
@@ -126,6 +136,31 @@ class NudgeStreamTests {
   }
 
   @Test
+  void retiresTheOldestStreamWhenAUserPassesTheCap() throws Exception {
+    String endUserHash = "user-" + UUID.randomUUID();
+    BlockingQueue<String> oldest = openStream(endUserHash);
+    // the ninth stream passes the per-user cap in NudgeStreams, retiring the first
+    BlockingQueue<String> newest = oldest;
+    for (int extra = 0; extra < 8; extra++) {
+      newest = openStream(endUserHash);
+    }
+
+    kafkaTemplate.send(
+        CandidateTopics.INTERVENTION_CANDIDATES,
+        endUserHash,
+        objectMapper.writeValueAsString(candidate(endUserHash, UUID.randomUUID())));
+
+    assertThat(awaitLine(newest, line -> line.startsWith("event:") && line.contains("nudge")))
+        .isNotNull();
+    assertThat(
+            awaitLine(
+                oldest,
+                line -> line.startsWith("event:") && line.contains("nudge"),
+                Duration.ofSeconds(2)))
+        .isNull();
+  }
+
+  @Test
   void rejectsABadSignature() {
     String url = streamUrl(SDK_KEY, "user-sig", Instant.now().toString(), "0".repeat(64));
     assertThat(get(url, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -161,10 +196,10 @@ class NudgeStreamTests {
                     streamUrl(SDK_KEY, endUserHash, timestamp, sign(timestamp, endUserHash))))
             .header(HttpHeaders.ACCEPT, "text/event-stream")
             .build();
+    HttpClient client = HttpClient.newHttpClient();
+    streamClients.add(client);
     HttpResponse<Stream<String>> response =
-        HttpClient.newHttpClient()
-            .sendAsync(request, HttpResponse.BodyHandlers.ofLines())
-            .get(30, TimeUnit.SECONDS);
+        client.sendAsync(request, HttpResponse.BodyHandlers.ofLines()).get(30, TimeUnit.SECONDS);
     assertThat(response.statusCode()).isEqualTo(HttpStatus.OK.value());
 
     BlockingQueue<String> lines = new LinkedBlockingQueue<>();
