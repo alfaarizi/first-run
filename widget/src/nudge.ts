@@ -1,9 +1,17 @@
+import { createChime } from "./chime";
+import { createComposer, type Composer } from "./composer";
 import { TRY_AGAIN_TEXT } from "./constants";
 import { el } from "./dom";
+import { createFace } from "./face";
+import { FACE_CSS } from "./face.css";
+import { MORPH_MS, NUDGE_CSS } from "./nudge.css";
 import type { Citation, NudgePayload } from "./types";
 
 // a stream silent this long is treated as dead, so its answer never blocks the next question
 const ANSWER_IDLE_MS = 20_000;
+
+// within this distance of the newest message the view still follows the stream
+const NEAR_BOTTOM_PX = 40;
 
 export interface NudgeCallbacks {
   onDismiss(nudgeId: string): void;
@@ -11,299 +19,136 @@ export interface NudgeCallbacks {
   onSend(text: string): Promise<boolean>;
 }
 
-const CSS = `
-:host {
-  all: initial;
-
-  --background: #fff;
-  --accent-background: #3b3bd1;
-  --user-message-background: #ecebff;
-  --agent-message-background: #f4f4f8;
-  --foreground: #1a1a2e;
-  --accent-foreground: #fff;
-  --muted-foreground: #8a8a9a;
-  --link-foreground: #3b3bd1;
-  --border: 1px solid #e2e2ea;
-  --box-shadow: 0 8px 24px rgba(20, 20, 40, 0.16);
-  --outline: 1px auto var(--accent-background);
-  --interactive-filter: brightness(95%);
-  --font-family: system-ui, "Helvetica Neue", Arial, sans-serif;
-  --font-size: 14px;
-  --z-index: 2147483647;
-}
-@media (prefers-color-scheme: dark) {
-  :host {
-    color-scheme: only dark;
-
-    --background: #23232f;
-    --user-message-background: #35355c;
-    --agent-message-background: #2e2e3c;
-    --foreground: #e9e9f2;
-    --muted-foreground: #a2a2b5;
-    --link-foreground: #a5a5ff;
-    --border: 1px solid #3a3a4a;
-    --box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    --interactive-filter: brightness(130%);
-  }
-}
-.fr-root {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  z-index: var(--z-index);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-  font-family: var(--font-family);
-  font-size: var(--font-size);
-  line-height: 1.45;
-  color: var(--foreground);
-}
-.fr-card {
-  box-sizing: border-box;
-  width: 320px;
-  background: var(--background);
-  border: var(--border);
-  border-radius: 12px;
-  box-shadow: var(--box-shadow);
-  padding: 12px 14px;
-}
-.fr-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-.fr-text {
-  flex: 1;
-  margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-}
-.fr-btn {
-  font: inherit;
-  color: inherit;
-  border: var(--border);
-  border-radius: 8px;
-  background: var(--background);
-  padding: 5px 10px;
-  cursor: pointer;
-}
-.fr-btn:hover:not(:disabled) {
-  filter: var(--interactive-filter);
-}
-.fr-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.fr-btn:focus-visible,
-.fr-close:focus-visible,
-.fr-input:focus-visible {
-  outline: var(--outline);
-}
-.fr-btn-primary {
-  background: var(--accent-background);
-  border-color: var(--accent-background);
-  color: var(--accent-foreground);
-}
-.fr-close {
-  border: 0;
-  background: none;
-  padding: 0 2px;
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  color: var(--muted-foreground);
-}
-.fr-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 10px;
-}
-.fr-messages {
-  max-height: 320px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.fr-message {
-  border-radius: 8px;
-  padding: 6px 9px;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-}
-.fr-message-user {
-  align-self: flex-end;
-  background: var(--user-message-background);
-}
-.fr-message-agent {
-  align-self: flex-start;
-  background: var(--agent-message-background);
-}
-.fr-citations {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 12px;
-}
-.fr-citations a {
-  color: var(--link-foreground);
-}
-.fr-input-row {
-  display: flex;
-  gap: 6px;
-}
-.fr-input {
-  flex: 1;
-  font: inherit;
-  color: inherit;
-  background: var(--background);
-  border: var(--border);
-  border-radius: 8px;
-  padding: 6px 9px;
-}
-.fr-input::placeholder {
-  color: var(--muted-foreground);
-}
-`;
-
 /**
- * The widget surface, a dismissible nudge that expands into chat. Dynamic
- * strings land in textContent inside a closed shadow root, so server text
- * stays text.
+ * The widget surface: a persistent launcher whose shell expands into the
+ * message panel, with nudges previewed in a bubble above it. Dynamic strings
+ * land in textContent inside a closed shadow root, so server text stays text.
  */
 export class NudgeUi {
   private readonly callbacks: NudgeCallbacks;
+  private readonly playChime = createChime();
   private readonly root: HTMLElement;
-  private nudgeCard: HTMLElement | undefined;
-  private chatCard: HTMLElement | undefined;
-  private messages: HTMLElement | undefined;
+  private readonly shell: HTMLElement;
+  private readonly launcher: HTMLButtonElement;
+  private readonly panel: HTMLElement;
+  private readonly messages: HTMLElement;
+  private readonly composer: Composer;
+  private bubble: HTMLElement | undefined;
+  private pendingNudge: NudgePayload | undefined;
   private answer: HTMLElement | undefined;
   private answerTimer: number | undefined;
-  private nudgeId = "";
+  private morphTimer: number | undefined;
+  private expanded = false;
 
   constructor(callbacks: NudgeCallbacks) {
     this.callbacks = callbacks;
 
+    this.launcher = el("button", "fr-launcher");
+    this.launcher.setAttribute("aria-label", "Product assistant");
+    this.launcher.setAttribute("aria-expanded", "false");
+    this.launcher.append(createFace());
+    this.launcher.onclick = () => (this.expanded ? this.collapse() : this.open());
+
+    this.messages = el("div", "fr-messages");
+    this.messages.setAttribute("role", "log");
+    this.messages.setAttribute("aria-label", "Messages");
+
+    this.composer = createComposer(() => this.submit());
+
+    this.panel = el("div", "fr-panel");
+    this.panel.append(el("h2", "fr-header", "Support"), this.messages, this.composer.root);
+
+    const dot = el("span", "fr-dot");
+    dot.setAttribute("aria-hidden", "true");
+
+    // the launcher and dot follow the panel, so they stay clickable above it
+    this.shell = el("div", "fr-shell");
+    this.shell.append(this.panel, this.launcher, dot);
+
+    this.root = el("div", "fr-root");
+    this.root.append(this.shell);
+    this.root.onkeydown = (e) => {
+      if (e.key === "Escape" && this.expanded) {
+        this.collapse();
+        this.launcher.focus({ preventScroll: true });
+      }
+    };
+
     const host = document.createElement("div");
     const shadow = host.attachShadow({ mode: "closed" });
     const style = document.createElement("style");
-    style.textContent = CSS;
-    this.root = el("div", "fr-root");
+    style.textContent = NUDGE_CSS + FACE_CSS;
     shadow.append(style, this.root);
 
     if (document.body) document.body.append(host);
     else addEventListener("DOMContentLoaded", () => document.body.append(host));
   }
 
-  /** Where the confirmation card mounts, above the nudge. */
+  /** Where the confirmation card mounts, slotted between the messages and the input. */
   get container(): HTMLElement {
-    return this.root;
+    return this.panel;
   }
 
-  /** Clears every card, used when the identified end user changes. */
+  /** Returns the surface to a fresh collapsed launcher, used when the end user changes. */
   reset(): void {
     this.dropAnswer();
-    this.root.replaceChildren();
-    this.nudgeCard = this.chatCard = this.messages = undefined;
-    this.nudgeId = "";
+    this.removeBubble();
+    this.messages.replaceChildren();
+    this.panel.querySelector(".fr-confirm")?.remove();
+    this.composer.clear();
+    this.shell.classList.remove("fr-unread");
+    this.collapse();
+  }
+
+  /** Announces a frame the collapsed shell would otherwise hide, with the dot and chime. */
+  notify(): void {
+    if (this.expanded) return;
+    this.shell.classList.add("fr-unread");
+    this.playChime();
   }
 
   showNudge(nudge: NudgePayload): void {
-    this.nudgeCard?.remove();
-    this.nudgeId = nudge.id;
+    if (this.expanded) {
+      // an open panel already shows the conversation, so the nudge joins it
+      // and no outcome fires until the user acts
+      this.appendMessage("agent", nudge.text);
+      return;
+    }
 
-    const card = el("div", "fr-card");
-    const row = el("div", "fr-row");
-    row.append(
-      el("p", "fr-text", nudge.text),
-      this.createCloseButton("Dismiss", () => {
-        card.remove();
-        this.callbacks.onDismiss(this.nudgeId);
-      }),
-    );
+    this.removeBubble();
+    this.pendingNudge = nudge;
 
-    const ask = el("button", "fr-btn fr-btn-primary", "Ask a question");
-    ask.onclick = () => {
-      card.remove();
-      this.openChat();
-      this.callbacks.onEngage(this.nudgeId);
+    const open = el("button", "fr-bubble-text", nudge.text);
+    open.onclick = () => this.open();
+
+    // the multiplication sign, the conventional close glyph
+    const dismiss = el("button", "fr-close", "×");
+    dismiss.setAttribute("aria-label", "Dismiss");
+    dismiss.onclick = () => {
+      this.removeBubble();
+      this.shell.classList.remove("fr-unread");
+      this.callbacks.onDismiss(nudge.id);
     };
 
-    const actions = el("div", "fr-actions");
-    actions.append(ask);
-
-    card.append(row, actions);
-    this.nudgeCard = card;
-    this.root.append(card);
-  }
-
-  openChat(): void {
-    if (this.chatCard) return;
-
-    const card = el("div", "fr-card");
-    const row = el("div", "fr-row");
-    this.messages = el("div", "fr-messages");
-
-    row.append(
-      this.messages,
-      this.createCloseButton("Close chat", () => {
-        card.remove();
-        // a streaming answer keeps its slot so late frames never cross into the next
-        // chat, and the idle timer frees it if that stream never sends its final frame
-        this.chatCard = this.messages = undefined;
-      }),
-    );
-
-    const input = el("input", "fr-input");
-    input.placeholder = "Ask about this product...";
-
-    const send = el("button", "fr-btn fr-btn-primary", "Send");
-    const submit = () => {
-      const text = input.value.trim();
-      if (!text || this.answer) return;
-
-      input.value = "";
-      this.messages?.append(el("div", "fr-message fr-message-user", text));
-
-      const answer = el("div", "fr-message fr-message-agent");
-      this.answer = answer;
-      this.messages?.append(answer);
-      this.keepAnswerAlive();
-
-      void this.callbacks.onSend(text).then((delivered) => {
-        // a failed send frees the slot, so the user can try again
-        if (!delivered && this.answer === answer) {
-          answer.textContent = TRY_AGAIN_TEXT;
-          this.dropAnswer();
-        }
-      });
-    };
-    send.onclick = submit;
-    input.onkeydown = (e) => {
-      if (e.key === "Enter") submit();
-    };
-
-    const inputRow = el("div", "fr-input-row");
-    inputRow.append(input, send);
-    card.append(row, inputRow);
-
-    this.chatCard = card;
-    this.root.append(card);
-    input.focus();
+    const bubble = el("div", "fr-bubble");
+    bubble.setAttribute("role", "status");
+    bubble.append(open, dismiss);
+    this.bubble = bubble;
+    this.root.prepend(bubble);
+    this.notify();
   }
 
   appendToken(text: string): void {
     if (!this.answer) return;
+    const follow = this.isAtBottom();
     this.answer.append(text);
-    this.messages?.scrollTo(0, this.messages.scrollHeight);
+    if (follow) this.scrollToBottom();
     this.keepAnswerAlive();
   }
 
   finishAnswer(citations: Citation[]): void {
     if (this.answer) {
+      const follow = this.isAtBottom();
       const list = el("ul", "fr-citations");
       for (const citation of citations) {
         const url = sanitizeUrl(citation.url);
@@ -319,8 +164,86 @@ export class NudgeUi {
         list.append(item);
       }
       if (list.childElementCount > 0) this.answer.append(list);
+      // a stream that ends having said nothing reads as a failure
+      else if (!this.answer.textContent) this.answer.textContent = TRY_AGAIN_TEXT;
+      if (follow) this.scrollToBottom();
     }
     this.dropAnswer();
+  }
+
+  /** Opens the panel, engaging any previewed nudge into the conversation. */
+  private open(): void {
+    const nudge = this.pendingNudge;
+    if (nudge) {
+      this.removeBubble();
+      this.appendMessage("agent", nudge.text);
+      this.callbacks.onEngage(nudge.id);
+    }
+    this.morph();
+    this.expanded = true;
+    this.shell.classList.add("fr-expanded");
+    this.shell.classList.remove("fr-unread");
+    this.launcher.setAttribute("aria-expanded", "true");
+    this.composer.focus();
+  }
+
+  // the conversation keeps its DOM, so reopening restores it
+  private collapse(): void {
+    this.morph();
+    this.expanded = false;
+    this.shell.classList.remove("fr-expanded");
+    this.launcher.setAttribute("aria-expanded", "false");
+  }
+
+  // a permanent transition would also animate viewport-driven size changes on
+  // resize, so it exists only while the shell morphs between its two sizes
+  private morph(): void {
+    clearTimeout(this.morphTimer);
+    this.shell.classList.add("fr-morph");
+    this.morphTimer = setTimeout(() => this.shell.classList.remove("fr-morph"), MORPH_MS);
+  }
+
+  private removeBubble(): void {
+    this.bubble?.remove();
+    this.bubble = this.pendingNudge = undefined;
+  }
+
+  private submit(): void {
+    const text = this.composer.text();
+    if (!text || this.answer) return;
+
+    this.composer.clear();
+    this.appendMessage("user", text);
+    const answer = this.appendMessage("agent");
+    this.answer = answer;
+    this.keepAnswerAlive();
+
+    void this.callbacks
+      .onSend(text)
+      .catch(() => false)
+      .then((delivered) => {
+        // a failed send frees the slot, so the user can try again
+        if (!delivered && this.answer === answer) {
+          answer.textContent = TRY_AGAIN_TEXT;
+          this.dropAnswer();
+        }
+      });
+  }
+
+  private appendMessage(kind: "user" | "agent", text = ""): HTMLElement {
+    const message = el("div", `fr-message fr-message-${kind}`, text);
+    this.messages.append(message);
+    this.scrollToBottom();
+    return message;
+  }
+
+  private isAtBottom(): boolean {
+    const m = this.messages;
+    return m.scrollHeight - m.scrollTop - m.clientHeight < NEAR_BOTTOM_PX;
+  }
+
+  private scrollToBottom(): void {
+    this.messages.scrollTo(0, this.messages.scrollHeight);
   }
 
   // resets the idle countdown
@@ -338,14 +261,6 @@ export class NudgeUi {
   private dropAnswer(): void {
     clearTimeout(this.answerTimer);
     this.answer = undefined;
-  }
-
-  private createCloseButton(label: string, onClick: () => void): HTMLElement {
-    // the multiplication sign, the conventional close glyph
-    const button = el("button", "fr-close", "\u00d7");
-    button.setAttribute("aria-label", label);
-    button.onclick = onClick;
-    return button;
   }
 }
 

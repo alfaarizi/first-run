@@ -121,7 +121,8 @@ function start(config: Config): void {
       nudge: safe((payload) => ui.showNudge(payload)),
       token: safe((text) => ui.appendToken(text)),
       done: safe((citations) => ui.finishAnswer(citations)),
-      action: safe((payload) =>
+      action: safe((payload) => {
+        ui.notify();
         showConfirmation(ui.container, payload, {
           onConfirm: async (executionId) => {
             const result = await post(
@@ -138,8 +139,8 @@ function start(config: Config): void {
           onCancel: safe((executionId) =>
             enqueueInterventionEvent("fr.action_cancelled", executionId),
           ),
-        }),
-      ),
+        });
+      }),
     });
   });
 
