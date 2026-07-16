@@ -45,6 +45,7 @@ class CandidateProcessor {
     }
 
     streams.pushNudge(candidate.appId(), candidate.endUserHash(), candidate.id(), copy(candidate));
+
     deduper.claim(candidate.appId(), candidate.eventId());
   }
 

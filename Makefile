@@ -10,10 +10,13 @@ GRAPHQL_INSPECTOR := npx --no-install graphql-inspector
 	widget-bundle
 
 # Tasklet serves the widget from its public/ directory, so the compose build
-# needs a fresh bundle before the image bakes.
+# needs a fresh bundle before the image bakes. A clean checkout has no widget
+# node_modules, so the pinned deps install before the build.
 widget-bundle:
 	@if [ -f widget/package.json ]; then \
-		(cd widget && npm run build) && mkdir -p tasklet/public && \
+		(cd widget && \
+			if [ ! -d node_modules ] || [ package-lock.json -nt node_modules ]; then npm ci; fi && \
+			npm run build) && mkdir -p tasklet/public && \
 		cp widget/dist/firstrun.js tasklet/public/firstrun.js; \
 	else echo ">> skipping widget-bundle, widget/ is not scaffolded"; fi
 
