@@ -3,6 +3,18 @@
 Each entry records the date, the change, the rationale, and whether it is
 additive or breaking.
 
+## 2026-07-16
+
+### Added
+
+- `api/openapi/stream.yaml` documents `GET /v1/stream`, the widget's SSE
+  channel the 2026-07-15 entry pinned. The gateway serves the `nudge` frame,
+  whose data carries `id` and `text`, and accepts `last_event_id`.
+
+Additive. The ingest schema already carried `ref`; the server envelope now
+carries it too, so intervention events keep their nudge or execution link
+through `events.raw`.
+
 ## 2026-07-15
 
 ### Added

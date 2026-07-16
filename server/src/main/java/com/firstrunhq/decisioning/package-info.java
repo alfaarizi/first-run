@@ -1,4 +1,4 @@
-/** Candidate dispatch to the agent over gRPC. */
+/** Consumes intervention candidates: nudge delivery over the widget stream, agent dispatch. */
 @ApplicationModule
 @NullMarked
 package com.firstrunhq.decisioning;
