@@ -41,17 +41,19 @@ class AppRowLevelSecurityTests {
         Statement statement = connection.createStatement()) {
       RowLevelSecurityProbe.grantSelect(statement, "tenant", "app");
       statement.execute("SET ROLE rls_probe");
+      try {
+        statement.execute("SET app.tenant_id = '%s'".formatted(TENANT_A));
+        assertThat(RowLevelSecurityProbe.count(statement, "app")).isEqualTo(1);
 
-      statement.execute("SET app.tenant_id = '%s'".formatted(TENANT_A));
-      assertThat(RowLevelSecurityProbe.count(statement, "app")).isEqualTo(1);
+        statement.execute("SET app.tenant_id = '%s'".formatted(TENANT_B));
+        assertThat(RowLevelSecurityProbe.count(statement, "app")).isZero();
 
-      statement.execute("SET app.tenant_id = '%s'".formatted(TENANT_B));
-      assertThat(RowLevelSecurityProbe.count(statement, "app")).isZero();
-
-      statement.execute("RESET app.tenant_id");
-      assertThat(RowLevelSecurityProbe.count(statement, "app")).isZero();
-
-      statement.execute("RESET ROLE");
+        statement.execute("RESET app.tenant_id");
+        assertThat(RowLevelSecurityProbe.count(statement, "app")).isZero();
+      } finally {
+        // A failure above must never return a role-switched connection to the pool.
+        statement.execute("DISCARD ALL");
+      }
     }
   }
 
@@ -64,18 +66,21 @@ class AppRowLevelSecurityTests {
         Statement statement = connection.createStatement()) {
       RowLevelSecurityProbe.grantSelect(statement, "tenant", "app");
       statement.execute("SET ROLE rls_probe");
-      statement.execute("RESET app.tenant_id");
+      try {
+        statement.execute("RESET app.tenant_id");
 
-      statement.execute("SET app.sdk_key = 'key_%s'".formatted(APP_C));
-      assertThat(RowLevelSecurityProbe.count(statement, "app")).isEqualTo(1);
+        statement.execute("SET app.sdk_key = 'key_%s'".formatted(APP_C));
+        assertThat(RowLevelSecurityProbe.count(statement, "app")).isEqualTo(1);
 
-      statement.execute("SET app.sdk_key = 'key_that_matches_nothing'");
-      assertThat(RowLevelSecurityProbe.count(statement, "app")).isZero();
+        statement.execute("SET app.sdk_key = 'key_that_matches_nothing'");
+        assertThat(RowLevelSecurityProbe.count(statement, "app")).isZero();
 
-      statement.execute("RESET app.sdk_key");
-      assertThat(RowLevelSecurityProbe.count(statement, "app")).isZero();
-
-      statement.execute("RESET ROLE");
+        statement.execute("RESET app.sdk_key");
+        assertThat(RowLevelSecurityProbe.count(statement, "app")).isZero();
+      } finally {
+        // A failure above must never return a role-switched connection to the pool.
+        statement.execute("DISCARD ALL");
+      }
     }
   }
 }

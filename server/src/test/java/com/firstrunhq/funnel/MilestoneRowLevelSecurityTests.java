@@ -42,17 +42,19 @@ class MilestoneRowLevelSecurityTests {
         Statement statement = connection.createStatement()) {
       RowLevelSecurityProbe.grantSelect(statement, "milestone");
       statement.execute("SET ROLE rls_probe");
+      try {
+        statement.execute("SET app.tenant_id = '%s'".formatted(TENANT_A));
+        assertThat(RowLevelSecurityProbe.count(statement, "milestone")).isEqualTo(1);
 
-      statement.execute("SET app.tenant_id = '%s'".formatted(TENANT_A));
-      assertThat(RowLevelSecurityProbe.count(statement, "milestone")).isEqualTo(1);
+        statement.execute("SET app.tenant_id = '%s'".formatted(TENANT_B));
+        assertThat(RowLevelSecurityProbe.count(statement, "milestone")).isZero();
 
-      statement.execute("SET app.tenant_id = '%s'".formatted(TENANT_B));
-      assertThat(RowLevelSecurityProbe.count(statement, "milestone")).isZero();
-
-      statement.execute("RESET app.tenant_id");
-      assertThat(RowLevelSecurityProbe.count(statement, "milestone")).isZero();
-
-      statement.execute("RESET ROLE");
+        statement.execute("RESET app.tenant_id");
+        assertThat(RowLevelSecurityProbe.count(statement, "milestone")).isZero();
+      } finally {
+        // A failure above must never return a role-switched connection to the pool.
+        statement.execute("DISCARD ALL");
+      }
     }
   }
 }
