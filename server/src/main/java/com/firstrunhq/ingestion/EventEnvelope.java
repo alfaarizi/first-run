@@ -13,6 +13,10 @@ import org.jspecify.annotations.Nullable;
  * skew {@code sent_at} reveals, never past {@code received_at}. Serialized snake_case, keyed by the
  * hex SHA-256 of {@code tenant_id:end_user_hash} so one user's events stay ordered within a
  * partition.
+ *
+ * <p>{@code ref} names the server-issued entity an intervention event responds to, the nudge or the
+ * action execution. It is structural, so it rides beside the properties and never passes the
+ * allowlist.
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record EventEnvelope(
@@ -24,5 +28,6 @@ public record EventEnvelope(
     String event,
     String endUserHash,
     @Nullable UUID sessionId,
+    @Nullable UUID ref,
     Instant timestamp,
     @Nullable Map<String, Object> properties) {}

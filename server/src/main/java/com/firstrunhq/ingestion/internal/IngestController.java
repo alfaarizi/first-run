@@ -175,6 +175,7 @@ class IngestController {
               event.event(),
               event.endUserHash(),
               event.sessionId(),
+              event.ref(),
               corrected.isAfter(receivedAt) ? receivedAt : corrected,
               allowlisted(event.properties(), app.allowedProperties()));
       deliveries.add(
