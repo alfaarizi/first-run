@@ -6,10 +6,19 @@ GRAPHQL_INSPECTOR := npx --no-install graphql-inspector
 
 .PHONY: up down tools seed generate generate-schema generate-server generate-web \
 	generate-agent test test-server test-server-unit test-agent test-widget test-web \
-	eval e2e lint lint-api lint-server lint-agent lint-web size migrate load replay rollback
+	eval e2e lint lint-api lint-server lint-agent lint-web size migrate load replay rollback \
+	widget-bundle
+
+# Tasklet serves the widget from its public/ directory, so the compose build
+# needs a fresh bundle before the image bakes.
+widget-bundle:
+	@if [ -f widget/package.json ]; then \
+		(cd widget && npm run build) && mkdir -p tasklet/public && \
+		cp widget/dist/firstrun.js tasklet/public/firstrun.js; \
+	else echo ">> skipping widget-bundle, widget/ is not scaffolded"; fi
 
 # --wait returns once every healthcheck passes, so seed can run immediately.
-up:
+up: widget-bundle
 	@if [ ! -f .env ]; then echo "up: missing .env, run 'cp .env.example .env'" >&2; exit 1; fi
 	docker compose up --detach --build --wait
 	@echo ">> dashboard  http://localhost:5173"

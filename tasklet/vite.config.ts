@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     port: 5174,
     proxy: {
-      '/v1/e': {
+      '/v1': {
         target: process.env.FIRSTRUN_SERVER_URL ?? 'http://localhost:8080',
         changeOrigin: true,
       },

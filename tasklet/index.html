@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tasklet</title>
+    <!-- The FirstRun snippet, the one-script install this demo proves. Keys come
+         from the root .env, and the same-origin host routes /v1 through the proxy. -->
+    <script
+      src="/firstrun.js"
+      data-key="%VITE_FIRSTRUN_KEY%"
+      data-secret="%VITE_FIRSTRUN_HMAC_KEY%"
+      data-host="http://localhost:5174"
+      data-allowlist="task_count,path"
+    ></script>
   </head>
   <body>
     <main>

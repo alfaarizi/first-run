@@ -241,8 +241,9 @@ services:
   tasklet:
     build: ./tasklet
     environment:
-      # Vite proxies /v1/e to the server (tasklet/vite.config.ts), so a click
-      # in the browser lands in events.raw through the real ingest path.
+      # Vite proxies /v1 to the server (tasklet/vite.config.ts), so a click
+      # in the browser lands in events.raw through the real ingest path and
+      # the widget's stream stays same-origin.
       FIRSTRUN_SERVER_URL: http://server:8080
       # Demo credentials live in .env and match scripts/seed.sql.
       VITE_FIRSTRUN_KEY: ${VITE_FIRSTRUN_KEY}
