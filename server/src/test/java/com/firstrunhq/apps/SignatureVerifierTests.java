@@ -1,4 +1,4 @@
-package com.firstrunhq.ingestion.internal;
+package com.firstrunhq.apps;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

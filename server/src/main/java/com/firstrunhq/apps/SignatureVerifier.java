@@ -1,4 +1,4 @@
-package com.firstrunhq.ingestion.internal;
+package com.firstrunhq.apps;
 
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
@@ -10,8 +10,12 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.stereotype.Component;
 
+/**
+ * Verifies widget request signatures against the app's HMAC key, for every endpoint the SDK talks
+ * to.
+ */
 @Component
-class SignatureVerifier {
+public class SignatureVerifier {
 
   private static final String HMAC_ALGORITHM = "HmacSHA256";
   private static final Duration TOLERANCE = Duration.ofMinutes(5);
@@ -21,7 +25,7 @@ class SignatureVerifier {
    * minutes of now, either direction (api/openapi/ingest.yaml). The comparison is constant-time, so
    * a mismatch leaks no matching-prefix timing.
    */
-  boolean verify(String hmacKey, String timestamp, byte[] body, String signatureHex) {
+  public boolean verify(String hmacKey, String timestamp, byte[] body, String signatureHex) {
     Instant clientTime;
     byte[] claimed;
     try {
