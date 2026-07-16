@@ -241,6 +241,7 @@ export class NudgeUi {
     const card = el("div", "fr-card");
     const row = el("div", "fr-row");
     this.messages = el("div", "fr-messages");
+
     row.append(
       this.messages,
       this.createCloseButton("Close chat", () => {

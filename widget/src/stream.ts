@@ -31,14 +31,14 @@ export function connectStream(
   const open = async () => {
     // the signature binds the hash, so one signed url cannot subscribe another
     // user, and an empty sig means signing is unavailable so the stream stays shut
-    const ts = new Date().toISOString();
-    const sig = await sign(config.secret, ts, endUserHash).catch(() => "");
-    if (closed || !sig) return;
+    const timestamp = new Date().toISOString();
+    const signature = await sign(config.secret, timestamp, endUserHash).catch(() => "");
+    if (closed || !signature) return;
 
     source = new EventSource(
       `${config.host}${STREAM_PATH}?key=${encodeURIComponent(config.key)}` +
         `&end_user_hash=${encodeURIComponent(endUserHash)}` +
-        `&ts=${encodeURIComponent(ts)}&sig=${sig}` +
+        `&ts=${encodeURIComponent(timestamp)}&sig=${signature}` +
         (lastEventId ? `&last_event_id=${encodeURIComponent(lastEventId)}` : ""),
     );
 

@@ -1,3 +1,4 @@
+import { toHex } from "./hex";
 import type { Config } from "./types";
 
 const encoder = new TextEncoder();
@@ -14,10 +15,7 @@ export async function sign(
     await importKey(secret),
     encoder.encode(`${timestamp}.${body}`),
   );
-
-  let hex = "";
-  for (const byte of new Uint8Array(mac)) hex += byte.toString(16).padStart(2, "0");
-  return hex;
+  return toHex(new Uint8Array(mac));
 }
 
 export interface PostResult {
@@ -48,9 +46,15 @@ export async function post(
       },
       body,
     });
-    return { ok: response.ok, retryable: response.status === 429 || response.status >= 500 };
+    return {
+      ok: response.ok,
+      retryable: response.status === 429 || response.status >= 500
+    };
   } catch {
-    return { ok: false, retryable: true };
+    return { 
+      ok: false,
+      retryable: true 
+    };
   }
 }
 

@@ -26,8 +26,10 @@ export function startAutocapture(capture: Capture): void {
       const target = e.target instanceof Element ? e.target : null;
       const control = target?.closest("a,button,[role=button]");
       if (!control) return;
+
       const properties: Properties = { tag: control.tagName.toLowerCase() };
       if (control.id) properties.id = control.id;
+
       capture("fr.click", properties);
     },
     true,

@@ -96,6 +96,7 @@ export class RequestQueue {
       if (batch.length === 0) break;
 
       const queuedBatch = this.queue.slice(offset, offset + batch.length);
+
       void post(this.config, INGEST_PATH, batchBody(batch)).then((result) => {
         // a batch the network refused returns to the queue, so a tab that survives retries it
         if (!result.ok && result.retryable) {
