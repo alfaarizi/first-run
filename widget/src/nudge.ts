@@ -2,6 +2,9 @@ import { TRY_AGAIN_TEXT } from "./constants";
 import { el } from "./dom";
 import type { Citation, NudgePayload } from "./types";
 
+// a stream silent this long is treated as dead, so its answer never blocks the next question
+const ANSWER_IDLE_MS = 20_000;
+
 export interface NudgeCallbacks {
   onDismiss(nudgeId: string): void;
   onEngage(nudgeId: string): void;
@@ -178,6 +181,7 @@ export class NudgeUi {
   private chatCard: HTMLElement | undefined;
   private messages: HTMLElement | undefined;
   private answer: HTMLElement | undefined;
+  private answerTimer: number | undefined;
   private nudgeId = "";
 
   constructor(callbacks: NudgeCallbacks) {
@@ -201,8 +205,9 @@ export class NudgeUi {
 
   /** Clears every card, used when the identified end user changes. */
   reset(): void {
+    this.dropAnswer();
     this.root.replaceChildren();
-    this.nudgeCard = this.chatCard = this.messages = this.answer = undefined;
+    this.nudgeCard = this.chatCard = this.messages = undefined;
     this.nudgeId = "";
   }
 
@@ -246,7 +251,8 @@ export class NudgeUi {
       this.messages,
       this.createCloseButton("Close chat", () => {
         card.remove();
-        // a streaming answer keeps its slot, so late frames never cross into the next chat
+        // a streaming answer keeps its slot so late frames never cross into the next
+        // chat, and the idle timer frees it if that stream never sends its final frame
         this.chatCard = this.messages = undefined;
       }),
     );
@@ -265,12 +271,13 @@ export class NudgeUi {
       const answer = el("div", "fr-message fr-message-agent");
       this.answer = answer;
       this.messages?.append(answer);
+      this.keepAnswerAlive();
 
       void this.callbacks.onSend(text).then((delivered) => {
         // a failed send frees the slot, so the user can try again
         if (!delivered && this.answer === answer) {
           answer.textContent = TRY_AGAIN_TEXT;
-          this.answer = undefined;
+          this.dropAnswer();
         }
       });
     };
@@ -292,6 +299,7 @@ export class NudgeUi {
     if (!this.answer) return;
     this.answer.append(text);
     this.messages?.scrollTo(0, this.messages.scrollHeight);
+    this.keepAnswerAlive();
   }
 
   finishAnswer(citations: Citation[]): void {
@@ -312,6 +320,23 @@ export class NudgeUi {
       }
       if (list.childElementCount > 0) this.answer.append(list);
     }
+    this.dropAnswer();
+  }
+
+  // resets the idle countdown
+  private keepAnswerAlive(): void {
+    clearTimeout(this.answerTimer);
+    this.answerTimer = setTimeout(() => {
+      if (this.answer?.isConnected && !this.answer.textContent) {
+        this.answer.textContent = TRY_AGAIN_TEXT;
+      }
+      this.dropAnswer();
+    }, ANSWER_IDLE_MS);
+  }
+
+  // stops the idle countdown and frees the slot
+  private dropAnswer(): void {
+    clearTimeout(this.answerTimer);
     this.answer = undefined;
   }
 
