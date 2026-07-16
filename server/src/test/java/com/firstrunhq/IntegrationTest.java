@@ -19,7 +19,11 @@ import org.springframework.context.annotation.Import;
 @Tag("integration")
 @SpringBootTest(
     webEnvironment = WebEnvironment.RANDOM_PORT,
-    properties = "firstrun.identity.trusted-tenant-header=true")
+    properties = {
+      "firstrun.identity.trusted-tenant-header=true",
+      // Boot 3.4+ defaults to graceful shutdown, and open SSE streams would hold it 30 seconds.
+      "server.shutdown=immediate"
+    })
 @AutoConfigureHttpGraphQlTester
 @Import(TestcontainersConfiguration.class)
 public @interface IntegrationTest {}
