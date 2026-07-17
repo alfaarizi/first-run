@@ -133,6 +133,34 @@ test("a nudge with the panel open joins the conversation without an outcome", ()
   expect(callbacks.onEngage).not.toHaveBeenCalled();
 });
 
+test("replying after an open-panel nudge reports it engaged once", () => {
+  const { ui, callbacks, query } = createUi();
+  query<HTMLButtonElement>(".fr-launcher")?.click();
+  ui.showNudge({ id: "n2", text: "Stuck?" });
+
+  const input = query<HTMLTextAreaElement>(".fr-input");
+  input!.value = "yes, how do I connect?";
+  input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+  expect(callbacks.onEngage).toHaveBeenCalledWith("n2");
+  expect(callbacks.onEngage).toHaveBeenCalledTimes(1);
+});
+
+test("closing the panel before a reply leaves an open-panel nudge unengaged", () => {
+  const { ui, callbacks, query } = createUi();
+  const launcher = query<HTMLButtonElement>(".fr-launcher");
+  launcher?.click();
+  ui.showNudge({ id: "n2", text: "Stuck?" });
+  launcher?.click();
+  launcher?.click();
+
+  const input = query<HTMLTextAreaElement>(".fr-input");
+  input!.value = "hello";
+  input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+  expect(callbacks.onEngage).not.toHaveBeenCalled();
+});
+
 test("notify marks the shell unread only while collapsed", () => {
   const { ui, query } = createUi();
 

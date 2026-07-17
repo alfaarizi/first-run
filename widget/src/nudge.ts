@@ -38,6 +38,7 @@ export class NudgeUi {
   private readonly composer: Composer;
   private bubble: HTMLElement | undefined;
   private pendingNudge: NudgePayload | undefined;
+  private nudgeAwaitingReply: string | undefined;
   private answer: HTMLElement | undefined;
   private answerTimer: number | undefined;
   private morphTimer: number | undefined;
@@ -126,8 +127,9 @@ export class NudgeUi {
   showNudge(nudge: NudgePayload): void {
     if (this.expanded) {
       // an open panel already shows the conversation, so the nudge joins it
-      // and no outcome fires until the user acts
+      // and the user's next reply reports it engaged
       this.appendMessage("agent", nudge.text);
+      this.nudgeAwaitingReply = nudge.id;
       return;
     }
 
@@ -214,6 +216,8 @@ export class NudgeUi {
     this.expanded = false;
     this.shell.classList.remove("fr-expanded");
     this.launcher.setAttribute("aria-expanded", "false");
+    // closing without a reply leaves the nudge to the ignored outcome
+    this.nudgeAwaitingReply = undefined;
   }
 
   // a permanent transition would also animate viewport-driven size changes on
@@ -235,6 +239,10 @@ export class NudgeUi {
 
     this.composer.clear();
     this.appendMessage("user", text);
+    if (this.nudgeAwaitingReply) {
+      this.callbacks.onEngage(this.nudgeAwaitingReply);
+      this.nudgeAwaitingReply = undefined;
+    }
     const answer = this.appendMessage("agent");
     this.answer = answer;
     this.keepAnswerAlive();
