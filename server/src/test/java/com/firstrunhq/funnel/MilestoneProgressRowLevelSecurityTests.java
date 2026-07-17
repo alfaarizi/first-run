@@ -47,20 +47,22 @@ class MilestoneProgressRowLevelSecurityTests {
         Statement statement = connection.createStatement()) {
       RowLevelSecurityProbe.grantSelect(statement, "end_user", "milestone_progress");
       statement.execute("SET ROLE rls_probe");
+      try {
+        statement.execute("SET app.tenant_id = '%s'".formatted(TENANT_A));
+        assertThat(RowLevelSecurityProbe.count(statement, "end_user")).isEqualTo(1);
+        assertThat(RowLevelSecurityProbe.count(statement, "milestone_progress")).isEqualTo(1);
 
-      statement.execute("SET app.tenant_id = '%s'".formatted(TENANT_A));
-      assertThat(RowLevelSecurityProbe.count(statement, "end_user")).isEqualTo(1);
-      assertThat(RowLevelSecurityProbe.count(statement, "milestone_progress")).isEqualTo(1);
+        statement.execute("SET app.tenant_id = '%s'".formatted(TENANT_B));
+        assertThat(RowLevelSecurityProbe.count(statement, "end_user")).isZero();
+        assertThat(RowLevelSecurityProbe.count(statement, "milestone_progress")).isZero();
 
-      statement.execute("SET app.tenant_id = '%s'".formatted(TENANT_B));
-      assertThat(RowLevelSecurityProbe.count(statement, "end_user")).isZero();
-      assertThat(RowLevelSecurityProbe.count(statement, "milestone_progress")).isZero();
-
-      statement.execute("RESET app.tenant_id");
-      assertThat(RowLevelSecurityProbe.count(statement, "end_user")).isZero();
-      assertThat(RowLevelSecurityProbe.count(statement, "milestone_progress")).isZero();
-
-      statement.execute("RESET ROLE");
+        statement.execute("RESET app.tenant_id");
+        assertThat(RowLevelSecurityProbe.count(statement, "end_user")).isZero();
+        assertThat(RowLevelSecurityProbe.count(statement, "milestone_progress")).isZero();
+      } finally {
+        // A failure above must never return a role-switched connection to the pool.
+        statement.execute("DISCARD ALL");
+      }
     }
   }
 

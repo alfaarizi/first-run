@@ -66,6 +66,7 @@ class MilestoneProgressTrackerTests {
         event,
         endUserHash,
         null,
+        null,
         at,
         null);
   }

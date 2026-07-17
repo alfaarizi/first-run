@@ -148,6 +148,30 @@ class IngestGatewayTests {
   }
 
   @Test
+  void carriesTheInterventionRefThroughTheEnvelope() throws JsonProcessingException {
+    String endUserHash = "user-" + UUID.randomUUID();
+    UUID nudgeId = UUID.randomUUID();
+    Instant now = Instant.now();
+    Map<String, Object> event = new LinkedHashMap<>();
+    event.put("id", UUID.randomUUID().toString());
+    event.put("event", "fr.nudge_engaged");
+    event.put("end_user_hash", endUserHash);
+    event.put("ref", nudgeId.toString());
+    event.put("timestamp", now.toString());
+    String body =
+        objectMapper.writeValueAsString(
+            Map.of("sent_at", now.toString(), "events", List.of(event)));
+
+    assertThat(post(KEY_A, HMAC_A, ORIGIN_A, body, null).getStatusCode())
+        .isEqualTo(HttpStatus.ACCEPTED);
+
+    ConsumerRecord<String, String> record =
+        awaitRecord(EventTopics.EVENTS_RAW, value -> value.contains(endUserHash));
+    JsonNode envelope = objectMapper.readTree(record.value());
+    assertThat(envelope.get("ref").asText()).isEqualTo(nudgeId.toString());
+  }
+
+  @Test
   void correctsEventTimeByTheClientClockSkew() throws JsonProcessingException {
     String endUserHash = "user-" + UUID.randomUUID();
 

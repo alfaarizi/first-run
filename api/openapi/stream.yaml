@@ -1,0 +1,110 @@
+openapi: 3.1.0
+info:
+  title: FirstRun Stream API
+  version: 1.0.0
+  description: |
+    Serves the widget's server-push channel over Server-Sent Events. The
+    gateway authenticates a signed query string because `EventSource` cannot
+    set headers, and the signature binds the end user so one signed URL cannot
+    subscribe another user.
+
+    Each frame carries one named event from the widget contract (`nudge`,
+    `token`, `done`, `action`, `retired`). A reconnect reopens the stream
+    live, and frames sent while disconnected are not redelivered.
+  contact:
+    name: FirstRun
+    url: https://github.com/alfaarizi/first-run
+  license:
+    name: AGPL-3.0-only
+    identifier: AGPL-3.0-only
+servers:
+  - url: /
+    description: The gateway serves this API at the deployment root.
+tags:
+  - name: stream
+    description: Pushes interventions to the widget SDK.
+paths:
+  /v1/stream:
+    get:
+      operationId: connectStream
+      tags: [stream]
+      summary: Open the push stream for one end user
+      description: |
+        Opens a Server-Sent Events stream scoped to the signed end user. The
+        stream opens with a comment frame, then delivers one named event per
+        intervention. When a newer stream for the same end user passes the
+        per-user cap, the oldest stream receives a terminal `retired` event
+        and closes. The client must close it and not reconnect.
+      security:
+        - hmacSignature: []
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: The app's SDK public key. An identifier, not a secret.
+          schema:
+            type: string
+            maxLength: 64
+        - name: end_user_hash
+          in: query
+          required: true
+          description: The customer-supplied hash of their user ID. Never personal data.
+          schema:
+            type: string
+            maxLength: 128
+        - name: ts
+          in: query
+          required: true
+          description: >
+            Client time in RFC 3339 UTC. The gateway rejects requests outside
+            a 5-minute window.
+          schema:
+            type: string
+            format: date-time
+        - name: sig
+          in: query
+          required: true
+          description: >
+            Hex-encoded HMAC-SHA256 over `{ts}.{end_user_hash}` with the
+            app's HMAC key.
+          schema:
+            type: string
+            pattern: ^[0-9a-f]{64}$
+        - name: last_event_id
+          in: query
+          required: false
+          description: The last frame id the client saw, sent on reconnect. The stream reopens live.
+          schema:
+            type: string
+            maxLength: 64
+      responses:
+        '200':
+          description: >
+            The event stream. The `nudge` event's data is a JSON object with
+            `id` (the intervention's UUID, echoed as the frame id) and `text`
+            (the copy the widget renders as text).
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |
+                event:nudge
+                id:019813f2-7f4a-7bbb-9c39-1a2b3c4d5e6f
+                data:{"id":"019813f2-7f4a-7bbb-9c39-1a2b3c4d5e6f","text":"Stuck on “Create your first task”? Ask a question and we can help."}
+        '401':
+          description: >
+            Unknown SDK key, missing or invalid signature, or timestamp
+            outside the window.
+        '403':
+          description: Origin sent and not on the app's allowed origins.
+        '429':
+          description: >
+            The app's concurrent stream budget is spent. The widget retries
+            with backoff.
+components:
+  securitySchemes:
+    hmacSignature:
+      type: apiKey
+      in: query
+      name: sig
+      description: HMAC-SHA256 request signing. See the query parameters on the operation.

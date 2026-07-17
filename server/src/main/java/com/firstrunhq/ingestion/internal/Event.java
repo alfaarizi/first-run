@@ -19,5 +19,6 @@ record Event(
         String event,
     @NotBlank @Size(max = 128) String endUserHash,
     @Nullable UUID sessionId,
+    @Nullable UUID ref,
     @NotNull Instant timestamp,
     @Size(max = 20) @Nullable Map<String, Object> properties) {}

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.firstrunhq.apps.AppDirectory;
 import com.firstrunhq.apps.SdkApp;
+import com.firstrunhq.apps.SignatureVerifier;
 import com.firstrunhq.ingestion.EventEnvelope;
 import com.firstrunhq.ingestion.EventTopics;
 import jakarta.servlet.http.HttpServletRequest;
@@ -174,6 +175,7 @@ class IngestController {
               event.event(),
               event.endUserHash(),
               event.sessionId(),
+              event.ref(),
               corrected.isAfter(receivedAt) ? receivedAt : corrected,
               allowlisted(event.properties(), app.allowedProperties()));
       deliveries.add(

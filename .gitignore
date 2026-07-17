@@ -41,6 +41,8 @@ __pycache__/
 node_modules/
 dist/
 dist-ssr/
+# built by `make widget-bundle`, never edited
+tasklet/public/firstrun.js
 *.local
 *.tsbuildinfo
 coverage/

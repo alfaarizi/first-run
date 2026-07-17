@@ -59,7 +59,7 @@ public final class EventBuilder {
   public void send() throws JsonProcessingException {
     EventEnvelope envelope =
         new EventEnvelope(
-            tenantId, appId, at, null, id, event, endUserHash, sessionId, at, properties);
+            tenantId, appId, at, null, id, event, endUserHash, sessionId, null, at, properties);
     kafkaTemplate.send(
         EventTopics.EVENTS_RAW, endUserHash, objectMapper.writeValueAsString(envelope));
   }

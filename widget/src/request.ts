@@ -48,13 +48,10 @@ export async function post(
     });
     return {
       ok: response.ok,
-      retryable: response.status === 429 || response.status >= 500
+      retryable: response.status === 429 || response.status >= 500,
     };
   } catch {
-    return { 
-      ok: false,
-      retryable: true 
-    };
+    return { ok: false, retryable: true };
   }
 }
 

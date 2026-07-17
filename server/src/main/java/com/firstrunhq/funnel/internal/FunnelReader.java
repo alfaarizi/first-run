@@ -15,7 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>A step counts the cohort that entered inside the range, and a completion counts whenever it
  * happens, so conversion never exceeds 100% per step (Amplitude groups funnel users by when they
- * entered.
+ * entered).
  */
 @Component
 class FunnelReader {

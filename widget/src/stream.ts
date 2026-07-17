@@ -15,7 +15,7 @@ export interface StreamHandlers {
 /**
  * Opens the server-push channel, keyed by the end user. A server-closed
  * stream reopens with backoff, carrying the last seen event id because a
- * fresh EventSource starts without one.
+ * fresh EventSource starts without one. A retired stream stays shut.
  */
 export function connectStream(
   config: Config,
@@ -66,6 +66,11 @@ export function connectStream(
       // CONNECTING means the browser is already retrying on its own
       if (closed || source?.readyState !== EventSource.CLOSED) return;
       retryTimer = setTimeout(open, RETRY_MS * Math.min(++retries, MAX_BACKOFF_STEPS));
+    });
+    source.addEventListener("retired", () => {
+      closed = true;
+      clearTimeout(retryTimer);
+      source?.close();
     });
   };
 
