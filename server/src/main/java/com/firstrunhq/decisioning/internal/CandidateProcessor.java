@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.firstrunhq.funnel.CandidateEnvelope;
 import com.firstrunhq.funnel.CandidateTopics;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
@@ -17,6 +20,8 @@ import org.springframework.stereotype.Component;
 class CandidateProcessor {
 
   static final String GROUP = "decisioning";
+
+  private static final Logger log = LoggerFactory.getLogger(CandidateProcessor.class);
 
   private final ObjectMapper objectMapper;
   private final CandidateDeduper deduper;
@@ -47,7 +52,11 @@ class CandidateProcessor {
     // An undelivered push stays unclaimed, so a candidate copy can still nudge the user later.
     if (streams.pushNudge(
         candidate.appId(), candidate.endUserHash(), candidate.id(), nudgeText(candidate))) {
-      deduper.claim(candidate.appId(), candidate.eventId());
+      try {
+        deduper.claim(candidate.appId(), candidate.eventId());
+      } catch (DataAccessException claimLost) {
+        log.warn("nudge delivered but its claim write failed", candidate.id(), claimLost);
+      }
     }
   }
 
