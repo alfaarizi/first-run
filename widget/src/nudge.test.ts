@@ -192,6 +192,20 @@ test("shift+enter keeps composing instead of sending", () => {
   expect(input?.value).toBe("first line");
 });
 
+test("enter that commits IME composition keeps composing instead of sending", () => {
+  const { callbacks, query } = createUi();
+  query<HTMLButtonElement>(".fr-launcher")?.click();
+
+  const input = query<HTMLTextAreaElement>(".fr-input");
+  input!.value = "日本語";
+  input?.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true }),
+  );
+
+  expect(callbacks.onSend).not.toHaveBeenCalled();
+  expect(input?.value).toBe("日本語");
+});
+
 test("citations render http links only", async () => {
   const { ui, callbacks, query } = createUi();
   query<HTMLButtonElement>(".fr-launcher")?.click();

@@ -36,8 +36,8 @@ class StreamController {
 
   /**
    * Opens the server-push stream for one end user. The signature binds the user hash, so one signed
-   * URL cannot subscribe another user, and a reconnect reopens the stream live with {@code
-   * last_event_id} riding along per the stream contract.
+   * URL cannot subscribe another user. A reconnect reopens the stream live, so the contract's
+   * {@code last_event_id} goes unread and no frames replay.
    *
    * <p>A same-origin {@code EventSource} carries no {@code Origin} header, so the origin gate runs
    * only when one arrives and the signature carries the rest.
@@ -48,7 +48,6 @@ class StreamController {
       @RequestParam(value = "end_user_hash", required = false) @Nullable String endUserHash,
       @RequestParam(value = "ts", required = false) @Nullable String timestamp,
       @RequestParam(value = "sig", required = false) @Nullable String signature,
-      @RequestParam(value = "last_event_id", required = false) @Nullable String lastEventId,
       @RequestHeader(value = HttpHeaders.ORIGIN, required = false) @Nullable String origin) {
     SdkApp app = key == null ? null : appDirectory.findBySdkKey(key).orElse(null);
     if (app == null) {

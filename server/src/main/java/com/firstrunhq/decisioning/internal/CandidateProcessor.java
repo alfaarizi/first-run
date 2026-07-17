@@ -44,13 +44,14 @@ class CandidateProcessor {
       return;
     }
 
-    streams.pushNudge(candidate.appId(), candidate.endUserHash(), candidate.id(), copy(candidate));
+    streams.pushNudge(
+        candidate.appId(), candidate.endUserHash(), candidate.id(), nudgeText(candidate));
 
     deduper.claim(candidate.appId(), candidate.eventId());
   }
 
   /** Names the step the user is stuck on with the founder's own milestone title. */
-  private String copy(CandidateEnvelope candidate) {
+  private String nudgeText(CandidateEnvelope candidate) {
     return milestoneTitles
         .find(candidate.tenantId(), candidate.milestoneId())
         .map("Stuck on “%s”? Ask a question and we can help."::formatted)

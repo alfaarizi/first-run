@@ -89,7 +89,6 @@ export const NUDGE_CSS = `
   position: absolute;
   bottom: 19px;
   right: 13px;
-  display: block;
   padding: 0;
   border: 0;
   border-radius: 12px;
@@ -209,11 +208,7 @@ export const NUDGE_CSS = `
   opacity: 0.5;
   cursor: default;
 }
-.fr-btn:focus-visible,
-.fr-bubble-text:focus-visible,
-.fr-close:focus-visible,
-.fr-launcher:focus-visible,
-.fr-send:focus-visible {
+button:focus-visible {
   outline: var(--outline);
 }
 .fr-btn-primary {
@@ -354,7 +349,6 @@ export const NUDGE_CSS = `
 }
 .fr-send {
   flex: none;
-  align-self: flex-end;
   display: flex;
   align-items: center;
   justify-content: center;

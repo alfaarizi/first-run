@@ -10,7 +10,7 @@ export interface Composer {
   focus(): void;
 }
 
-/** Builds the composer. Enter and the send button submit, and Shift+Enter breaks the line. */
+/** Builds the composer. Enter and the send button submit, Shift+Enter breaks the line. */
 export function createComposer(onSubmit: () => void): Composer {
   const input = el("textarea", "fr-input");
   input.rows = 1;
@@ -18,7 +18,9 @@ export function createComposer(onSubmit: () => void): Composer {
   input.setAttribute("aria-label", "Ask about this product");
   input.oninput = resize;
   input.onkeydown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    // an Enter that commits IME composition keeps composing, and Safari fires
+    // it after compositionend with isComposing already false, so 229 gates it
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
       e.preventDefault();
       onSubmit();
     }
