@@ -168,6 +168,11 @@ class NudgeStreamTests {
       newest = openStream(endUserHash);
     }
 
+    // The retired frame tells the evicted widget to close instead of reconnecting,
+    // which would evict the next stream and churn forever.
+    assertThat(awaitLine(oldest, line -> line.startsWith("event:") && line.contains("retired")))
+        .isNotNull();
+
     kafkaTemplate.send(
         CandidateTopics.INTERVENTION_CANDIDATES,
         endUserHash,

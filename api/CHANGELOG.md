@@ -3,6 +3,19 @@
 Each entry records the date, the change, the rationale, and whether it is
 additive or breaking.
 
+## 2026-07-17
+
+### Added
+
+- `api/openapi/stream.yaml` adds the terminal `retired` frame. When a newer
+  stream for the same end user passes the per-user cap, the retired stream
+  receives it before closing, and the client must not reconnect. Without it,
+  `EventSource` reconnects on every close (WHATWG), so nine open tabs evict
+  each other in an endless rotation (the Firebase REST streaming `cancel` /
+  `auth_revoked` pattern).
+
+Additive. Existing clients ignore unknown named events.
+
 ## 2026-07-16
 
 ### Added

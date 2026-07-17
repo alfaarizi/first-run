@@ -58,6 +58,13 @@ class NudgeStreams {
     // completing inside compute would re-enter the map through the removal callback
     for (SseEmitter retired : evicted) {
       appCount.decrementAndGet();
+      try {
+        // A plain close makes EventSource reconnect, evicting the next stream in an
+        // endless rotation, so this frame tells the widget to stay shut.
+        retired.send(SseEmitter.event().name("retired").data("{}"));
+      } catch (IOException | IllegalStateException gone) {
+        // the tab is already gone, so there is no client left to reconnect
+      }
       retired.complete();
     }
 

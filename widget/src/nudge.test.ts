@@ -146,6 +146,40 @@ test("replying after an open-panel nudge reports it engaged once", () => {
   expect(callbacks.onEngage).toHaveBeenCalledTimes(1);
 });
 
+test("a nudge displaced from the bubble keeps its text and outcome", () => {
+  const { ui, callbacks, query } = createUi();
+  ui.showNudge({ id: "n1", text: "Stuck?" });
+  ui.showNudge({ id: "n2", text: "Try connecting a source." });
+
+  // the newest nudge owns the bubble, the displaced one joins the conversation
+  expect(query(".fr-bubble-text")?.textContent).toBe("Try connecting a source.");
+  expect(query(".fr-message-agent .fr-body")?.textContent).toBe("Stuck?");
+
+  query<HTMLButtonElement>(".fr-bubble-text")?.click();
+  expect(callbacks.onEngage).toHaveBeenCalledWith("n2");
+
+  const input = query<HTMLTextAreaElement>(".fr-input");
+  input!.value = "how do I connect?";
+  input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+  expect(callbacks.onEngage).toHaveBeenCalledWith("n1");
+});
+
+test("a redelivered pending nudge duplicates neither its text nor its outcome", () => {
+  const { ui, callbacks, query } = createUi();
+  ui.showNudge({ id: "n1", text: "Stuck?" });
+  ui.showNudge({ id: "n1", text: "Stuck?" });
+
+  expect(query(".fr-message-agent")).toBeNull();
+
+  query<HTMLButtonElement>(".fr-bubble-text")?.click();
+  const input = query<HTMLTextAreaElement>(".fr-input");
+  input!.value = "hello";
+  input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+  expect(callbacks.onEngage).toHaveBeenCalledTimes(1);
+});
+
 test("one reply engages every open-panel nudge awaiting it", () => {
   const { ui, callbacks, query } = createUi();
   query<HTMLButtonElement>(".fr-launcher")?.click();

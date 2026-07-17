@@ -9,8 +9,8 @@ info:
     subscribe another user.
 
     Each frame carries one named event from the widget contract (`nudge`,
-    `token`, `done`, `action`). A reconnect reopens the stream live, and
-    frames sent while disconnected are not redelivered.
+    `token`, `done`, `action`, `retired`). A reconnect reopens the stream
+    live, and frames sent while disconnected are not redelivered.
   contact:
     name: FirstRun
     url: https://github.com/alfaarizi/first-run
@@ -32,7 +32,9 @@ paths:
       description: |
         Opens a Server-Sent Events stream scoped to the signed end user. The
         stream opens with a comment frame, then delivers one named event per
-        intervention.
+        intervention. When a newer stream for the same end user passes the
+        per-user cap, the oldest stream receives a terminal `retired` event
+        and closes. The client must close it and not reconnect.
       security:
         - hmacSignature: []
       parameters:

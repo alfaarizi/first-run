@@ -133,6 +133,13 @@ export class NudgeUi {
       return;
     }
 
+    // a different nudge displacing the preview joins the conversation, because
+    // the server has claimed it and will never push it again
+    const displaced = this.pendingNudge;
+    if (displaced && displaced.id !== nudge.id) {
+      this.appendMessage("agent", displaced.text);
+      this.nudgesAwaitingReply.add(displaced.id);
+    }
     this.removeBubble();
     this.pendingNudge = nudge;
 
