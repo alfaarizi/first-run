@@ -257,8 +257,7 @@ button:focus-visible {
   position: relative;
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  align-items: last baseline;
+  align-items: flex-end;
   gap: 2px 8px;
   max-width: 75%;
   border-radius: 12px;
