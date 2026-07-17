@@ -55,7 +55,7 @@ class CandidateProcessor {
       try {
         deduper.claim(candidate.appId(), candidate.eventId());
       } catch (DataAccessException claimLost) {
-        log.warn("nudge delivered but its claim write failed", candidate.id(), claimLost);
+        log.warn("nudge delivered {} but its claim write failed", candidate.id(), claimLost);
       }
     }
   }
