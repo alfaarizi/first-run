@@ -146,6 +146,35 @@ test("replying after an open-panel nudge reports it engaged once", () => {
   expect(callbacks.onEngage).toHaveBeenCalledTimes(1);
 });
 
+test("one reply engages every open-panel nudge awaiting it", () => {
+  const { ui, callbacks, query } = createUi();
+  query<HTMLButtonElement>(".fr-launcher")?.click();
+  ui.showNudge({ id: "n2", text: "Stuck?" });
+  ui.showNudge({ id: "n3", text: "Try connecting a source." });
+
+  const input = query<HTMLTextAreaElement>(".fr-input");
+  input!.value = "yes, how do I connect?";
+  input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+  expect(callbacks.onEngage).toHaveBeenCalledWith("n2");
+  expect(callbacks.onEngage).toHaveBeenCalledWith("n3");
+  expect(callbacks.onEngage).toHaveBeenCalledTimes(2);
+});
+
+test("a redelivered open-panel nudge reports engaged once", () => {
+  const { ui, callbacks, query } = createUi();
+  query<HTMLButtonElement>(".fr-launcher")?.click();
+  ui.showNudge({ id: "n2", text: "Stuck?" });
+  ui.showNudge({ id: "n2", text: "Stuck?" });
+
+  const input = query<HTMLTextAreaElement>(".fr-input");
+  input!.value = "hello";
+  input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+  expect(callbacks.onEngage).toHaveBeenCalledWith("n2");
+  expect(callbacks.onEngage).toHaveBeenCalledTimes(1);
+});
+
 test("closing the panel before a reply leaves an open-panel nudge unengaged", () => {
   const { ui, callbacks, query } = createUi();
   const launcher = query<HTMLButtonElement>(".fr-launcher");
