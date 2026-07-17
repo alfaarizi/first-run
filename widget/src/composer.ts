@@ -16,7 +16,7 @@ export function createComposer(onSubmit: () => void): Composer {
   input.rows = 1;
   input.placeholder = "Ask about this product...";
   input.setAttribute("aria-label", "Ask about this product");
-  input.oninput = resize;
+  input.oninput = sync;
   input.onkeydown = (e) => {
     // an Enter that commits IME composition keeps composing, and Safari fires
     // it after compositionend with isComposing already false, so 229 gates it
@@ -47,11 +47,13 @@ export function createComposer(onSubmit: () => void): Composer {
     });
   }
 
-  // grows the composer with its content and hands overflow to a scrollbar at the cap
-  function resize(): void {
+  // grows the composer with its content, hands overflow to a scrollbar at the
+  // cap, and arms the send button only for a draft submit would accept
+  function sync(): void {
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
     input.style.overflowY = input.scrollHeight > COMPOSER_MAX_HEIGHT_PX ? "auto" : "hidden";
+    send.classList.toggle("fr-send-ready", /\S/.test(input.value));
   }
 
   return {
@@ -59,7 +61,7 @@ export function createComposer(onSubmit: () => void): Composer {
     text: () => input.value.trim(),
     clear() {
       input.value = "";
-      resize();
+      sync();
     },
     focus() {
       // scroll-on-focus would drag the shell's content while it is mid-morph

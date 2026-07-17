@@ -365,7 +365,7 @@ button:focus-visible {
   color: #fff;
   cursor: pointer;
 }
-.fr-input:not(:placeholder-shown) + .fr-send {
+.fr-send-ready {
   background: var(--send-ready-background);
 }
 .fr-send:hover {

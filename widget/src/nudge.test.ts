@@ -234,6 +234,21 @@ test("enter that commits IME composition keeps composing instead of sending", ()
   expect(input?.value).toBe("日本語");
 });
 
+test("the send button arms only when the draft has visible text", () => {
+  const { query } = createUi();
+  query<HTMLButtonElement>(".fr-launcher")?.click();
+  const input = query<HTMLTextAreaElement>(".fr-input");
+  const send = query<HTMLButtonElement>(".fr-send");
+
+  input!.value = "\n\n";
+  input?.dispatchEvent(new Event("input"));
+  expect(send?.classList.contains("fr-send-ready")).toBe(false);
+
+  input!.value = "\nhello";
+  input?.dispatchEvent(new Event("input"));
+  expect(send?.classList.contains("fr-send-ready")).toBe(true);
+});
+
 test("citations render http links only", async () => {
   const { ui, callbacks, query } = createUi();
   query<HTMLButtonElement>(".fr-launcher")?.click();
