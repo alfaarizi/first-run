@@ -136,6 +136,29 @@ class NudgeStreamTests {
   }
 
   @Test
+  void keepsAnUndeliveredCandidateUnclaimedSoACopyStillNudges() throws Exception {
+    String endUserHash = "user-" + UUID.randomUUID();
+    UUID flaggingEventId = UUID.randomUUID();
+
+    // The first candidate reaches nobody, because the user has no open stream yet.
+    kafkaTemplate.send(
+        CandidateTopics.INTERVENTION_CANDIDATES,
+        endUserHash,
+        objectMapper.writeValueAsString(candidate(endUserHash, flaggingEventId)));
+    // Give the consumer time to process the undeliverable candidate before the stream opens.
+    Thread.sleep(2000);
+
+    BlockingQueue<String> lines = openStream(endUserHash);
+    kafkaTemplate.send(
+        CandidateTopics.INTERVENTION_CANDIDATES,
+        endUserHash,
+        objectMapper.writeValueAsString(candidate(endUserHash, flaggingEventId)));
+
+    assertThat(awaitLine(lines, line -> line.startsWith("event:") && line.contains("nudge")))
+        .isNotNull();
+  }
+
+  @Test
   void retiresTheOldestStreamWhenAUserPassesTheCap() throws Exception {
     String endUserHash = "user-" + UUID.randomUUID();
     BlockingQueue<String> oldest = openStream(endUserHash);

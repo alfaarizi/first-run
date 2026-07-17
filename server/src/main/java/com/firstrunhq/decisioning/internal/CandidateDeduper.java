@@ -25,7 +25,7 @@ class CandidateDeduper {
     return Boolean.TRUE.equals(redis.hasKey(key(appId, eventId)));
   }
 
-  /** Runs only after the push, so a failure or crash replays instead of dropping the nudge. */
+  /** Runs only after a delivered push, so a crash or an empty registry never retires the nudge. */
   void claim(UUID appId, UUID eventId) {
     redis.opsForValue().set(key(appId, eventId), "", CLAIM_TTL);
   }

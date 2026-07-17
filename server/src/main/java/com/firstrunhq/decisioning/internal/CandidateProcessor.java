@@ -44,10 +44,11 @@ class CandidateProcessor {
       return;
     }
 
-    streams.pushNudge(
-        candidate.appId(), candidate.endUserHash(), candidate.id(), nudgeText(candidate));
-
-    deduper.claim(candidate.appId(), candidate.eventId());
+    // An undelivered push stays unclaimed, so a candidate copy can still nudge the user later.
+    if (streams.pushNudge(
+        candidate.appId(), candidate.endUserHash(), candidate.id(), nudgeText(candidate))) {
+      deduper.claim(candidate.appId(), candidate.eventId());
+    }
   }
 
   /** Names the step the user is stuck on with the founder's own milestone title. */

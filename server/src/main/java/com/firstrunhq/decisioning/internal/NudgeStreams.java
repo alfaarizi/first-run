@@ -76,9 +76,11 @@ class NudgeStreams {
   }
 
   /**
-   * Sends the nudge on every stream the user has open. The frame id feeds {@code Last-Event-ID}.
+   * Sends the nudge on every stream the user has open and reports whether any accepted it. The
+   * frame id feeds {@code Last-Event-ID}.
    */
-  void pushNudge(UUID appId, String endUserHash, UUID nudgeId, String text) {
+  boolean pushNudge(UUID appId, String endUserHash, UUID nudgeId, String text) {
+    boolean delivered = false;
     for (SseEmitter emitter : streams.getOrDefault(key(appId, endUserHash), List.of())) {
       try {
         emitter.send(
@@ -86,10 +88,12 @@ class NudgeStreams {
                 .name("nudge")
                 .id(nudgeId.toString())
                 .data(new NudgeFrame(nudgeId, text), MediaType.APPLICATION_JSON));
+        delivered = true;
       } catch (IOException | IllegalStateException gone) {
         emitter.completeWithError(gone);
       }
     }
+    return delivered;
   }
 
   // One stream can fire onError and then onCompletion, so only the call that wins the list
