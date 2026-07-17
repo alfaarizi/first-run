@@ -1,3 +1,6 @@
+// the input's line grid, which the composer's caret scroll steps by
+export const COMPOSER_LINE_HEIGHT_PX = 20;
+
 // where the growing composer stops and scrolls instead, about five lines
 export const COMPOSER_MAX_HEIGHT_PX = 120;
 
@@ -332,7 +335,7 @@ button:focus-visible {
   flex: 1;
   box-sizing: border-box;
   font: inherit;
-  line-height: 20px;
+  line-height: ${COMPOSER_LINE_HEIGHT_PX}px;
   color: inherit;
   background: none;
   border: 0;

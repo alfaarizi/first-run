@@ -1,5 +1,5 @@
 import { el } from "./dom";
-import { COMPOSER_MAX_HEIGHT_PX } from "./nudge.css";
+import { COMPOSER_LINE_HEIGHT_PX, COMPOSER_MAX_HEIGHT_PX } from "./nudge.css";
 
 /** The message input row, an autogrowing textarea beside a send button. */
 export interface Composer {
@@ -24,6 +24,9 @@ export function createComposer(onSubmit: () => void): Composer {
       e.preventDefault();
       onSubmit();
     }
+    if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      clampScroll();
+    }
   };
 
   const send = el("button", "fr-send");
@@ -33,6 +36,16 @@ export function createComposer(onSubmit: () => void): Composer {
 
   const root = el("div", "fr-composer");
   root.append(input, send);
+
+  function clampScroll(): void {
+    const before = input.scrollTop;
+    requestAnimationFrame(() => {
+      const jump = input.scrollTop - before;
+      if (Math.abs(jump) > COMPOSER_LINE_HEIGHT_PX) {
+        input.scrollTop = before + Math.sign(jump) * COMPOSER_LINE_HEIGHT_PX;
+      }
+    });
+  }
 
   // grows the composer with its content and hands overflow to a scrollbar at the cap
   function resize(): void {
