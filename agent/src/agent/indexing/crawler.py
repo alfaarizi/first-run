@@ -10,6 +10,7 @@ all the tenant's own.
 import asyncio
 import ipaddress
 import logging
+import socket
 import urllib.robotparser
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -72,7 +73,7 @@ class _Pin:
 
 async def _resolve(host: str) -> list[str]:
     loop = asyncio.get_running_loop()
-    infos = await loop.getaddrinfo(host, 443)
+    infos = await loop.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
     return [str(info[4][0]) for info in infos]
 
 

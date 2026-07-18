@@ -20,6 +20,8 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 
+_STOP_GRACE_SECONDS = 5
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -43,7 +45,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     server.add_insecure_port(f"[::]:{settings.grpc_port}")
     await server.start()
     yield
-    await server.stop(grace=5)
+    await server.stop(grace=_STOP_GRACE_SECONDS)
     await store.close()
 
 

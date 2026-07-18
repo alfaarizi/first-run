@@ -62,7 +62,7 @@ def chunk_page(url: str, html: str, *, max_chars: int) -> list[Chunk]:
         text = element.get_text(" ", strip=True)
         if not text:
             continue
-        level = _HEADING_LEVELS.get(element.name or "")
+        level = _HEADING_LEVELS.get(element.name)
         if level is not None:
             flush()
             del headings[level:]

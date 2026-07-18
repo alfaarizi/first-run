@@ -121,10 +121,7 @@ class ChunkStore:
             )
 
     async def fail(self, *, tenant_id: str, source_id: str, crawl_id: str) -> None:
-        """Discard the crawl's own chunks and mark the source FAILED.
-
-        The previous crawl's chunks stay live.
-        """
+        """Sweep the failed crawl's own chunks and mark the source FAILED."""
         pool = await self._get_pool()
         async with pool.acquire() as connection, connection.transaction():
             await _set_tenant(connection, tenant_id)

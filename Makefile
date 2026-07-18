@@ -21,7 +21,7 @@ widget-bundle:
 	else echo ">> skipping widget-bundle, widget/ is not scaffolded"; fi
 
 # --wait returns once every healthcheck passes, so seed can run immediately.
-# Generated schema and stubs are gitignored, so the images regenerate them.
+# The schema and stubs are gitignored, so they regenerate before images build.
 up: widget-bundle generate-schema generate-agent
 	@if [ ! -f .env ]; then echo "up: missing .env, run 'cp .env.example .env'" >&2; exit 1; fi
 	docker compose up --detach --build --wait

@@ -1,10 +1,10 @@
--- vector(1024) pins the column to the embedding model's output width, so a
--- model change is a new migration plus a full reindex. Embeddings arrive
--- unit-length, making inner product rank like cosine at lower cost, so the
--- HNSW index uses vector_ip_ops and retrieval must query with <#> to hit it.
--- crawl_id lets a re-crawl insert incrementally, then sweep every older
--- generation in one delete. Foreign-key checks bypass row-level security, so
--- composite keys pin every reference inside one tenant.
+-- vector(1024) pins the column to the embedding model's width, so a model
+-- change is a new migration plus a full reindex. Embeddings arrive
+-- unit-length, so the HNSW index uses inner product and retrieval must query
+-- with <#> to hit it. crawl_id lets a re-crawl insert incrementally and
+-- sweep other generations in one delete. Foreign-key checks bypass
+-- row-level security, so composite keys pin every reference inside one
+-- tenant.
 
 CREATE TABLE doc_source (
     id uuid PRIMARY KEY,

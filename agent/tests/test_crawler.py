@@ -55,7 +55,7 @@ def _site(request: httpx.Request) -> httpx.Response:
 
 
 def _crawler(
-    handler: httpx.MockTransport | None = None,
+    transport: httpx.MockTransport | None = None,
     max_pages: int = 50,
     max_response_bytes: int = 10_000,
 ) -> Crawler:
@@ -63,7 +63,7 @@ def _crawler(
         max_pages=max_pages,
         timeout_seconds=1.0,
         max_response_bytes=max_response_bytes,
-        transport=handler or httpx.MockTransport(_site),
+        transport=transport or httpx.MockTransport(_site),
         resolve=_public,
     )
 
@@ -101,7 +101,7 @@ async def test_requests_connect_to_the_vetted_address() -> None:
         wire.append((request.url.host, request.headers["host"]))
         return _site(request)
 
-    crawler = _crawler(handler=httpx.MockTransport(record))
+    crawler = _crawler(transport=httpx.MockTransport(record))
     [page.url async for page in crawler.crawl(f"{_ROOT}/")]
 
     assert wire
@@ -126,7 +126,7 @@ async def test_page_cap_bounds_failed_fetches_too() -> None:
             return _html(links)
         return httpx.Response(404)
 
-    crawler = _crawler(handler=httpx.MockTransport(fanout), max_pages=5)
+    crawler = _crawler(transport=httpx.MockTransport(fanout), max_pages=5)
     urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
 
     assert urls == [f"{_ROOT}/"]
@@ -149,7 +149,7 @@ async def test_oversized_robots_is_truncated_and_still_honored() -> None:
             )
         return _site(request)
 
-    crawler = _crawler(handler=httpx.MockTransport(huge_robots))
+    crawler = _crawler(transport=httpx.MockTransport(huge_robots))
     urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
 
     assert f"{_ROOT}/" in urls
@@ -162,7 +162,7 @@ async def test_robots_denied_by_4xx_allows_the_crawl() -> None:
             return httpx.Response(403)
         return _site(request)
 
-    crawler = _crawler(handler=httpx.MockTransport(forbidden_robots))
+    crawler = _crawler(transport=httpx.MockTransport(forbidden_robots))
     urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
 
     assert f"{_ROOT}/" in urls
@@ -174,7 +174,7 @@ async def test_robots_5xx_disallows_the_whole_crawl() -> None:
             return httpx.Response(503)
         return _site(request)
 
-    crawler = _crawler(handler=httpx.MockTransport(broken_robots))
+    crawler = _crawler(transport=httpx.MockTransport(broken_robots))
     with pytest.raises(CrawlError):
         async for _ in crawler.crawl(f"{_ROOT}/"):
             pass

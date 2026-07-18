@@ -8,17 +8,18 @@ Accepted
 
 ## Context
 
-The docs index needs an embedding model, and Anthropic, the chat
-provider, offers none. Its embeddings guide points to Voyage AI. The vector
-column bakes its width into a forward-only migration, and an HNSW
-index caps at 2,000 dimensions, so the width must be right before the first
-tenant indexes. Cost per MAU is guarded at $0.05.
+The docs index needs an embedding model, and Anthropic, the chat provider,
+offers none. Its embeddings guide points to Voyage AI. The vector column
+bakes its width into a forward-only migration, and an HNSW index caps at
+2,000 dimensions, so the width must be right before the first tenant
+indexes. Cost per MAU is guarded at $0.05.
 
 ## Decision
 
-Embed with Voyage `voyage-4-lite` at its default 1024 dimensions. Voyage 
-vectors are unit-length, so the HNSW index uses inner product, 
-which ranks like cosine at lower cost, and retrieval queries with `<#>`. The model name lives in agent settings behind the agent's single provider client.
+Embed with Voyage `voyage-4-lite` at its default 1024 dimensions. Voyage
+vectors are unit-length, so the HNSW index uses inner product, which ranks
+like cosine at lower cost, and retrieval queries with `<#>`. The model name
+lives in agent settings behind the agent's single provider client.
 
 ## Consequences
 
