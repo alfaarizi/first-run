@@ -4,6 +4,7 @@ import com.firstrunhq.apps.AppDirectory;
 import com.firstrunhq.apps.SdkApp;
 import com.firstrunhq.apps.SignatureVerifier;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Pattern;
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -22,7 +23,10 @@ class StreamController {
   static final String PATH = "/v1/stream";
 
   private static final int MAX_END_USER_HASH_LENGTH = 128;
-  private static final int MAX_LAST_EVENT_ID_LENGTH = 64;
+
+  // Frame ids are server-minted UUIDs or the reserved earliest, and the connected frame echoes
+  // the cursor into an SSE id field, so anything outside this alphabet must never reach it.
+  private static final Pattern LAST_EVENT_ID = Pattern.compile("[0-9a-z-]{1,64}");
 
   private final AppDirectory appDirectory;
   private final SignatureVerifier signatureVerifier;
@@ -74,8 +78,8 @@ class StreamController {
     // The browser's automatic reconnect carries the header while the widget's manual reopen
     // carries the parameter, and the header is the later of the two, so it wins.
     String lastEventId = lastEventIdHeader != null ? lastEventIdHeader : lastEventIdParam;
-    if (lastEventId != null && lastEventId.length() > MAX_LAST_EVENT_ID_LENGTH) {
-      // An overlong cursor would replay the whole buffer, so it reads as absent.
+    if (lastEventId != null && !LAST_EVENT_ID.matcher(lastEventId).matches()) {
+      // A cursor the server never minted has no position to resume, so it reads as absent.
       lastEventId = null;
     }
 
