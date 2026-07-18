@@ -125,8 +125,8 @@ class NudgeStreams {
 
   /**
    * One open emitter behind a replay gate. A nudge pushed while a reconnect's replay drains waits
-   * until the replay finishes, so the stream never carries a newer live frame before an older
-   * missed one, which the widget could not repair because it deduplicates but never reorders.
+   * for it to finish, so a newer live frame never precedes an older missed one, an inversion the
+   * widget cannot repair because it deduplicates but never reorders.
    */
   private static final class Stream {
 
@@ -139,11 +139,15 @@ class NudgeStreams {
       this.replaying = replaying;
     }
 
-    /** Sends the frame, or holds it while a replay drains, reporting whether the stream took it. */
+    /**
+     * Sends the frame, or holds it while a replay drains. A held frame is not yet on the wire, so
+     * it reports failure: only a durable buffer or a real send lets the caller claim the nudge, and
+     * a claim on a frame a dying stream never flushes would drop it with no retry.
+     */
     synchronized boolean deliver(NudgeFrame frame) {
       if (replaying) {
         heldByReplay.add(frame);
-        return true;
+        return false;
       }
       return send(frame);
     }

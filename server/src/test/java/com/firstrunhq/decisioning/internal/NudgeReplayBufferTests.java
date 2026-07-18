@@ -3,6 +3,7 @@ package com.firstrunhq.decisioning.internal;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -14,6 +15,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.ListOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
@@ -46,6 +48,21 @@ class NudgeReplayBufferTests {
     List<NudgeFrame> frames = buffer.after(UUID.randomUUID(), "user-1", "earliest");
 
     assertThat(frames).extracting(NudgeFrame::id).containsExactly(live);
+  }
+
+  @Test
+  void reportsSuccessOnceThePushLandsEvenWhenMaintenanceFails() {
+    when(redis.opsForList()).thenReturn(list);
+    when(list.leftPush(anyString(), anyString())).thenReturn(1L);
+    doThrow(new RedisConnectionFailureException("redis blip"))
+        .when(list)
+        .trim(anyString(), anyLong(), anyLong());
+
+    // A false here would let a candidate copy buffer a duplicate nudge for the same event.
+    boolean accepted =
+        buffer.append(UUID.randomUUID(), "user-1", new NudgeFrame(UUID.randomUUID(), "hi"));
+
+    assertThat(accepted).isTrue();
   }
 
   private String entry(UUID id, Instant at) throws JsonProcessingException {

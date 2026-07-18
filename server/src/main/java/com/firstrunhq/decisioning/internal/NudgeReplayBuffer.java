@@ -42,19 +42,30 @@ class NudgeReplayBuffer {
   /** Records the frame for later replay and reports whether the buffer holds it. */
   boolean append(UUID appId, String endUserHash, NudgeFrame frame) {
     String key = key(appId, endUserHash);
+    String entry;
     try {
-      String entry = objectMapper.writeValueAsString(new Buffered(Instant.now(), frame));
-      redis.opsForList().leftPush(key, entry);
-      redis.opsForList().trim(key, 0, MAX_BUFFERED_PER_USER - 1);
-      // the key expiry only reclaims storage; each frame's own age bounds its replay
-      redis.expire(key, BUFFER_TTL);
-      return true;
+      entry = objectMapper.writeValueAsString(new Buffered(Instant.now(), frame));
     } catch (JsonProcessingException impossible) {
       throw new IllegalStateException(impossible);
+    }
+
+    try {
+      redis.opsForList().leftPush(key, entry);
     } catch (DataAccessException redisDown) {
       log.warn("nudge {} not buffered for replay", frame.id(), redisDown);
       return false;
     }
+
+    // The push alone decides the outcome: reporting a trim or expiry hiccup as failure would
+    // let a candidate copy buffer a duplicate nudge for the same event. Both degrade safely,
+    // because replay filters by frame age and the next append retrims.
+    try {
+      redis.opsForList().trim(key, 0, MAX_BUFFERED_PER_USER - 1);
+      redis.expire(key, BUFFER_TTL);
+    } catch (DataAccessException degraded) {
+      log.warn("replay buffer maintenance failed after nudge {}", frame.id(), degraded);
+    }
+    return true;
   }
 
   /**
