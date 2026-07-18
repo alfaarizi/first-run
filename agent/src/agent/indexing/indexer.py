@@ -132,6 +132,11 @@ class Indexer:
                 tenant_id=tenant_id, source_id=source_id, crawl_id=crawl_id
             )
             logger.info("reindexed source %s from %s", source_id, source_url)
+        except asyncio.CancelledError:
+            # Shutdown cancels the task mid-crawl. Clean up, then let the
+            # cancellation propagate.
+            await self._fail(tenant_id, source_id, crawl_id)
+            raise
         except Exception:
             logger.exception("reindex failed for source %s", source_id)
             await self._fail(tenant_id, source_id, crawl_id)

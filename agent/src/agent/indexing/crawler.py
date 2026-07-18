@@ -101,7 +101,10 @@ class Crawler:
             raise CrawlError(f"not a public https URL: {root_url}")
         addresses = await self._resolve(root.hostname or "")
         for address in addresses:
-            if not ipaddress.ip_address(address).is_global:
+            ip = ipaddress.ip_address(address)
+            # is_global rejects private, loopback, link-local, and reserved
+            # ranges, and multicast slips through it.
+            if not ip.is_global or ip.is_multicast:
                 raise CrawlError(f"host resolves to a non-public address: {address}")
         # Every request connects to the first vetted address, so a DNS answer
         # that changes mid-crawl cannot steer the crawl into a private network.
@@ -145,25 +148,39 @@ class Crawler:
                 return None
         return bytes(body)
 
+    async def _read_truncated(self, response: httpx.Response) -> bytes:
+        body = bytearray()
+        async for part in response.aiter_bytes():
+            body.extend(part)
+            if len(body) >= self._max_response_bytes:
+                del body[self._max_response_bytes :]
+                break
+        return bytes(body)
+
     async def _fetch_robots(
         self, client: httpx.AsyncClient, root_url: str, pin: _Pin
     ) -> urllib.robotparser.RobotFileParser:
+        """Fetch robots.txt with RFC 9309 semantics.
+
+        A 4xx answer allows the crawl, a 5xx answer or an unreachable host
+        disallows it entirely, and an oversized file parses truncated at the
+        size cap.
+        """
         robots = urllib.robotparser.RobotFileParser()
         lines: list[str] = []
         try:
             async with self._stream(
                 client, urljoin(root_url, "/robots.txt"), pin
             ) as response:
+                if response.status_code >= 500:
+                    raise CrawlError(f"robots.txt answered {response.status_code}")
                 if response.status_code == 200:
-                    body = await self._read_capped(response)
-                    if body is None:
-                        logger.warning("robots.txt over size cap, crawling without it")
-                    else:
-                        lines = body.decode(
-                            response.charset_encoding or "utf-8", "replace"
-                        ).splitlines()
-        except httpx.HTTPError:
-            logger.warning("robots.txt fetch failed, crawling without it")
+                    body = await self._read_truncated(response)
+                    lines = body.decode(
+                        response.charset_encoding or "utf-8", "replace"
+                    ).splitlines()
+        except httpx.HTTPError as error:
+            raise CrawlError(f"robots.txt unreachable: {error}") from error
         robots.parse(lines)
         return robots
 

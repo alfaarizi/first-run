@@ -157,6 +157,31 @@ async def test_failed_crawl_discards_its_own_chunks_and_keeps_the_old_index() ->
     assert store.fail_crawl_id == store.write_crawl_id
 
 
+async def test_cancelled_crawl_discards_its_own_chunks_before_propagating() -> None:
+    gate = asyncio.Event()
+    store = FakeStore()
+    indexer = Indexer(
+        crawler=FakeCrawler(gate=gate),
+        embedder=FakeEmbedder(),
+        store=store,
+        chunk_max_chars=2_000,
+    )
+    indexer.start(
+        tenant_id=_TENANT,
+        app_id=_APP,
+        source_id=_SOURCE,
+        source_url="https://d.example",
+    )
+    task = indexer._running[_SOURCE]
+    await asyncio.sleep(0)
+
+    task.cancel()
+    await _settled(store)
+
+    assert task.cancelled()
+    assert store.events == ["indexing", "fail"]
+
+
 async def test_empty_crawl_never_sweeps_the_old_index() -> None:
     store = FakeStore()
     service = _service(store, FakeCrawler(pages=[]))

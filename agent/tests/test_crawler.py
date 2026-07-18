@@ -17,6 +17,10 @@ async def _loopback(host: str) -> list[str]:
     return ["127.0.0.1"]
 
 
+async def _multicast(host: str) -> list[str]:
+    return ["224.0.0.1"]
+
+
 def _html(body: str) -> httpx.Response:
     return httpx.Response(200, headers={"content-type": "text/html"}, text=body)
 
@@ -135,13 +139,13 @@ async def test_oversized_pages_are_skipped() -> None:
     assert [page.url async for page in crawler.crawl(f"{_ROOT}/")] == []
 
 
-async def test_oversized_robots_is_dropped_not_trusted() -> None:
+async def test_oversized_robots_is_truncated_and_still_honored() -> None:
     def huge_robots(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
             return httpx.Response(
                 200,
                 headers={"content-type": "text/plain"},
-                text="User-agent: *\nDisallow: /\n" + "#" * 20_000,
+                text="User-agent: *\nDisallow: /private/\n" + "#" * 20_000,
             )
         return _site(request)
 
@@ -149,6 +153,31 @@ async def test_oversized_robots_is_dropped_not_trusted() -> None:
     urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
 
     assert f"{_ROOT}/" in urls
+    assert f"{_ROOT}/private/internal" not in urls
+
+
+async def test_robots_denied_by_4xx_allows_the_crawl() -> None:
+    def forbidden_robots(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(403)
+        return _site(request)
+
+    crawler = _crawler(handler=httpx.MockTransport(forbidden_robots))
+    urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
+
+    assert f"{_ROOT}/" in urls
+
+
+async def test_robots_5xx_disallows_the_whole_crawl() -> None:
+    def broken_robots(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(503)
+        return _site(request)
+
+    crawler = _crawler(handler=httpx.MockTransport(broken_robots))
+    with pytest.raises(CrawlError):
+        async for _ in crawler.crawl(f"{_ROOT}/"):
+            pass
 
 
 async def test_non_https_root_is_refused() -> None:
@@ -164,6 +193,20 @@ async def test_private_address_root_is_refused() -> None:
         max_response_bytes=10_000,
         transport=httpx.MockTransport(_site),
         resolve=_loopback,
+    )
+
+    with pytest.raises(CrawlError):
+        async for _ in crawler.crawl(f"{_ROOT}/"):
+            pass
+
+
+async def test_multicast_address_root_is_refused() -> None:
+    crawler = Crawler(
+        max_pages=10,
+        timeout_seconds=1.0,
+        max_response_bytes=10_000,
+        transport=httpx.MockTransport(_site),
+        resolve=_multicast,
     )
 
     with pytest.raises(CrawlError):
