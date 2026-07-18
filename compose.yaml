@@ -219,8 +219,6 @@ services:
       VOYAGE_API_KEY: ${VOYAGE_API_KEY}
     ports:
       - "8000:8000"
-      # KnowledgeService over gRPC.
-      - "50051:50051"
     depends_on:
       postgres:
         condition: service_healthy
