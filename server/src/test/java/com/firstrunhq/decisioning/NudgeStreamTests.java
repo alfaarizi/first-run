@@ -148,6 +148,7 @@ class NudgeStreamTests {
         CandidateTopics.INTERVENTION_CANDIDATES,
         endUserHash,
         objectMapper.writeValueAsString(candidate));
+
     // Give the consumer time to buffer the undeliverable candidate before the stream opens.
     Thread.sleep(2000);
 
@@ -233,6 +234,7 @@ class NudgeStreamTests {
   void retiresTheOldestStreamWhenAUserPassesTheCap() throws Exception {
     String endUserHash = "user-cap";
     BlockingQueue<String> oldest = openStream(endUserHash);
+
     // the ninth stream passes the per-user cap in NudgeStreams, retiring the first
     BlockingQueue<String> newest = oldest;
     for (int extra = 0; extra < 8; extra++) {
@@ -296,14 +298,18 @@ class NudgeStreamTests {
       throws Exception {
     String timestamp = Instant.now().toString();
     String url = streamUrl(SDK_KEY, endUserHash, timestamp, sign(timestamp, endUserHash));
+
     if (cursorParam != null) {
       url += "&last_event_id=" + encode(cursorParam);
     }
+
     HttpRequest.Builder builder =
         HttpRequest.newBuilder(URI.create(url)).header(HttpHeaders.ACCEPT, "text/event-stream");
+
     if (cursorHeader != null) {
       builder.header("Last-Event-ID", cursorHeader);
     }
+
     HttpRequest request = builder.build();
     HttpClient client = HttpClient.newHttpClient();
     streamClients.add(client);

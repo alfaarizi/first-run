@@ -56,9 +56,11 @@ class StreamController {
     if (app == null) {
       return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
     }
+
     if (origin != null && !app.allowedOrigins().contains(origin)) {
       return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
+
     // The length cap from the ingest contract also bounds the stream registry's keys.
     if (endUserHash == null
         || endUserHash.length() > MAX_END_USER_HASH_LENGTH
@@ -68,6 +70,7 @@ class StreamController {
             app.hmacKey(), timestamp, endUserHash.getBytes(StandardCharsets.UTF_8), signature)) {
       return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
     }
+
     // The browser's automatic reconnect carries the header while the widget's manual reopen
     // carries the parameter, and the header is the later of the two, so it wins.
     String lastEventId = lastEventIdHeader != null ? lastEventIdHeader : lastEventIdParam;
@@ -75,10 +78,12 @@ class StreamController {
       // An overlong cursor would replay the whole buffer, so it reads as absent.
       lastEventId = null;
     }
+
     SseEmitter stream = streams.register(app.id(), endUserHash, lastEventId);
     if (stream == null) {
       return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
     }
+
     return ResponseEntity.ok(stream);
   }
 }

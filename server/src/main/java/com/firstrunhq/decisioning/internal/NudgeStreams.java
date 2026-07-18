@@ -63,6 +63,7 @@ class NudgeStreams {
           live.add(emitter);
           return live;
         });
+
     // completing inside compute would re-enter the map through the removal callback
     for (SseEmitter retired : evicted) {
       appCount.decrementAndGet();
@@ -104,8 +105,10 @@ class NudgeStreams {
    */
   boolean pushNudge(UUID appId, String endUserHash, UUID nudgeId, String text) {
     NudgeFrame frame = new NudgeFrame(nudgeId, text);
+
     // Buffered before the fan-out, so a stream registering between the two still replays it.
     boolean accepted = buffer.append(appId, endUserHash, frame);
+
     for (SseEmitter emitter : streams.getOrDefault(key(appId, endUserHash), List.of())) {
       accepted |= sendNudge(emitter, frame);
     }

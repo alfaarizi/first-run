@@ -2,37 +2,12 @@ import { STREAM_PATH } from "./constants";
 import { sign } from "./request";
 import type { ActionPayload, Citation, Config, NudgePayload } from "./types";
 
+const CURSOR_KEY = "fr_stream";
+const CURSOR_EARLIEST = "earliest";
 const RETRY_MS = 5000;
 const MAX_BACKOFF_STEPS = 6;
 
-const CURSOR_KEY = "fr_stream";
-
-// the reserved cursor asking the server to replay its whole buffer
-const EARLIEST = "earliest";
-
 let memoryCursor = "";
-
-/** Reads the stored cursor, honored only for the same end user. */
-function loadCursor(endUserHash: string): string {
-  let raw = memoryCursor;
-  try {
-    raw = sessionStorage.getItem(CURSOR_KEY) ?? raw;
-  } catch {
-    // storage is blocked, use the in-memory copy
-  }
-  const splitAt = raw.indexOf(":");
-  return splitAt > 0 && raw.slice(splitAt + 1) === endUserHash ? raw.slice(0, splitAt) : "";
-}
-
-/** Records the cursor, so the next page's stream resumes where this one stopped. */
-function storeCursor(endUserHash: string, lastEventId: string): void {
-  memoryCursor = `${lastEventId}:${endUserHash}`;
-  try {
-    sessionStorage.setItem(CURSOR_KEY, memoryCursor);
-  } catch {
-    // best effort
-  }
-}
 
 export interface StreamHandlers {
   nudge(payload: NudgePayload): void;
@@ -69,7 +44,7 @@ export function connectStream(
     const signature = await sign(config.secret, timestamp, endUserHash).catch(() => "");
     if (closed || !signature) return;
 
-    const cursor = lastEventId || (everOpened ? EARLIEST : "");
+    const cursor = lastEventId || (everOpened ? CURSOR_EARLIEST : "");
     source = new EventSource(
       `${config.host}${STREAM_PATH}?key=${encodeURIComponent(config.key)}` +
         `&end_user_hash=${encodeURIComponent(endUserHash)}` +
@@ -94,7 +69,6 @@ export function connectStream(
 
     on("nudge", (data) => {
       const payload = JSON.parse(data) as NudgePayload;
-      // a replayed frame can race its live copy, so the id gates a second showing
       if (seenNudges.has(payload.id)) return;
       seenNudges.add(payload.id);
       handlers.nudge(payload);
@@ -126,4 +100,26 @@ export function connectStream(
     clearTimeout(retryTimer);
     source?.close();
   };
+}
+
+/** Reads the stored cursor, honored only for the same end user. */
+function loadCursor(endUserHash: string): string {
+  let raw = memoryCursor;
+  try {
+    raw = sessionStorage.getItem(CURSOR_KEY) ?? raw;
+  } catch {
+    // storage is blocked, use the in-memory copy
+  }
+  const splitAt = raw.indexOf(":");
+  return splitAt > 0 && raw.slice(splitAt + 1) === endUserHash ? raw.slice(0, splitAt) : "";
+}
+
+/** Records the cursor, so the next page's stream resumes where this one stopped. */
+function storeCursor(endUserHash: string, lastEventId: string): void {
+  memoryCursor = `${lastEventId}:${endUserHash}`;
+  try {
+    sessionStorage.setItem(CURSOR_KEY, memoryCursor);
+  } catch {
+    // best effort
+  }
 }

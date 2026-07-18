@@ -18,7 +18,7 @@ class Holdouts {
 
   private static final int BUCKET_COUNT = 10_000;
 
-  // A tenth of each tenant's end users, fixed until per-tenant configuration ships.
+  // A tenth of each tenant's end users, fixed until per-tenant configuration is added.
   private static final int HOLDOUT_BUCKETS = 1_000;
 
   boolean contains(UUID tenantId, String endUserHash) {

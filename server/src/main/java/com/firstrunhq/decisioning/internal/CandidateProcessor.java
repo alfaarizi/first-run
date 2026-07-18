@@ -46,6 +46,7 @@ class CandidateProcessor {
   @KafkaListener(topics = CandidateTopics.INTERVENTION_CANDIDATES, groupId = GROUP)
   void onCandidate(ConsumerRecord<String, String> record) throws JsonProcessingException {
     CandidateEnvelope candidate = objectMapper.readValue(record.value(), CandidateEnvelope.class);
+
     requireComplete(candidate);
 
     // Holdout users are the control group, so no intervention surface ever reaches them.
