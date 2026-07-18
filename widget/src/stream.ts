@@ -5,6 +5,35 @@ import type { ActionPayload, Citation, Config, NudgePayload } from "./types";
 const RETRY_MS = 5000;
 const MAX_BACKOFF_STEPS = 6;
 
+const CURSOR_KEY = "fr_stream";
+
+// the reserved cursor asking the server to replay its whole buffer
+const EARLIEST = "earliest";
+
+let memoryCursor = "";
+
+/** Reads the stored cursor, honored only for the same end user. */
+function loadCursor(endUserHash: string): string {
+  let raw = memoryCursor;
+  try {
+    raw = sessionStorage.getItem(CURSOR_KEY) ?? raw;
+  } catch {
+    // storage is blocked, use the in-memory copy
+  }
+  const splitAt = raw.indexOf(":");
+  return splitAt > 0 && raw.slice(splitAt + 1) === endUserHash ? raw.slice(0, splitAt) : "";
+}
+
+/** Records the cursor, so the next page's stream resumes where this one stopped. */
+function storeCursor(endUserHash: string, lastEventId: string): void {
+  memoryCursor = `${lastEventId}:${endUserHash}`;
+  try {
+    sessionStorage.setItem(CURSOR_KEY, memoryCursor);
+  } catch {
+    // best effort
+  }
+}
+
 export interface StreamHandlers {
   nudge(payload: NudgePayload): void;
   token(text: string): void;
@@ -15,7 +44,10 @@ export interface StreamHandlers {
 /**
  * Opens the server-push channel, keyed by the end user. A server-closed
  * stream reopens with backoff, carrying the last seen event id because a
- * fresh EventSource starts without one. A retired stream stays shut.
+ * fresh EventSource starts without one, and a reopen that never saw a frame
+ * asks for the whole buffer. The cursor persists per end user, so the next
+ * page's stream replays what a navigation gap missed. A retired stream
+ * stays shut.
  */
 export function connectStream(
   config: Config,
@@ -26,7 +58,9 @@ export function connectStream(
   let retryTimer: number | undefined;
   let retries = 0;
   let closed = false;
-  let lastEventId = "";
+  let everOpened = false;
+  let lastEventId = loadCursor(endUserHash);
+  const seenNudges = new Set<string>();
 
   const open = async () => {
     // the signature binds the hash, so one signed url cannot subscribe another
@@ -35,17 +69,21 @@ export function connectStream(
     const signature = await sign(config.secret, timestamp, endUserHash).catch(() => "");
     if (closed || !signature) return;
 
+    const cursor = lastEventId || (everOpened ? EARLIEST : "");
     source = new EventSource(
       `${config.host}${STREAM_PATH}?key=${encodeURIComponent(config.key)}` +
         `&end_user_hash=${encodeURIComponent(endUserHash)}` +
         `&ts=${encodeURIComponent(timestamp)}&sig=${signature}` +
-        (lastEventId ? `&last_event_id=${encodeURIComponent(lastEventId)}` : ""),
+        (cursor ? `&last_event_id=${encodeURIComponent(cursor)}` : ""),
     );
 
     const on = (name: string, handle: (data: string) => void) => {
       source?.addEventListener(name, (e) => {
         const message = e as MessageEvent<string>;
-        lastEventId = message.lastEventId || lastEventId;
+        if (message.lastEventId && message.lastEventId !== lastEventId) {
+          lastEventId = message.lastEventId;
+          storeCursor(endUserHash, lastEventId);
+        }
         try {
           handle(message.data);
         } catch {
@@ -54,13 +92,20 @@ export function connectStream(
       });
     };
 
-    on("nudge", (data) => handlers.nudge(JSON.parse(data) as NudgePayload));
+    on("nudge", (data) => {
+      const payload = JSON.parse(data) as NudgePayload;
+      // a replayed frame can race its live copy, so the id gates a second showing
+      if (seenNudges.has(payload.id)) return;
+      seenNudges.add(payload.id);
+      handlers.nudge(payload);
+    });
     on("token", (data) => handlers.token((JSON.parse(data) as { text: string }).text));
     on("done", (data) => handlers.done((JSON.parse(data) as { citations?: Citation[] }).citations ?? []));
     on("action", (data) => handlers.action(JSON.parse(data) as ActionPayload));
 
     source.addEventListener("open", () => {
       retries = 0;
+      everOpened = true;
     });
     source.addEventListener("error", () => {
       // CONNECTING means the browser is already retrying on its own
