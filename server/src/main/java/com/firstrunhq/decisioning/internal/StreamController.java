@@ -4,6 +4,7 @@ import com.firstrunhq.apps.AppDirectory;
 import com.firstrunhq.apps.SdkApp;
 import com.firstrunhq.apps.SignatureVerifier;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Pattern;
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -23,6 +24,10 @@ class StreamController {
 
   private static final int MAX_END_USER_HASH_LENGTH = 128;
 
+  // Frame ids are server-minted UUIDs or the reserved earliest, and the connected frame echoes
+  // the cursor into an SSE id field, so anything outside this alphabet must never reach it.
+  private static final Pattern LAST_EVENT_ID = Pattern.compile("[0-9a-z-]{1,64}");
+
   private final AppDirectory appDirectory;
   private final SignatureVerifier signatureVerifier;
   private final NudgeStreams streams;
@@ -36,8 +41,8 @@ class StreamController {
 
   /**
    * Opens the server-push stream for one end user. The signature binds the user hash, so one signed
-   * URL cannot subscribe another user. A reconnect reopens the stream live, so the contract's
-   * {@code last_event_id} goes unread and no frames replay.
+   * URL cannot subscribe another user. A reconnect carrying the last seen frame id replays the
+   * nudges buffered while the stream was down.
    *
    * <p>A same-origin {@code EventSource} carries no {@code Origin} header, so the origin gate runs
    * only when one arrives and the signature carries the rest.
@@ -48,14 +53,18 @@ class StreamController {
       @RequestParam(value = "end_user_hash", required = false) @Nullable String endUserHash,
       @RequestParam(value = "ts", required = false) @Nullable String timestamp,
       @RequestParam(value = "sig", required = false) @Nullable String signature,
+      @RequestParam(value = "last_event_id", required = false) @Nullable String lastEventIdParam,
+      @RequestHeader(value = "Last-Event-ID", required = false) @Nullable String lastEventIdHeader,
       @RequestHeader(value = HttpHeaders.ORIGIN, required = false) @Nullable String origin) {
     SdkApp app = key == null ? null : appDirectory.findBySdkKey(key).orElse(null);
     if (app == null) {
       return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
     }
+
     if (origin != null && !app.allowedOrigins().contains(origin)) {
       return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
+
     // The length cap from the ingest contract also bounds the stream registry's keys.
     if (endUserHash == null
         || endUserHash.length() > MAX_END_USER_HASH_LENGTH
@@ -65,10 +74,20 @@ class StreamController {
             app.hmacKey(), timestamp, endUserHash.getBytes(StandardCharsets.UTF_8), signature)) {
       return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
     }
-    SseEmitter stream = streams.register(app.id(), endUserHash);
+
+    // The browser's automatic reconnect carries the header while the widget's manual reopen
+    // carries the parameter, and the header is the later of the two, so it wins.
+    String lastEventId = lastEventIdHeader != null ? lastEventIdHeader : lastEventIdParam;
+    if (lastEventId != null && !LAST_EVENT_ID.matcher(lastEventId).matches()) {
+      // A cursor the server never minted has no position to resume, so it reads as absent.
+      lastEventId = null;
+    }
+
+    SseEmitter stream = streams.register(app.id(), endUserHash, lastEventId);
     if (stream == null) {
       return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
     }
+
     return ResponseEntity.ok(stream);
   }
 }

@@ -13,8 +13,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * Consumes {@code intervention.candidates} and pushes each candidate to the user's open widget
- * streams as a nudge, so the stuck gate's thresholds are the only suppression. A malformed record
- * fails before any push, so the shared error handler retries and then dead-letters it.
+ * streams as a nudge, buffered for reconnect replay. Holdout users are dropped, and otherwise the
+ * stuck gate's thresholds are the only suppression. A malformed record fails before any push, so
+ * the shared error handler retries and then dead-letters it.
  */
 @Component
 class CandidateProcessor {
@@ -24,16 +25,19 @@ class CandidateProcessor {
   private static final Logger log = LoggerFactory.getLogger(CandidateProcessor.class);
 
   private final ObjectMapper objectMapper;
+  private final Holdouts holdouts;
   private final CandidateDeduper deduper;
   private final MilestoneTitles milestoneTitles;
   private final NudgeStreams streams;
 
   CandidateProcessor(
       ObjectMapper objectMapper,
+      Holdouts holdouts,
       CandidateDeduper deduper,
       MilestoneTitles milestoneTitles,
       NudgeStreams streams) {
     this.objectMapper = objectMapper;
+    this.holdouts = holdouts;
     this.deduper = deduper;
     this.milestoneTitles = milestoneTitles;
     this.streams = streams;
@@ -42,14 +46,20 @@ class CandidateProcessor {
   @KafkaListener(topics = CandidateTopics.INTERVENTION_CANDIDATES, groupId = GROUP)
   void onCandidate(ConsumerRecord<String, String> record) throws JsonProcessingException {
     CandidateEnvelope candidate = objectMapper.readValue(record.value(), CandidateEnvelope.class);
+
     requireComplete(candidate);
+
+    // Holdout users are the control group, so no intervention surface ever reaches them.
+    if (holdouts.contains(candidate.tenantId(), candidate.endUserHash())) {
+      return;
+    }
 
     // Copies of one flagging share event_id while id differs, so the claim binds to event_id.
     if (deduper.isClaimed(candidate.appId(), candidate.eventId())) {
       return;
     }
 
-    // An undelivered push stays unclaimed, so a candidate copy can still nudge the user later.
+    // A nudge neither delivered nor buffered stays unclaimed, so a candidate copy can retry it.
     if (streams.pushNudge(
         candidate.appId(), candidate.endUserHash(), candidate.id(), nudgeText(candidate))) {
       try {

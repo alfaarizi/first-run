@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { connectStream } from "./stream";
@@ -13,9 +14,11 @@ class FakeEventSource {
   static instances: FakeEventSource[] = [];
 
   readyState = FakeEventSource.CONNECTING;
+  readonly url: string;
   private readonly listeners = new Map<string, ((event: MessageEvent<string>) => void)[]>();
 
-  constructor(_url: string) {
+  constructor(url: string) {
+    this.url = url;
     FakeEventSource.instances.push(this);
   }
 
@@ -27,9 +30,9 @@ class FakeEventSource {
     this.readyState = FakeEventSource.CLOSED;
   }
 
-  emit(name: string, data = "{}"): void {
+  emit(name: string, data = "{}", lastEventId = ""): void {
     for (const handle of this.listeners.get(name) ?? []) {
-      handle({ data, lastEventId: "" } as MessageEvent<string>);
+      handle({ data, lastEventId } as MessageEvent<string>);
     }
   }
 }
@@ -49,6 +52,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   FakeEventSource.instances = [];
   vi.stubGlobal("EventSource", FakeEventSource);
+  sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -66,6 +70,102 @@ test("a server-closed stream reopens", async () => {
 
   await vi.advanceTimersByTimeAsync(60_000);
   expect(FakeEventSource.instances).toHaveLength(2);
+});
+
+test("a reopened stream resumes after the last seen frame", async () => {
+  connectStream(config, "user-resume", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+
+  const first = FakeEventSource.instances[0]!;
+  first.emit("nudge", '{"id":"n1","text":"hi"}', "n1");
+  first.readyState = FakeEventSource.CLOSED;
+  first.emit("error");
+
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(FakeEventSource.instances[1]!.url).toContain("last_event_id=n1");
+});
+
+test("a fresh stream asks for the whole buffer", async () => {
+  connectStream(config, "user-fresh", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+
+  // a nudge buffered before this first stream opened must still replay
+  expect(FakeEventSource.instances[0]!.url).toContain("last_event_id=earliest");
+});
+
+test("a reconnect that never saw a frame still asks for the whole buffer", async () => {
+  connectStream(config, "user-blank", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+
+  const first = FakeEventSource.instances[0]!;
+  first.readyState = FakeEventSource.CLOSED;
+  first.emit("error");
+
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(FakeEventSource.instances[1]!.url).toContain("last_event_id=earliest");
+});
+
+test("a replayed frame that races its live copy shows once", async () => {
+  const handle = handlers();
+  connectStream(config, "user-race", handle);
+  await vi.advanceTimersByTimeAsync(0);
+
+  const source = FakeEventSource.instances[0]!;
+  source.emit("nudge", '{"id":"n1","text":"hi"}', "n1");
+  source.emit("nudge", '{"id":"n1","text":"hi"}', "n1");
+
+  expect(handle.nudge).toHaveBeenCalledTimes(1);
+});
+
+test("the cursor persists per end user across connections", async () => {
+  const close = connectStream(config, "user-pages", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  FakeEventSource.instances[0]!.emit("nudge", '{"id":"n2","text":"hi"}', "n2");
+  close();
+
+  connectStream(config, "user-pages", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(FakeEventSource.instances[1]!.url).toContain("last_event_id=n2");
+
+  // another user starts from the whole buffer, never this one's cursor
+  connectStream(config, "user-other", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(FakeEventSource.instances[2]!.url).toContain("last_event_id=earliest");
+});
+
+test("one app's cursor never resumes or displaces another app's", async () => {
+  const close = connectStream(config, "user-apps", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  FakeEventSource.instances[0]!.emit("nudge", '{"id":"n7","text":"hi"}', "n7");
+  close();
+
+  // a second app on the same origin, same customer-supplied hash, starts from the buffer
+  const closeOther = connectStream({ ...config, key: "key_2" }, "user-apps", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(FakeEventSource.instances[1]!.url).toContain("last_event_id=earliest");
+  closeOther();
+
+  // and its whole-buffer request never displaces the first app's cursor
+  connectStream(config, "user-apps", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(FakeEventSource.instances[2]!.url).toContain("last_event_id=n7");
+});
+
+test("an account switch never displaces the previous user's cursor", async () => {
+  const closeA = connectStream(config, "user-a", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  FakeEventSource.instances[0]!.emit("nudge", '{"id":"n9","text":"hi"}', "n9");
+  closeA();
+
+  // the second account starts from the buffer without touching the first one's slot
+  const closeB = connectStream(config, "user-b", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(FakeEventSource.instances[1]!.url).toContain("last_event_id=earliest");
+  closeB();
+
+  connectStream(config, "user-a", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(FakeEventSource.instances[2]!.url).toContain("last_event_id=n9");
 });
 
 test("a retired stream closes for good instead of reconnecting", async () => {
