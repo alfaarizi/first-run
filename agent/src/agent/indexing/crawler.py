@@ -24,6 +24,7 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 _USER_AGENT = "firstrun-crawler"
+_ROBOTS_REDIRECT_HOPS = 5
 
 
 class CrawlError(Exception):
@@ -182,22 +183,32 @@ class Crawler:
         """Fetch robots.txt with RFC 9309 semantics.
 
         A 4xx answer allows the crawl, a 5xx answer or an unreachable host
-        disallows it entirely, and an oversized file parses truncated at the
-        size cap.
+        disallows it entirely, an oversized file parses truncated at the size
+        cap, and up to five same-site redirects are followed. An off-site
+        redirect target sits outside the pinned egress, so it reads as
+        unavailable.
         """
         robots = urllib.robotparser.RobotFileParser()
         lines: list[str] = []
+        url = urljoin(root_url, "/robots.txt")
         try:
-            async with self._stream(
-                client, urljoin(root_url, "/robots.txt"), pin
-            ) as response:
-                if response.status_code >= 500:
-                    raise CrawlError(f"robots.txt answered {response.status_code}")
-                if response.status_code == 200:
-                    body = await self._read_truncated(response)
-                    lines = body.decode(
-                        response.charset_encoding or "utf-8", "replace"
-                    ).splitlines()
+            for _ in range(_ROBOTS_REDIRECT_HOPS + 1):
+                async with self._stream(client, url, pin) as response:
+                    if response.is_redirect:
+                        target = urljoin(url, response.headers.get("location", ""))
+                        split = urlsplit(target)
+                        if split.scheme != "https" or split.netloc != pin.netloc:
+                            break
+                        url = target
+                        continue
+                    if response.status_code >= 500:
+                        raise CrawlError(f"robots.txt answered {response.status_code}")
+                    if response.status_code == 200:
+                        body = await self._read_truncated(response)
+                        lines = body.decode(
+                            response.charset_encoding or "utf-8", "replace"
+                        ).splitlines()
+                    break
         except httpx.ConnectError:
             raise
         except httpx.HTTPError as error:

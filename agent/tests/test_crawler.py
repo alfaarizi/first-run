@@ -156,6 +156,51 @@ async def test_oversized_robots_is_truncated_and_still_honored() -> None:
     assert f"{_ROOT}/private/internal" not in urls
 
 
+async def test_redirected_robots_is_followed_and_honored() -> None:
+    def moved_robots(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(302, headers={"location": "/rules.txt"})
+        if request.url.path == "/rules.txt":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/plain"},
+                text="User-agent: *\nDisallow: /private/",
+            )
+        return _site(request)
+
+    crawler = _crawler(transport=httpx.MockTransport(moved_robots))
+    urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
+
+    assert f"{_ROOT}/" in urls
+    assert f"{_ROOT}/private/internal" not in urls
+
+
+async def test_robots_redirect_loop_reads_as_unavailable() -> None:
+    def looping_robots(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(302, headers={"location": "/robots.txt"})
+        return _site(request)
+
+    crawler = _crawler(transport=httpx.MockTransport(looping_robots))
+    urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
+
+    assert f"{_ROOT}/" in urls
+
+
+async def test_offsite_robots_redirect_reads_as_unavailable() -> None:
+    def offsite_robots(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(
+                302, headers={"location": "https://cdn.example.net/robots.txt"}
+            )
+        return _site(request)
+
+    crawler = _crawler(transport=httpx.MockTransport(offsite_robots))
+    urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
+
+    assert f"{_ROOT}/" in urls
+
+
 async def test_robots_denied_by_4xx_allows_the_crawl() -> None:
     def forbidden_robots(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
