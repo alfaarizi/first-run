@@ -18,7 +18,10 @@ public class TestcontainersConfiguration {
   @ServiceConnection
   PostgreSQLContainer<?> postgresContainer() {
     return new PostgreSQLContainer<>(
-        DockerImageName.parse("pgvector/pgvector:pg17").asCompatibleSubstituteFor("postgres"));
+            DockerImageName.parse("pgvector/pgvector:pg17").asCompatibleSubstituteFor("postgres"))
+        // The superuser creates pgvector before Flyway connects, the same
+        // split init-postgres.sh applies to the compose stack.
+        .withInitScript("init-pgvector.sql");
   }
 
   /**

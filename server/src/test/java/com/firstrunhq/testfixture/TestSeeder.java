@@ -53,6 +53,42 @@ public final class TestSeeder {
             .formatted(milestoneId, tenantId, appId, name, title, position));
   }
 
+  public static void docSource(
+      DataSource dataSource, String sourceId, String tenantId, String appId, String url)
+      throws SQLException {
+    execute(
+        dataSource,
+        """
+        INSERT INTO doc_source (id, tenant_id, app_id, url)
+        VALUES ('%s', '%s', '%s', '%s')
+        ON CONFLICT (id) DO NOTHING
+        """
+            .formatted(sourceId, tenantId, appId, url));
+  }
+
+  /** Seeds a chunk with a zero vector, enough for suites that never rank by distance. */
+  public static void docChunk(
+      DataSource dataSource,
+      String chunkId,
+      String tenantId,
+      String sourceId,
+      String crawlId,
+      String sourceUrl,
+      String content)
+      throws SQLException {
+    int dimension = 1024;
+    String zeroVector = "[" + "0,".repeat(dimension - 1) + "0]";
+    execute(
+        dataSource,
+        """
+        INSERT INTO doc_chunk (id, tenant_id, source_id, crawl_id, source_url,
+            heading_path, content, embedding)
+        VALUES ('%s', '%s', '%s', '%s', '%s', '{}', '%s', '%s')
+        ON CONFLICT (id) DO NOTHING
+        """
+            .formatted(chunkId, tenantId, sourceId, crawlId, sourceUrl, content, zeroVector));
+  }
+
   public static void endUser(
       DataSource dataSource,
       String endUserId,
