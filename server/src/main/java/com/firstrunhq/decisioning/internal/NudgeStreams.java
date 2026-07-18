@@ -31,9 +31,17 @@ class NudgeStreams {
 
   private final Map<String, List<SseEmitter>> streams = new ConcurrentHashMap<>();
   private final Map<UUID, AtomicInteger> appStreamCounts = new ConcurrentHashMap<>();
+  private final NudgeReplayBuffer buffer;
 
-  /** Opens a stream for the user, or returns null when the app's budget is spent. */
-  @Nullable SseEmitter register(UUID appId, String endUserHash) {
+  NudgeStreams(NudgeReplayBuffer buffer) {
+    this.buffer = buffer;
+  }
+
+  /**
+   * Opens a stream for the user, replaying the frames missed since {@code lastEventId}, or returns
+   * null when the app's budget is spent.
+   */
+  @Nullable SseEmitter register(UUID appId, String endUserHash, @Nullable String lastEventId) {
     AtomicInteger appCount = appStreamCounts.computeIfAbsent(appId, id -> new AtomicInteger());
     if (appCount.incrementAndGet() > MAX_STREAMS_PER_APP) {
       appCount.decrementAndGet();
@@ -79,28 +87,43 @@ class NudgeStreams {
     } catch (IOException | IllegalStateException gone) {
       emitter.completeWithError(gone);
     }
+
+    if (lastEventId != null) {
+      // The buffer is read after the map insert, so a nudge pushed between the two arrives as
+      // both replay and live copy instead of falling between them. The widget drops the copy.
+      for (NudgeFrame missed : buffer.after(appId, endUserHash, lastEventId)) {
+        sendNudge(emitter, missed);
+      }
+    }
     return emitter;
   }
 
   /**
-   * Sends the nudge on every stream the user has open and reports whether any accepted it. The
-   * frame id feeds {@code Last-Event-ID}.
+   * Buffers the nudge for reconnect replay, sends it on every stream the user has open, and reports
+   * whether the buffer or any stream accepted it. The frame id feeds {@code Last-Event-ID}.
    */
   boolean pushNudge(UUID appId, String endUserHash, UUID nudgeId, String text) {
-    boolean delivered = false;
+    NudgeFrame frame = new NudgeFrame(nudgeId, text);
+    // Buffered before the fan-out, so a stream registering between the two still replays it.
+    boolean accepted = buffer.append(appId, endUserHash, frame);
     for (SseEmitter emitter : streams.getOrDefault(key(appId, endUserHash), List.of())) {
-      try {
-        emitter.send(
-            SseEmitter.event()
-                .name("nudge")
-                .id(nudgeId.toString())
-                .data(new NudgeFrame(nudgeId, text), MediaType.APPLICATION_JSON));
-        delivered = true;
-      } catch (IOException | IllegalStateException gone) {
-        emitter.completeWithError(gone);
-      }
+      accepted |= sendNudge(emitter, frame);
     }
-    return delivered;
+    return accepted;
+  }
+
+  private static boolean sendNudge(SseEmitter emitter, NudgeFrame frame) {
+    try {
+      emitter.send(
+          SseEmitter.event()
+              .name("nudge")
+              .id(frame.id().toString())
+              .data(frame, MediaType.APPLICATION_JSON));
+      return true;
+    } catch (IOException | IllegalStateException gone) {
+      emitter.completeWithError(gone);
+      return false;
+    }
   }
 
   // One stream can fire onError and then onCompletion, so only the call that wins the list

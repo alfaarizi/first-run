@@ -46,7 +46,9 @@ import org.springframework.kafka.core.KafkaTemplate;
 /**
  * Exercises the widget stream end to end: the signature gate on {@code /v1/stream}, a candidate on
  * {@code intervention.candidates} arriving as one {@code nudge} frame on the connected user's
- * stream, and the per-user stream cap.
+ * stream, replay on reconnect, the holdout drop, and the per-user stream cap. End user hashes are
+ * fixed strings verified to bucket outside this tenant's holdout, except where the test wants the
+ * opposite, so the nudge path opens or closes deterministically.
  */
 @IntegrationTest
 class NudgeStreamTests {
@@ -92,7 +94,7 @@ class NudgeStreamTests {
 
   @Test
   void pushesTheCandidateAsANudgeOnTheUsersStream() throws Exception {
-    String endUserHash = "user-" + UUID.randomUUID();
+    String endUserHash = "user-push";
     BlockingQueue<String> lines = openStream(endUserHash);
 
     CandidateEnvelope candidate = candidate(endUserHash, UUID.randomUUID());
@@ -113,7 +115,7 @@ class NudgeStreamTests {
 
   @Test
   void deliversOneNudgePerFlaggingEvent() throws Exception {
-    String endUserHash = "user-" + UUID.randomUUID();
+    String endUserHash = "user-dedupe";
     BlockingQueue<String> lines = openStream(endUserHash);
 
     // A redelivered flagging event emits a candidate copy under a fresh id, same event_id.
@@ -136,31 +138,100 @@ class NudgeStreamTests {
   }
 
   @Test
-  void keepsAnUndeliveredCandidateUnclaimedSoACopyStillNudges() throws Exception {
-    String endUserHash = "user-" + UUID.randomUUID();
+  void buffersAnUndeliveredCandidateAndReplaysItOnReconnect() throws Exception {
+    String endUserHash = "user-buffered";
     UUID flaggingEventId = UUID.randomUUID();
+    CandidateEnvelope candidate = candidate(endUserHash, flaggingEventId);
 
-    // The first candidate reaches nobody, because the user has no open stream yet.
+    // The push reaches nobody, because the user has no open stream yet.
     kafkaTemplate.send(
         CandidateTopics.INTERVENTION_CANDIDATES,
         endUserHash,
-        objectMapper.writeValueAsString(candidate(endUserHash, flaggingEventId)));
-    // Give the consumer time to process the undeliverable candidate before the stream opens.
+        objectMapper.writeValueAsString(candidate));
+    // Give the consumer time to buffer the undeliverable candidate before the stream opens.
     Thread.sleep(2000);
 
-    BlockingQueue<String> lines = openStream(endUserHash);
+    // The reserved cursor replays the whole buffer for a reconnect that never saw a frame id.
+    BlockingQueue<String> lines = openStream(endUserHash, "earliest", null);
+    String data = awaitLine(lines, line -> line.startsWith("data:"));
+    assertThat(data).isNotNull().contains(candidate.id().toString());
+
+    // The claim landed at buffering, so a candidate copy never duplicates the nudge.
     kafkaTemplate.send(
         CandidateTopics.INTERVENTION_CANDIDATES,
         endUserHash,
         objectMapper.writeValueAsString(candidate(endUserHash, flaggingEventId)));
+    assertThat(awaitLine(lines, line -> line.startsWith("data:"), Duration.ofSeconds(5))).isNull();
+  }
 
-    assertThat(awaitLine(lines, line -> line.startsWith("event:") && line.contains("nudge")))
-        .isNotNull();
+  @Test
+  void replaysOnlyTheFramesAfterTheLastEventId() throws Exception {
+    String endUserHash = "user-replay-cursor";
+    BlockingQueue<String> lines = openStream(endUserHash);
+
+    CandidateEnvelope first = candidate(endUserHash, UUID.randomUUID());
+    kafkaTemplate.send(
+        CandidateTopics.INTERVENTION_CANDIDATES,
+        endUserHash,
+        objectMapper.writeValueAsString(first));
+    assertThat(awaitLine(lines, line -> line.contains(first.id().toString()))).isNotNull();
+
+    CandidateEnvelope second = candidate(endUserHash, UUID.randomUUID());
+    kafkaTemplate.send(
+        CandidateTopics.INTERVENTION_CANDIDATES,
+        endUserHash,
+        objectMapper.writeValueAsString(second));
+    assertThat(awaitLine(lines, line -> line.contains(second.id().toString()))).isNotNull();
+
+    // A reconnect that saw the first frame replays only the second.
+    BlockingQueue<String> reconnect = openStream(endUserHash, first.id().toString(), null);
+    String data = awaitLine(reconnect, line -> line.startsWith("data:"));
+    assertThat(data).isNotNull().contains(second.id().toString());
+    assertThat(awaitLine(reconnect, line -> line.startsWith("data:"), Duration.ofSeconds(2)))
+        .isNull();
+  }
+
+  @Test
+  void honorsTheLastEventIdHeaderOverTheQueryParameter() throws Exception {
+    String endUserHash = "user-precedence";
+    BlockingQueue<String> lines = openStream(endUserHash);
+
+    CandidateEnvelope candidate = candidate(endUserHash, UUID.randomUUID());
+    kafkaTemplate.send(
+        CandidateTopics.INTERVENTION_CANDIDATES,
+        endUserHash,
+        objectMapper.writeValueAsString(candidate));
+    assertThat(awaitLine(lines, line -> line.contains(candidate.id().toString()))).isNotNull();
+
+    // The header cursor already saw the frame, so it must silence the query's replay-all.
+    BlockingQueue<String> reconnect =
+        openStream(endUserHash, "earliest", candidate.id().toString());
+    assertThat(awaitLine(reconnect, line -> line.startsWith("data:"), Duration.ofSeconds(3)))
+        .isNull();
+  }
+
+  @Test
+  void neverNudgesAHoldoutUser() throws Exception {
+    // This hash buckets into the tenant's holdout under the deterministic assignment.
+    String endUserHash = "user-control-2";
+    BlockingQueue<String> lines = openStream(endUserHash);
+
+    kafkaTemplate.send(
+        CandidateTopics.INTERVENTION_CANDIDATES,
+        endUserHash,
+        objectMapper.writeValueAsString(candidate(endUserHash, UUID.randomUUID())));
+
+    assertThat(
+            awaitLine(
+                lines,
+                line -> line.startsWith("event:") && line.contains("nudge"),
+                Duration.ofSeconds(5)))
+        .isNull();
   }
 
   @Test
   void retiresTheOldestStreamWhenAUserPassesTheCap() throws Exception {
-    String endUserHash = "user-" + UUID.randomUUID();
+    String endUserHash = "user-cap";
     BlockingQueue<String> oldest = openStream(endUserHash);
     // the ninth stream passes the per-user cap in NudgeStreams, retiring the first
     BlockingQueue<String> newest = oldest;
@@ -215,15 +286,25 @@ class NudgeStreamTests {
     assertThat(get(url, "https://evil.example").getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
   }
 
-  /** Opens the signed stream and returns its lines, read on a daemon thread. */
   private BlockingQueue<String> openStream(String endUserHash) throws Exception {
+    return openStream(endUserHash, null, null);
+  }
+
+  /** Opens the signed stream, optionally with a replay cursor, and returns its lines. */
+  private BlockingQueue<String> openStream(
+      String endUserHash, @Nullable String cursorParam, @Nullable String cursorHeader)
+      throws Exception {
     String timestamp = Instant.now().toString();
-    HttpRequest request =
-        HttpRequest.newBuilder(
-                URI.create(
-                    streamUrl(SDK_KEY, endUserHash, timestamp, sign(timestamp, endUserHash))))
-            .header(HttpHeaders.ACCEPT, "text/event-stream")
-            .build();
+    String url = streamUrl(SDK_KEY, endUserHash, timestamp, sign(timestamp, endUserHash));
+    if (cursorParam != null) {
+      url += "&last_event_id=" + encode(cursorParam);
+    }
+    HttpRequest.Builder builder =
+        HttpRequest.newBuilder(URI.create(url)).header(HttpHeaders.ACCEPT, "text/event-stream");
+    if (cursorHeader != null) {
+      builder.header("Last-Event-ID", cursorHeader);
+    }
+    HttpRequest request = builder.build();
     HttpClient client = HttpClient.newHttpClient();
     streamClients.add(client);
     HttpResponse<Stream<String>> response =
