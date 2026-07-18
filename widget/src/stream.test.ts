@@ -133,6 +133,37 @@ test("the cursor persists per end user across connections", async () => {
   expect(FakeEventSource.instances[2]!.url).not.toContain("last_event_id");
 });
 
+test("a page that opened without a frame still claims the buffer on the next page", async () => {
+  const close = connectStream(config, "user-gap", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  FakeEventSource.instances[0]!.emit("open");
+  close();
+
+  // the next page must replay a first nudge buffered during the navigation gap
+  connectStream(config, "user-gap", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(FakeEventSource.instances[1]!.url).toContain("last_event_id=earliest");
+});
+
+test("one app's cursor never resumes or displaces another app's", async () => {
+  const close = connectStream(config, "user-apps", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  FakeEventSource.instances[0]!.emit("nudge", '{"id":"n7","text":"hi"}', "n7");
+  close();
+
+  // a second app on the same origin, same customer-supplied hash, starts fresh
+  const closeOther = connectStream({ ...config, key: "key_2" }, "user-apps", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(FakeEventSource.instances[1]!.url).not.toContain("last_event_id");
+  FakeEventSource.instances[1]!.emit("open");
+  closeOther();
+
+  // and its whole-buffer claim never displaces the first app's cursor
+  connectStream(config, "user-apps", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(FakeEventSource.instances[2]!.url).toContain("last_event_id=n7");
+});
+
 test("a retired stream closes for good instead of reconnecting", async () => {
   connectStream(config, "user-1", handlers());
   await vi.advanceTimersByTimeAsync(0);
