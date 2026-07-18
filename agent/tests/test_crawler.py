@@ -219,19 +219,19 @@ async def test_redirected_robots_is_followed_and_honored() -> None:
     assert f"{_ROOT}/private/internal" not in urls
 
 
-async def test_robots_redirect_loop_reads_as_unavailable() -> None:
+async def test_robots_redirect_loop_disallows_the_crawl() -> None:
     def looping_robots(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
             return httpx.Response(302, headers={"location": "/robots.txt"})
         return _site(request)
 
     crawler = _crawler(transport=httpx.MockTransport(looping_robots))
-    urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
+    with pytest.raises(CrawlError):
+        async for _ in crawler.crawl(f"{_ROOT}/"):
+            pass
 
-    assert f"{_ROOT}/" in urls
 
-
-async def test_offsite_robots_redirect_reads_as_unavailable() -> None:
+async def test_offsite_robots_redirect_disallows_the_crawl() -> None:
     def offsite_robots(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
             return httpx.Response(
@@ -240,9 +240,46 @@ async def test_offsite_robots_redirect_reads_as_unavailable() -> None:
         return _site(request)
 
     crawler = _crawler(transport=httpx.MockTransport(offsite_robots))
-    urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
+    with pytest.raises(CrawlError):
+        async for _ in crawler.crawl(f"{_ROOT}/"):
+            pass
 
-    assert f"{_ROOT}/" in urls
+
+async def test_compressed_robots_disallows_the_crawl() -> None:
+    import gzip
+
+    def gzip_robots(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/plain", "content-encoding": "gzip"},
+                content=gzip.compress(b"User-agent: *\nDisallow: /"),
+            )
+        return _site(request)
+
+    crawler = _crawler(transport=httpx.MockTransport(gzip_robots))
+    with pytest.raises(CrawlError):
+        async for _ in crawler.crawl(f"{_ROOT}/"):
+            pass
+
+
+async def test_compressed_page_is_skipped() -> None:
+    import gzip
+
+    def gzip_page(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        # A tiny wire body that decodes to megabytes: the read must never
+        # decode it, so the page is skipped on the encoding alone.
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html", "content-encoding": "gzip"},
+            content=gzip.compress(b"<p>x</p>" * 500_000),
+        )
+
+    crawler = _crawler(transport=httpx.MockTransport(gzip_page))
+
+    assert [page.url async for page in crawler.crawl(f"{_ROOT}/")] == []
 
 
 async def test_robots_wildcard_disallow_is_honored() -> None:

@@ -3,9 +3,8 @@
 Egress guards mirror the webhook executor's: https only, every request
 connects to an address vetted as publicly routable, every response has a
 wall-clock deadline and a size cap, and redirects are enqueued rather than
-followed.
-robots.txt is honored because the crawled site is public and not necessarily
-all the tenant's own.
+followed. robots.txt is honored because the crawled site is public and not
+necessarily all the tenant's own.
 """
 
 import asyncio
@@ -85,6 +84,17 @@ def _is_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return ip.is_global and not (
         ip.is_multicast or ip.is_reserved or ip.is_link_local or ip.is_unspecified
     )
+
+
+def _is_identity(response: httpx.Response) -> bool:
+    # A compressed body ignores the identity request: unreadable as text and
+    # a decompression risk to the size cap.
+    encoding = response.headers.get("content-encoding", "").strip().lower()
+    return encoding in ("", "identity")
+
+
+def _decode(response: httpx.Response, body: bytes) -> str:
+    return body.decode(response.charset_encoding or "utf-8", "replace")
 
 
 class Crawler:
@@ -172,6 +182,8 @@ class Crawler:
         )
 
     async def _read_capped(self, response: httpx.Response) -> bytes | None:
+        # Callers reject non-identity encodings first, so these are wire bytes
+        # and the cap bounds allocation with no decompression to expand them.
         body = bytearray()
         async for part in response.aiter_bytes():
             body.extend(part)
@@ -193,11 +205,11 @@ class Crawler:
     ) -> Protego:
         """Fetch robots.txt with RFC 9309 semantics.
 
-        A 4xx answer allows the crawl, a 5xx answer or an unreachable host
-        disallows it entirely, an oversized file parses truncated at the size
-        cap, and up to five same-site redirects are followed. An off-site
-        redirect target sits outside the pinned egress, so it reads as
-        unavailable.
+        A 4xx answer allows the crawl and an oversized file parses truncated
+        at the size cap. Anything that leaves the rules unknown disallows the
+        crawl: a 5xx or unreachable host, a compressed body, or a redirect the
+        pinned egress cannot follow, meaning off-site or past five same-site
+        hops (RFC 9309 section 2.3.1.4).
         """
         rules = ""
         url = urljoin(root_url, "/robots.txt")
@@ -209,7 +221,7 @@ class Crawler:
                             target = urljoin(url, response.headers.get("location", ""))
                             split = urlsplit(target)
                             if split.scheme != "https" or split.netloc != pin.netloc:
-                                break
+                                raise CrawlError("robots.txt redirects off-site")
                             url = target
                             continue
                         if response.status_code >= 500:
@@ -217,11 +229,14 @@ class Crawler:
                                 f"robots.txt answered {response.status_code}"
                             )
                         if response.status_code == 200:
-                            body = await self._read_truncated(response)
-                            rules = body.decode(
-                                response.charset_encoding or "utf-8", "replace"
+                            if not _is_identity(response):
+                                raise CrawlError("robots.txt is compressed")
+                            rules = _decode(
+                                response, await self._read_truncated(response)
                             )
                         break
+                else:
+                    raise CrawlError("robots.txt exceeded the redirect limit")
         except (httpx.ConnectError, httpx.ConnectTimeout):
             raise
         except (TimeoutError, httpx.HTTPError) as error:
@@ -242,6 +257,9 @@ class Crawler:
                         "text/html"
                     ):
                         return None
+                    if not _is_identity(response):
+                        logger.warning("skipping %s, unexpected encoding", url)
+                        return None
                     body = await self._read_capped(response)
                     if body is None:
                         logger.warning("skipping %s, response over size cap", url)
@@ -250,7 +268,7 @@ class Crawler:
             logger.warning("skipping %s, request failed", url)
             return None
 
-        html = body.decode(response.charset_encoding or "utf-8", "replace")
+        html = _decode(response, body)
         for link in _links(url, html):
             frontier.add(link)
         return Page(url=url, html=html)
