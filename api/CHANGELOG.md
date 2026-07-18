@@ -16,9 +16,16 @@ additive or breaking.
   window, so a nudge never resurfaces in a later session. Delivery stays
   at-most-once: a nudge is claimed once buffered, and one that expires
   unreplayed is dropped, not retried.
+- `api/openapi/stream.yaml` documents that the widget sends `earliest` on a
+  first connect, so a nudge buffered before the stream opened replays instead
+  of waiting for a later reconnect, and that the cursor rides in the query
+  string so the browser's own reconnect (WHATWG) carries it before any frame
+  seeds `Last-Event-ID`. A cursor outside `^[0-9a-z-]{1,64}$` can never name
+  a frame and reads as absent.
 
-Additive. The parameter existed and was ignored; clients that never send it
-keep a live-only stream.
+Additive. The parameter existed and was ignored, so clients that never send
+it keep a live-only stream; the widget's choice to always send it is a client
+behavior, not a wire change.
 
 ## 2026-07-17
 
