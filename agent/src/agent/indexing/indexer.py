@@ -66,6 +66,13 @@ class Indexer:
         self._chunk_max_chars = chunk_max_chars
         self._running: dict[str, asyncio.Task[None]] = {}
 
+    async def close(self) -> None:
+        """Cancel running crawls and wait for their cleanup."""
+        tasks = list(self._running.values())
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
     def start(
         self, *, tenant_id: str, app_id: str, source_id: str, source_url: str
     ) -> bool:

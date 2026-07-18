@@ -42,10 +42,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     knowledge_pb2_grpc.add_KnowledgeServiceServicer_to_server(
         KnowledgeService(indexer), server
     )
-    server.add_insecure_port(f"[::]:{settings.grpc_port}")
+
+    if server.add_insecure_port(f"[::]:{settings.grpc_port}") == 0:
+        raise RuntimeError(f"gRPC port {settings.grpc_port} did not bind")
     await server.start()
     yield
     await server.stop(grace=_STOP_GRACE_SECONDS)
+
+    # Crawls outlive their RPCs. Clean up before the store closes.
+    await indexer.close()
+
     await store.close()
 
 

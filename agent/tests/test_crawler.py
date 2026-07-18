@@ -212,3 +212,52 @@ async def test_multicast_address_root_is_refused() -> None:
     with pytest.raises(CrawlError):
         async for _ in crawler.crawl(f"{_ROOT}/"):
             pass
+
+
+async def test_nat64_reserved_address_root_is_refused() -> None:
+    async def nat64(host: str) -> list[str]:
+        return ["64:ff9b::7f00:1"]
+
+    crawler = Crawler(
+        max_pages=10,
+        timeout_seconds=1.0,
+        max_response_bytes=10_000,
+        transport=httpx.MockTransport(_site),
+        resolve=nat64,
+    )
+
+    with pytest.raises(CrawlError):
+        async for _ in crawler.crawl(f"{_ROOT}/"):
+            pass
+
+
+async def test_unreachable_pin_falls_back_to_the_next_address() -> None:
+    async def two_addresses(host: str) -> list[str]:
+        return [_ADDRESS, "93.184.216.35"]
+
+    def first_dead(request: httpx.Request) -> httpx.Response:
+        if request.url.host == _ADDRESS:
+            raise httpx.ConnectError("refused")
+        return _site(request)
+
+    crawler = Crawler(
+        max_pages=10,
+        timeout_seconds=1.0,
+        max_response_bytes=10_000,
+        transport=httpx.MockTransport(first_dead),
+        resolve=two_addresses,
+    )
+    urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
+
+    assert f"{_ROOT}/" in urls
+
+
+async def test_no_reachable_address_fails_the_crawl() -> None:
+    def dead(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    crawler = _crawler(transport=httpx.MockTransport(dead))
+
+    with pytest.raises(CrawlError):
+        async for _ in crawler.crawl(f"{_ROOT}/"):
+            pass

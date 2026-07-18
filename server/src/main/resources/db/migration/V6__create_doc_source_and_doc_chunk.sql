@@ -1,7 +1,9 @@
 -- vector(1024) pins the column to the embedding model's width, so a model
 -- change is a new migration plus a full reindex. Embeddings arrive
 -- unit-length, so the HNSW index uses inner product and retrieval must query
--- with <#> to hit it. crawl_id lets a re-crawl insert incrementally and
+-- with <#> to hit it. The index spans all tenants while row-level security
+-- filters after the scan, so retrieval enables iterative scans to keep
+-- recall for small tenants. crawl_id lets a re-crawl insert incrementally and
 -- sweep other generations in one delete. Foreign-key checks bypass
 -- row-level security, so composite keys pin every reference inside one
 -- tenant.

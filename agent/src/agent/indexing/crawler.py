@@ -16,7 +16,7 @@ from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
-from urllib.parse import urldefrag, urljoin, urlsplit, urlunsplit
+from urllib.parse import SplitResult, urldefrag, urljoin, urlsplit, urlunsplit
 
 import httpx
 from bs4 import BeautifulSoup
@@ -77,6 +77,14 @@ async def _resolve(host: str) -> list[str]:
     return [str(info[4][0]) for info in infos]
 
 
+def _is_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    # is_global alone admits multicast and some reserved space,
+    # such as the NAT64 prefix that maps loopback.
+    return ip.is_global and not (
+        ip.is_multicast or ip.is_reserved or ip.is_link_local or ip.is_unspecified
+    )
+
+
 class Crawler:
     """Breadth-first crawler scoped to the root URL's host."""
 
@@ -102,23 +110,15 @@ class Crawler:
             raise CrawlError(f"not a public https URL: {root_url}")
         addresses = await self._resolve(root.hostname or "")
         for address in addresses:
-            ip = ipaddress.ip_address(address)
-            # is_global rejects private, loopback, link-local, and reserved
-            # ranges, and multicast slips through it.
-            if not ip.is_global or ip.is_multicast:
+            if not _is_public(ipaddress.ip_address(address)):
                 raise CrawlError(f"host resolves to a non-public address: {address}")
-        # Every request connects to the first vetted address, so a DNS answer
-        # that changes mid-crawl cannot steer the crawl into a private network.
-        pin = _Pin(
-            netloc=root.netloc, hostname=root.hostname or "", address=addresses[0]
-        )
 
         async with httpx.AsyncClient(
             timeout=self._timeout,
             transport=self._transport,
             headers={"User-Agent": _USER_AGENT},
         ) as client:
-            robots = await self._fetch_robots(client, root_url, pin)
+            robots, pin = await self._connect(client, root_url, root, addresses)
             frontier = _Frontier(root_netloc=root.netloc)
             frontier.add(root_url)
             attempts = 0
@@ -130,6 +130,24 @@ class Crawler:
                 page = await self._fetch(client, url, frontier, pin)
                 if page is not None:
                     yield page
+
+    async def _connect(
+        self,
+        client: httpx.AsyncClient,
+        root_url: str,
+        root: SplitResult,
+        addresses: list[str],
+    ) -> tuple[urllib.robotparser.RobotFileParser, _Pin]:
+        """Pin the first vetted address that connects, keeping its robots.txt."""
+        for address in addresses:
+            pin = _Pin(
+                netloc=root.netloc, hostname=root.hostname or "", address=address
+            )
+            try:
+                return await self._fetch_robots(client, root_url, pin), pin
+            except httpx.ConnectError:
+                logger.warning("address %s unreachable, trying the next", address)
+        raise CrawlError(f"no address of {root.netloc} accepts connections")
 
     def _stream(
         self, client: httpx.AsyncClient, url: str, pin: _Pin
@@ -180,6 +198,8 @@ class Crawler:
                     lines = body.decode(
                         response.charset_encoding or "utf-8", "replace"
                     ).splitlines()
+        except httpx.ConnectError:
+            raise
         except httpx.HTTPError as error:
             raise CrawlError(f"robots.txt unreachable: {error}") from error
         robots.parse(lines)
