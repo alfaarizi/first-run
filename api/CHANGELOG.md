@@ -8,13 +8,12 @@ additive or breaking.
 ### Added
 
 - `proto/firstrun/v1/knowledge.proto` `Reindex` semantics the proto cannot
-  carry: a call for a source whose crawl is still running answers
-  `ALREADY_RUNNING`; a finished crawl sweeps every chunk from older crawls in
-  one delete, so retrieval mixes old and new chunks only while a crawl runs;
-  a failed crawl keeps the previous index live and marks the source `FAILED`.
-  Chunks embed at 1024 dimensions (`voyage-4-lite`), pinned by the
-  `doc_chunk` vector column, so changing the embedding model is a migration
-  plus a full reindex, never a mixed index.
+  carry. A call for a source whose crawl is still running answers
+  `ALREADY_RUNNING`. A finished crawl sweeps every older crawl's chunks in
+  one delete, so retrieval mixes old and new chunks only while a crawl runs.
+  A crawl that fails or writes no chunks discards its own rows, marks the
+  source `FAILED`, and keeps the previous index live. Chunks embed at 1024
+  dimensions under an inner-product HNSW index (ADR-013).
 
 ### Changed
 

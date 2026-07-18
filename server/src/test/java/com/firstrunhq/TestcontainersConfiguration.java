@@ -14,6 +14,7 @@ import org.testcontainers.utility.DockerImageName;
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
 
+  /** Provides the pgvector-enabled Postgres the migrations and RLS suites run against. */
   @Bean
   @ServiceConnection
   PostgreSQLContainer<?> postgresContainer() {
@@ -37,6 +38,7 @@ public class TestcontainersConfiguration {
     return container;
   }
 
+  /** Provides the Redpanda broker the stream-processing suites consume from. */
   @Bean
   @ServiceConnection
   RedpandaContainer redpandaContainer() {

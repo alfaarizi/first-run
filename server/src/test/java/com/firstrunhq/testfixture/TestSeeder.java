@@ -13,6 +13,7 @@ public final class TestSeeder {
 
   private TestSeeder() {}
 
+  /** Seeds the isolation root every other row hangs off. */
   public static void tenant(DataSource dataSource, String tenantId, String name)
       throws SQLException {
     execute(
@@ -34,6 +35,7 @@ public final class TestSeeder {
             .formatted(appId, tenantId, name, appId, appId));
   }
 
+  /** Seeds a milestone whose name doubles as its completion event name. */
   public static void milestone(
       DataSource dataSource,
       String milestoneId,
@@ -53,6 +55,7 @@ public final class TestSeeder {
             .formatted(milestoneId, tenantId, appId, name, title, position));
   }
 
+  /** Seeds a doc source in its PENDING state, before any crawl. */
   public static void docSource(
       DataSource dataSource, String sourceId, String tenantId, String appId, String url)
       throws SQLException {
@@ -89,6 +92,7 @@ public final class TestSeeder {
             .formatted(chunkId, tenantId, sourceId, crawlId, sourceUrl, content, zeroVector));
   }
 
+  /** Seeds an end user known only by the customer-supplied hash. */
   public static void endUser(
       DataSource dataSource,
       String endUserId,
