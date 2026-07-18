@@ -5,6 +5,17 @@ additive or breaking.
 
 ## 2026-07-18
 
+### Added
+
+- `proto/firstrun/v1/knowledge.proto` `Reindex` semantics the proto cannot
+  carry: a call for a source whose crawl is still running answers
+  `ALREADY_RUNNING`; a finished crawl sweeps every chunk from older crawls in
+  one delete, so retrieval mixes old and new chunks only while a crawl runs;
+  a failed crawl keeps the previous index live and marks the source `FAILED`.
+  Chunks embed at 1024 dimensions (`voyage-4-lite`), pinned by the
+  `doc_chunk` vector column, so changing the embedding model is a migration
+  plus a full reindex, never a mixed index.
+
 ### Changed
 
 - `api/openapi/stream.yaml` gives `last_event_id` replay semantics: a
@@ -25,7 +36,8 @@ additive or breaking.
 
 Additive. The parameter existed and was ignored, so clients that never send
 it keep a live-only stream; the widget's choice to always send it is a client
-behavior, not a wire change.
+behavior, not a wire change. The knowledge entry pins behavior of an RPC
+nothing calls yet, so no wire shape changes there either.
 
 ## 2026-07-17
 

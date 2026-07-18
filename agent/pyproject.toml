@@ -4,17 +4,26 @@ version = "0.1.0"
 description = "FirstRun policy, RAG, conversation, and memory service."
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "asyncpg>=0.30",
+    "beautifulsoup4>=4.13",
     "fastapi>=0.115",
+    # Floors set by the generated stubs, which reject older runtimes at import.
+    "grpcio>=1.81.1",
+    "httpx>=0.28",
+    "pgvector>=0.4",
+    "protobuf>=6.33.5",
     "pydantic-settings>=2.7",
+    "uuid6>=2024.7.10",
     "uvicorn[standard]>=0.34",
+    "voyageai>=0.3",
 ]
 
 [dependency-groups]
 dev = [
     "grpcio-tools>=1.76",
-    "httpx>=0.28",
     "mypy>=1.14",
     "pytest>=8.3",
+    "pytest-asyncio>=0.25",
     "ruff>=0.11",
 ]
 
@@ -43,5 +52,12 @@ plugins = ["pydantic.mypy"]
 # only what humans write.
 exclude = ['\.venv', 'src/firstrun']
 
+[[tool.mypy.overrides]]
+# Generated stubs, grpcio, and asyncpg ship no py.typed marker.
+module = ["asyncpg", "asyncpg.*", "firstrun.*", "grpc", "grpc.*", "voyageai", "voyageai.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
