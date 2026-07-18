@@ -86,7 +86,8 @@ test-server: generate-schema
 test-server-unit:
 	cd server && ./mvnw -q verify -DexcludedGroups=integration
 
-test-agent:
+# Stubs are gitignored, so a fresh checkout regenerates them before pytest.
+test-agent: generate-agent
 	cd agent && uv run pytest
 
 test-widget:
