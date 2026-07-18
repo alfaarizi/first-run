@@ -262,6 +262,27 @@ class NudgeStreamTests {
   }
 
   @Test
+  void readsAMalformedCursorAsAbsent() throws Exception {
+    String endUserHash = "user-malformed";
+
+    // Buffer a nudge with no stream open, so a resuming cursor would have something to replay.
+    kafkaTemplate.send(
+        CandidateTopics.INTERVENTION_CANDIDATES,
+        endUserHash,
+        objectMapper.writeValueAsString(candidate(endUserHash, UUID.randomUUID())));
+    Thread.sleep(2000);
+
+    // A cursor outside the frame-id alphabet names no position, so it reads as absent: live only.
+    BlockingQueue<String> malformed = openStream(endUserHash, "Not:A/Cursor", null);
+    assertThat(awaitLine(malformed, line -> line.startsWith("data:"), Duration.ofSeconds(3)))
+        .isNull();
+
+    // The reserved cursor proves the buffer still held the nudge the malformed open skipped.
+    BlockingQueue<String> earliest = openStream(endUserHash, "earliest", null);
+    assertThat(awaitLine(earliest, line -> line.startsWith("data:"))).isNotNull();
+  }
+
+  @Test
   void rejectsABadSignature() {
     String url = streamUrl(SDK_KEY, "user-sig", Instant.now().toString(), "0".repeat(64));
     assertThat(get(url, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
