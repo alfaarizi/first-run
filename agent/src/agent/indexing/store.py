@@ -44,6 +44,7 @@ class ChunkStore:
             return self._pool
 
     async def close(self) -> None:
+        """Release the pool at shutdown."""
         if self._pool is not None:
             await self._pool.close()
 
@@ -119,11 +120,19 @@ class ChunkStore:
                 source_id,
             )
 
-    async def fail(self, *, tenant_id: str, source_id: str) -> None:
-        """Mark the source FAILED, keeping the previous crawl's chunks live."""
+    async def fail(self, *, tenant_id: str, source_id: str, crawl_id: str) -> None:
+        """Discard the crawl's own chunks and mark the source FAILED.
+
+        The previous crawl's chunks stay live.
+        """
         pool = await self._get_pool()
         async with pool.acquire() as connection, connection.transaction():
             await _set_tenant(connection, tenant_id)
+            await connection.execute(
+                "DELETE FROM doc_chunk WHERE source_id = $1 AND crawl_id = $2",
+                source_id,
+                crawl_id,
+            )
             await connection.execute(
                 "UPDATE doc_source SET status = 'FAILED' WHERE id = $1",
                 source_id,

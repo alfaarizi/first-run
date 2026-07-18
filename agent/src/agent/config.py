@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     voyage_api_key: str
 
     embedding_model: str = "voyage-4-lite"
-    # Must match the doc_chunks vector(1024) column. 
+    # Must match the doc_chunk vector(1024) column.
     # Changing requires a new migration and a full reindex of every tenant.
     embedding_dimension: int = 1024
 

@@ -46,7 +46,7 @@ class ChunkWriter(Protocol):
         self, *, tenant_id: str, source_id: str, crawl_id: str
     ) -> None: ...
 
-    async def fail(self, *, tenant_id: str, source_id: str) -> None: ...
+    async def fail(self, *, tenant_id: str, source_id: str, crawl_id: str) -> None: ...
 
 
 class Indexer:
@@ -88,6 +88,7 @@ class Indexer:
         self, *, tenant_id: str, app_id: str, source_id: str, source_url: str
     ) -> None:
         crawl_id = str(uuid7())
+        chunk_total = 0
         try:
             await self._store.mark_indexing(
                 tenant_id=tenant_id, app_id=app_id, source_id=source_id, url=source_url
@@ -120,13 +121,25 @@ class Indexer:
                     crawl_id=crawl_id,
                     rows=rows,
                 )
+                chunk_total += len(rows)
+            if chunk_total == 0:
+                # Sweeping on an empty crawl would erase a working index over
+                # a transient outage or a robots change.
+                logger.warning("crawl of %s wrote no chunks", source_url)
+                await self._fail(tenant_id, source_id, crawl_id)
+                return
             await self._store.complete(
                 tenant_id=tenant_id, source_id=source_id, crawl_id=crawl_id
             )
             logger.info("reindexed source %s from %s", source_id, source_url)
         except Exception:
             logger.exception("reindex failed for source %s", source_id)
-            try:
-                await self._store.fail(tenant_id=tenant_id, source_id=source_id)
-            except Exception:
-                logger.exception("could not mark source %s FAILED", source_id)
+            await self._fail(tenant_id, source_id, crawl_id)
+
+    async def _fail(self, tenant_id: str, source_id: str, crawl_id: str) -> None:
+        try:
+            await self._store.fail(
+                tenant_id=tenant_id, source_id=source_id, crawl_id=crawl_id
+            )
+        except Exception:
+            logger.exception("could not mark source %s FAILED", source_id)

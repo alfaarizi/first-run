@@ -70,9 +70,11 @@ def chunk_page(url: str, html: str, *, max_chars: int) -> list[Chunk]:
             heading_id = element.get("id")
             anchor = heading_id if isinstance(heading_id, str) else ""
         else:
-            lines.append(text)
-            size += len(text)
-            if size >= max_chars:
-                flush()
+            for start in range(0, len(text), max_chars):
+                piece = text[start : start + max_chars]
+                lines.append(piece)
+                size += len(piece)
+                if size >= max_chars:
+                    flush()
     flush()
     return chunks

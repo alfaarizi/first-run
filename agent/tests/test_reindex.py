@@ -23,16 +23,23 @@ _PAGE = Page(
 
 
 class FakeCrawler:
-    def __init__(self, gate: asyncio.Event | None = None, broken: bool = False) -> None:
+    def __init__(
+        self,
+        gate: asyncio.Event | None = None,
+        broken: bool = False,
+        pages: list[Page] | None = None,
+    ) -> None:
         self._gate = gate
         self._broken = broken
+        self._pages = [_PAGE] if pages is None else pages
 
     async def crawl(self, root_url: str) -> AsyncIterator[Page]:
         if self._gate is not None:
             await self._gate.wait()
+        for page in self._pages:
+            yield page
         if self._broken:
             raise RuntimeError("crawl broke")
-        yield _PAGE
 
 
 class FakeEmbedder:
@@ -45,6 +52,7 @@ class FakeStore:
         self.events: list[str] = []
         self.rows: list[ChunkRow] = []
         self.write_crawl_id = ""
+        self.fail_crawl_id = ""
         self.done = asyncio.Event()
 
     async def mark_indexing(
@@ -68,8 +76,9 @@ class FakeStore:
         self.events.append(f"complete:{crawl_id}")
         self.done.set()
 
-    async def fail(self, *, tenant_id: str, source_id: str) -> None:
+    async def fail(self, *, tenant_id: str, source_id: str, crawl_id: str) -> None:
         self.events.append("fail")
+        self.fail_crawl_id = crawl_id
         self.done.set()
 
 
@@ -137,9 +146,20 @@ async def test_completed_crawl_writes_chunks_then_sweeps_older_generations() -> 
     assert store.rows[0].source_url == "https://docs.example.com/guide#a"
 
 
-async def test_failed_crawl_marks_failed_and_keeps_the_old_index() -> None:
+async def test_failed_crawl_discards_its_own_chunks_and_keeps_the_old_index() -> None:
     store = FakeStore()
     service = _service(store, FakeCrawler(broken=True))
+
+    await service.Reindex(_request(), _context())
+    await _settled(store)
+
+    assert store.events == ["indexing", "write", "fail"]
+    assert store.fail_crawl_id == store.write_crawl_id
+
+
+async def test_empty_crawl_never_sweeps_the_old_index() -> None:
+    store = FakeStore()
+    service = _service(store, FakeCrawler(pages=[]))
 
     await service.Reindex(_request(), _context())
     await _settled(store)

@@ -61,5 +61,14 @@ def test_long_sections_split_under_the_cap_with_the_same_heading() -> None:
     assert all(len(chunk.content) <= 200 + 40 for chunk in chunks)
 
 
+def test_single_giant_text_node_is_split() -> None:
+    html = f"<title>T</title><body><h2>Code</h2><pre>{'x' * 5_000}</pre></body>"
+
+    chunks = chunk_page(_URL, html, max_chars=200)
+
+    assert len(chunks) > 1
+    assert all(len(chunk.content) <= 400 for chunk in chunks)
+
+
 def test_empty_page_yields_no_chunks() -> None:
     assert chunk_page(_URL, "<html><body></body></html>", max_chars=200) == []

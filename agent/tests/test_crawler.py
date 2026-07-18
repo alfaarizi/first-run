@@ -6,10 +6,11 @@ import pytest
 from agent.indexing.crawler import Crawler, CrawlError
 
 _ROOT = "https://docs.example.com"
+_ADDRESS = "93.184.216.34"
 
 
 async def _public(host: str) -> list[str]:
-    return ["93.184.216.34"]
+    return [_ADDRESS]
 
 
 async def _loopback(host: str) -> list[str]:
@@ -22,7 +23,7 @@ def _html(body: str) -> httpx.Response:
 
 def _site(request: httpx.Request) -> httpx.Response:
     routes = {
-        f"{_ROOT}/": _html(
+        "/": _html(
             """
             <a href="/guide">Guide</a>
             <a href="/guide">Guide again</a>
@@ -33,28 +34,32 @@ def _site(request: httpx.Request) -> httpx.Response:
             <a href="http://docs.example.com/downgrade">Downgrade</a>
             """
         ),
-        f"{_ROOT}/guide": _html("<p>Guide</p>"),
-        f"{_ROOT}/old": httpx.Response(301, headers={"location": "/moved"}),
-        f"{_ROOT}/moved": _html("<p>Moved</p>"),
-        f"{_ROOT}/private/internal": _html("<p>Secret</p>"),
-        f"{_ROOT}/theme.css": httpx.Response(
+        "/guide": _html("<p>Guide</p>"),
+        "/old": httpx.Response(301, headers={"location": "/moved"}),
+        "/moved": _html("<p>Moved</p>"),
+        "/private/internal": _html("<p>Secret</p>"),
+        "/theme.css": httpx.Response(
             200, headers={"content-type": "text/css"}, text="body{}"
         ),
-        f"{_ROOT}/robots.txt": httpx.Response(
+        "/robots.txt": httpx.Response(
             200,
             headers={"content-type": "text/plain"},
             text="User-agent: *\nDisallow: /private/",
         ),
     }
-    return routes.get(str(request.url), httpx.Response(404))
+    return routes.get(request.url.path, httpx.Response(404))
 
 
-def _crawler(max_pages: int = 50) -> Crawler:
+def _crawler(
+    handler: httpx.MockTransport | None = None,
+    max_pages: int = 50,
+    max_response_bytes: int = 10_000,
+) -> Crawler:
     return Crawler(
         max_pages=max_pages,
         timeout_seconds=1.0,
-        max_response_bytes=10_000,
-        transport=httpx.MockTransport(_site),
+        max_response_bytes=max_response_bytes,
+        transport=handler or httpx.MockTransport(_site),
         resolve=_public,
     )
 
@@ -85,22 +90,65 @@ async def test_robots_disallow_is_honored() -> None:
     assert f"{_ROOT}/private/internal" not in urls
 
 
+async def test_requests_connect_to_the_vetted_address() -> None:
+    wire = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        wire.append((request.url.host, request.headers["host"]))
+        return _site(request)
+
+    crawler = _crawler(handler=httpx.MockTransport(record))
+    [page.url async for page in crawler.crawl(f"{_ROOT}/")]
+
+    assert wire
+    assert all(host == _ADDRESS for host, _ in wire)
+    assert all(header == "docs.example.com" for _, header in wire)
+
+
 async def test_page_cap_bounds_the_crawl() -> None:
     urls = [page.url async for page in _crawler(max_pages=2).crawl(f"{_ROOT}/")]
 
     assert len(urls) == 2
 
 
+async def test_page_cap_bounds_failed_fetches_too() -> None:
+    requests = []
+
+    def fanout(request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/robots.txt":
+            requests.append(request.url.path)
+        if request.url.path == "/":
+            links = "".join(f'<a href="/missing-{i}">x</a>' for i in range(50))
+            return _html(links)
+        return httpx.Response(404)
+
+    crawler = _crawler(handler=httpx.MockTransport(fanout), max_pages=5)
+    urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
+
+    assert urls == [f"{_ROOT}/"]
+    assert len(requests) == 5
+
+
 async def test_oversized_pages_are_skipped() -> None:
-    crawler = Crawler(
-        max_pages=10,
-        timeout_seconds=1.0,
-        max_response_bytes=10,
-        transport=httpx.MockTransport(_site),
-        resolve=_public,
-    )
+    crawler = _crawler(max_response_bytes=10)
 
     assert [page.url async for page in crawler.crawl(f"{_ROOT}/")] == []
+
+
+async def test_oversized_robots_is_dropped_not_trusted() -> None:
+    def huge_robots(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/plain"},
+                text="User-agent: *\nDisallow: /\n" + "#" * 20_000,
+            )
+        return _site(request)
+
+    crawler = _crawler(handler=httpx.MockTransport(huge_robots))
+    urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
+
+    assert f"{_ROOT}/" in urls
 
 
 async def test_non_https_root_is_refused() -> None:
