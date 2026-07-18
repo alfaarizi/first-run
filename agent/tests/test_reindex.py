@@ -93,7 +93,11 @@ class FakeContext:
 
 def _service(store: FakeStore, crawler: FakeCrawler) -> KnowledgeService:
     indexer = Indexer(
-        crawler=crawler, embedder=FakeEmbedder(), store=store, chunk_max_chars=2_000
+        crawler=crawler,
+        embedder=FakeEmbedder(),
+        store=store,
+        chunk_max_chars=2_000,
+        crawl_max_concurrent=2,
     )
     return KnowledgeService(indexer)
 
@@ -165,6 +169,7 @@ async def test_cancelled_crawl_discards_its_own_chunks_before_propagating() -> N
         embedder=FakeEmbedder(),
         store=store,
         chunk_max_chars=2_000,
+        crawl_max_concurrent=2,
     )
     indexer.start(
         tenant_id=_TENANT,
@@ -190,6 +195,7 @@ async def test_close_cancels_running_crawls_and_runs_their_cleanup() -> None:
         embedder=FakeEmbedder(),
         store=store,
         chunk_max_chars=2_000,
+        crawl_max_concurrent=2,
     )
     indexer.start(
         tenant_id=_TENANT,
@@ -203,6 +209,36 @@ async def test_close_cancels_running_crawls_and_runs_their_cleanup() -> None:
 
     assert store.events == ["indexing", "fail"]
     assert not indexer._running
+
+
+async def test_concurrent_crawls_are_bounded_by_the_slot_limit() -> None:
+    gate = asyncio.Event()
+    store = FakeStore()
+    indexer = Indexer(
+        crawler=FakeCrawler(gate=gate),
+        embedder=FakeEmbedder(),
+        store=store,
+        chunk_max_chars=2_000,
+        crawl_max_concurrent=1,
+    )
+    source_b = "019813f2-0000-7000-8000-0000000000f4"
+    for source_id in (_SOURCE, source_b):
+        indexer.start(
+            tenant_id=_TENANT,
+            app_id=_APP,
+            source_id=source_id,
+            source_url="https://d.example",
+        )
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert store.events.count("indexing") == 1
+
+    gate.set()
+    for _ in range(200):
+        if sum(event.startswith("complete") for event in store.events) == 2:
+            break
+        await asyncio.sleep(0)
+    assert sum(event.startswith("complete") for event in store.events) == 2
 
 
 async def test_empty_crawl_never_sweeps_the_old_index() -> None:

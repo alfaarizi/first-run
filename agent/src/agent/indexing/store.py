@@ -51,7 +51,10 @@ class ChunkStore:
     async def mark_indexing(
         self, *, tenant_id: str, app_id: str, source_id: str, url: str
     ) -> None:
-        """Record the source as INDEXING, creating its row on first crawl."""
+        """Record the source as INDEXING and sweep chunks of dead crawls.
+
+        This is the recovery point for rows a killed agent left behind.
+        """
         pool = await self._get_pool()
         async with pool.acquire() as connection, connection.transaction():
             await _set_tenant(connection, tenant_id)
@@ -66,6 +69,14 @@ class ChunkStore:
                 tenant_id,
                 app_id,
                 url,
+            )
+            await connection.execute(
+                """
+                DELETE FROM doc_chunk
+                WHERE source_id = $1 AND crawl_id IS DISTINCT FROM
+                    (SELECT live_crawl_id FROM doc_source WHERE id = $1)
+                """,
+                source_id,
             )
 
     async def write_chunks(
@@ -114,10 +125,12 @@ class ChunkStore:
             )
             await connection.execute(
                 """
-                UPDATE doc_source SET status = 'READY', last_indexed_at = now()
+                UPDATE doc_source
+                SET status = 'READY', last_indexed_at = now(), live_crawl_id = $2
                 WHERE id = $1
                 """,
                 source_id,
+                crawl_id,
             )
 
     async def fail(self, *, tenant_id: str, source_id: str, crawl_id: str) -> None:

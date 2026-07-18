@@ -59,11 +59,13 @@ class Indexer:
         embedder: Embedder,
         store: ChunkWriter,
         chunk_max_chars: int,
+        crawl_max_concurrent: int,
     ) -> None:
         self._crawler = crawler
         self._embedder = embedder
         self._store = store
         self._chunk_max_chars = chunk_max_chars
+        self._crawl_slots = asyncio.Semaphore(crawl_max_concurrent)
         self._running: dict[str, asyncio.Task[None]] = {}
 
     async def close(self) -> None:
@@ -95,50 +97,17 @@ class Indexer:
         self, *, tenant_id: str, app_id: str, source_id: str, source_url: str
     ) -> None:
         crawl_id = str(uuid7())
-        chunk_total = 0
         try:
-            await self._store.mark_indexing(
-                tenant_id=tenant_id, app_id=app_id, source_id=source_id, url=source_url
-            )
-            async for page in self._crawler.crawl(source_url):
-                chunks = chunk_page(
-                    page.url, page.html, max_chars=self._chunk_max_chars
-                )
-                if not chunks:
-                    continue
-                embeddings = await self._embedder.embed_documents(
-                    [
-                        "\n".join((*chunk.heading_path, chunk.content))
-                        for chunk in chunks
-                    ]
-                )
-                rows = [
-                    ChunkRow(
-                        id=str(uuid7()),
-                        source_url=chunk.source_url,
-                        heading_path=chunk.heading_path,
-                        content=chunk.content,
-                        embedding=embedding,
-                    )
-                    for chunk, embedding in zip(chunks, embeddings, strict=True)
-                ]
-                await self._store.write_chunks(
+            # The semaphore bounds crawls, so one caller's burst of sources
+            # cannot exhaust sockets or the embedding quota.
+            async with self._crawl_slots:
+                await self._run_crawl(
                     tenant_id=tenant_id,
+                    app_id=app_id,
                     source_id=source_id,
+                    source_url=source_url,
                     crawl_id=crawl_id,
-                    rows=rows,
                 )
-                chunk_total += len(rows)
-            if chunk_total == 0:
-                # Sweeping on an empty crawl would erase a working index over
-                # a transient outage or a robots change.
-                logger.warning("crawl of %s wrote no chunks", source_url)
-                await self._fail(tenant_id, source_id, crawl_id)
-                return
-            await self._store.complete(
-                tenant_id=tenant_id, source_id=source_id, crawl_id=crawl_id
-            )
-            logger.info("reindexed source %s from %s", source_id, source_url)
         except asyncio.CancelledError:
             # Shutdown cancels the task mid-crawl. Clean up, then let the
             # cancellation propagate.
@@ -147,6 +116,54 @@ class Indexer:
         except Exception:
             logger.exception("reindex failed for source %s", source_id)
             await self._fail(tenant_id, source_id, crawl_id)
+
+    async def _run_crawl(
+        self,
+        *,
+        tenant_id: str,
+        app_id: str,
+        source_id: str,
+        source_url: str,
+        crawl_id: str,
+    ) -> None:
+        chunk_total = 0
+        await self._store.mark_indexing(
+            tenant_id=tenant_id, app_id=app_id, source_id=source_id, url=source_url
+        )
+        async for page in self._crawler.crawl(source_url):
+            chunks = chunk_page(page.url, page.html, max_chars=self._chunk_max_chars)
+            if not chunks:
+                continue
+            embeddings = await self._embedder.embed_documents(
+                ["\n".join((*chunk.heading_path, chunk.content)) for chunk in chunks]
+            )
+            rows = [
+                ChunkRow(
+                    id=str(uuid7()),
+                    source_url=chunk.source_url,
+                    heading_path=chunk.heading_path,
+                    content=chunk.content,
+                    embedding=embedding,
+                )
+                for chunk, embedding in zip(chunks, embeddings, strict=True)
+            ]
+            await self._store.write_chunks(
+                tenant_id=tenant_id,
+                source_id=source_id,
+                crawl_id=crawl_id,
+                rows=rows,
+            )
+            chunk_total += len(rows)
+        if chunk_total == 0:
+            # Sweeping on an empty crawl would erase a working index over a
+            # transient outage or a robots change.
+            logger.warning("crawl of %s wrote no chunks", source_url)
+            await self._fail(tenant_id, source_id, crawl_id)
+            return
+        await self._store.complete(
+            tenant_id=tenant_id, source_id=source_id, crawl_id=crawl_id
+        )
+        logger.info("reindexed source %s from %s", source_id, source_url)
 
     async def _fail(self, tenant_id: str, source_id: str, crawl_id: str) -> None:
         try:

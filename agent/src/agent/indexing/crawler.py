@@ -2,7 +2,8 @@
 
 Egress guards mirror the webhook executor's: https only, every request
 connects to an address vetted as publicly routable, every response has a
-timeout and a size cap, and redirects are enqueued rather than followed.
+wall-clock deadline and a size cap, and redirects are enqueued rather than
+followed.
 robots.txt is honored because the crawled site is public and not necessarily
 all the tenant's own.
 """
@@ -94,18 +95,20 @@ class Crawler:
         *,
         max_pages: int,
         timeout_seconds: float,
+        deadline_seconds: float,
         max_response_bytes: int,
         transport: httpx.AsyncBaseTransport | None = None,
         resolve: Callable[[str], Awaitable[list[str]]] = _resolve,
     ) -> None:
         self._max_pages = max_pages
         self._timeout = httpx.Timeout(timeout_seconds)
+        self._deadline_seconds = deadline_seconds
         self._max_response_bytes = max_response_bytes
         self._transport = transport
         self._resolve = resolve
 
     async def crawl(self, root_url: str) -> AsyncIterator[Page]:
-        """Yield pages reachable from ``root_url``, fetching at most ``max_pages`` URLs."""
+        """Yield pages reachable from ``root_url``, at most ``max_pages`` fetches."""
         root = urlsplit(root_url)
         if root.scheme != "https" or not root.netloc:
             raise CrawlError(f"not a public https URL: {root_url}")
@@ -146,7 +149,7 @@ class Crawler:
             )
             try:
                 return await self._fetch_robots(client, root_url, pin), pin
-            except httpx.ConnectError:
+            except (httpx.ConnectError, httpx.ConnectTimeout):
                 logger.warning("address %s unreachable, trying the next", address)
         raise CrawlError(f"no address of {root.netloc} accepts connections")
 
@@ -192,26 +195,29 @@ class Crawler:
         lines: list[str] = []
         url = urljoin(root_url, "/robots.txt")
         try:
-            for _ in range(_ROBOTS_REDIRECT_HOPS + 1):
-                async with self._stream(client, url, pin) as response:
-                    if response.is_redirect:
-                        target = urljoin(url, response.headers.get("location", ""))
-                        split = urlsplit(target)
-                        if split.scheme != "https" or split.netloc != pin.netloc:
-                            break
-                        url = target
-                        continue
-                    if response.status_code >= 500:
-                        raise CrawlError(f"robots.txt answered {response.status_code}")
-                    if response.status_code == 200:
-                        body = await self._read_truncated(response)
-                        lines = body.decode(
-                            response.charset_encoding or "utf-8", "replace"
-                        ).splitlines()
-                    break
-        except httpx.ConnectError:
+            async with asyncio.timeout(self._deadline_seconds):
+                for _ in range(_ROBOTS_REDIRECT_HOPS + 1):
+                    async with self._stream(client, url, pin) as response:
+                        if response.is_redirect:
+                            target = urljoin(url, response.headers.get("location", ""))
+                            split = urlsplit(target)
+                            if split.scheme != "https" or split.netloc != pin.netloc:
+                                break
+                            url = target
+                            continue
+                        if response.status_code >= 500:
+                            raise CrawlError(
+                                f"robots.txt answered {response.status_code}"
+                            )
+                        if response.status_code == 200:
+                            body = await self._read_truncated(response)
+                            lines = body.decode(
+                                response.charset_encoding or "utf-8", "replace"
+                            ).splitlines()
+                        break
+        except (httpx.ConnectError, httpx.ConnectTimeout):
             raise
-        except httpx.HTTPError as error:
+        except (TimeoutError, httpx.HTTPError) as error:
             raise CrawlError(f"robots.txt unreachable: {error}") from error
         robots.parse(lines)
         return robots
@@ -220,20 +226,21 @@ class Crawler:
         self, client: httpx.AsyncClient, url: str, frontier: _Frontier, pin: _Pin
     ) -> Page | None:
         try:
-            async with self._stream(client, url, pin) as response:
-                if response.is_redirect:
-                    frontier.add(urljoin(url, response.headers.get("location", "")))
-                    return None
-                content_type = response.headers.get("content-type", "")
-                if response.status_code != 200 or not content_type.startswith(
-                    "text/html"
-                ):
-                    return None
-                body = await self._read_capped(response)
-                if body is None:
-                    logger.warning("skipping %s, response over size cap", url)
-                    return None
-        except httpx.HTTPError:
+            async with asyncio.timeout(self._deadline_seconds):
+                async with self._stream(client, url, pin) as response:
+                    if response.is_redirect:
+                        frontier.add(urljoin(url, response.headers.get("location", "")))
+                        return None
+                    content_type = response.headers.get("content-type", "")
+                    if response.status_code != 200 or not content_type.startswith(
+                        "text/html"
+                    ):
+                        return None
+                    body = await self._read_capped(response)
+                    if body is None:
+                        logger.warning("skipping %s, response over size cap", url)
+                        return None
+        except (TimeoutError, httpx.HTTPError):
             logger.warning("skipping %s, request failed", url)
             return None
 

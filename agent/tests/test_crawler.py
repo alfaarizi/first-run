@@ -1,5 +1,7 @@
 """The crawler stays on the root host and honors its safety caps."""
 
+import asyncio
+
 import httpx
 import pytest
 
@@ -62,6 +64,7 @@ def _crawler(
     return Crawler(
         max_pages=max_pages,
         timeout_seconds=1.0,
+        deadline_seconds=5.0,
         max_response_bytes=max_response_bytes,
         transport=transport or httpx.MockTransport(_site),
         resolve=_public,
@@ -137,6 +140,47 @@ async def test_oversized_pages_are_skipped() -> None:
     crawler = _crawler(max_response_bytes=10)
 
     assert [page.url async for page in crawler.crawl(f"{_ROOT}/")] == []
+
+
+async def test_drip_fed_pages_hit_the_wall_clock_deadline() -> None:
+    async def slow_site(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        await asyncio.sleep(0.2)
+        return _html("<p>Slow</p>")
+
+    crawler = Crawler(
+        max_pages=10,
+        timeout_seconds=1.0,
+        deadline_seconds=0.05,
+        max_response_bytes=10_000,
+        transport=httpx.MockTransport(slow_site),
+        resolve=_public,
+    )
+
+    assert [page.url async for page in crawler.crawl(f"{_ROOT}/")] == []
+
+
+async def test_connect_timeout_pin_falls_back_to_the_next_address() -> None:
+    async def two_addresses(host: str) -> list[str]:
+        return [_ADDRESS, "93.184.216.35"]
+
+    def first_hangs(request: httpx.Request) -> httpx.Response:
+        if request.url.host == _ADDRESS:
+            raise httpx.ConnectTimeout("timed out")
+        return _site(request)
+
+    crawler = Crawler(
+        max_pages=10,
+        timeout_seconds=1.0,
+        deadline_seconds=5.0,
+        max_response_bytes=10_000,
+        transport=httpx.MockTransport(first_hangs),
+        resolve=two_addresses,
+    )
+    urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
+
+    assert f"{_ROOT}/" in urls
 
 
 async def test_oversized_robots_is_truncated_and_still_honored() -> None:
@@ -235,6 +279,7 @@ async def test_private_address_root_is_refused() -> None:
     crawler = Crawler(
         max_pages=10,
         timeout_seconds=1.0,
+        deadline_seconds=5.0,
         max_response_bytes=10_000,
         transport=httpx.MockTransport(_site),
         resolve=_loopback,
@@ -249,6 +294,7 @@ async def test_multicast_address_root_is_refused() -> None:
     crawler = Crawler(
         max_pages=10,
         timeout_seconds=1.0,
+        deadline_seconds=5.0,
         max_response_bytes=10_000,
         transport=httpx.MockTransport(_site),
         resolve=_multicast,
@@ -266,6 +312,7 @@ async def test_nat64_reserved_address_root_is_refused() -> None:
     crawler = Crawler(
         max_pages=10,
         timeout_seconds=1.0,
+        deadline_seconds=5.0,
         max_response_bytes=10_000,
         transport=httpx.MockTransport(_site),
         resolve=nat64,
@@ -288,6 +335,7 @@ async def test_unreachable_pin_falls_back_to_the_next_address() -> None:
     crawler = Crawler(
         max_pages=10,
         timeout_seconds=1.0,
+        deadline_seconds=5.0,
         max_response_bytes=10_000,
         transport=httpx.MockTransport(first_dead),
         resolve=two_addresses,

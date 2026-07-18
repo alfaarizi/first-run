@@ -28,7 +28,10 @@ class Settings(BaseSettings):
     grpc_port: int = 50051
 
     crawl_max_pages: int = 200
+    crawl_max_concurrent: int = 4
     crawl_timeout_seconds: float = 10.0
+    # Wall clock per request
+    crawl_deadline_seconds: float = 30.0
     crawl_max_response_bytes: int = 2_000_000
     chunk_max_chars: int = 2_000
 

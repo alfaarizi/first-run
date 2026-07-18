@@ -15,6 +15,9 @@ CREATE TABLE doc_source (
     url text NOT NULL,
     status text NOT NULL DEFAULT 'PENDING'
         CHECK (status IN ('PENDING', 'INDEXING', 'READY', 'FAILED')),
+    -- The last completed generation. The next crawl's start sweeps chunks
+    -- outside it, so a killed agent never strands partial rows.
+    live_crawl_id uuid,
     last_indexed_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT doc_source_app_fkey

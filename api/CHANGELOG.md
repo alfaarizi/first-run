@@ -12,7 +12,9 @@ additive or breaking.
   `ALREADY_RUNNING`. A finished crawl sweeps every older crawl's chunks in
   one delete, so retrieval mixes old and new chunks only while a crawl runs.
   A crawl that fails or writes no chunks discards its own rows, marks the
-  source `FAILED`, and keeps the previous index live. Chunks embed at 1024
+  source `FAILED`, and keeps the previous index live. A crawl a killed agent
+  never finished leaves rows only until the next crawl starts and sweeps
+  every generation but the recorded live one. Chunks embed at 1024
   dimensions under an inner-product HNSW index (ADR-013).
 
 ### Changed

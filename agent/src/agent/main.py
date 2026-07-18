@@ -32,11 +32,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         crawler=Crawler(
             max_pages=settings.crawl_max_pages,
             timeout_seconds=settings.crawl_timeout_seconds,
+            deadline_seconds=settings.crawl_deadline_seconds,
             max_response_bytes=settings.crawl_max_response_bytes,
         ),
         embedder=EmbeddingClient(),
         store=store,
         chunk_max_chars=settings.chunk_max_chars,
+        crawl_max_concurrent=settings.crawl_max_concurrent,
     )
     server = grpc.aio.server()
     knowledge_pb2_grpc.add_KnowledgeServiceServicer_to_server(

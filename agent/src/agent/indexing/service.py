@@ -5,10 +5,11 @@ import uuid
 import grpc
 
 from agent.indexing.indexer import Indexer
-from firstrun.v1 import knowledge_pb2, knowledge_pb2_grpc
+from firstrun.v1 import knowledge_pb2
+from firstrun.v1.knowledge_pb2_grpc import KnowledgeServiceServicer
 
 
-class KnowledgeService(knowledge_pb2_grpc.KnowledgeServiceServicer):  # type: ignore[misc]
+class KnowledgeService(KnowledgeServiceServicer):  # type: ignore[misc]
     """Accepts reindex requests and hands them to the indexer."""
 
     def __init__(self, indexer: Indexer) -> None:
