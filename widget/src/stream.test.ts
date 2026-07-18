@@ -85,24 +85,24 @@ test("a reopened stream resumes after the last seen frame", async () => {
   expect(FakeEventSource.instances[1]!.url).toContain("last_event_id=n1");
 });
 
-test("a reconnect that never saw a frame asks for the whole buffer", async () => {
+test("a fresh stream asks for the whole buffer", async () => {
+  connectStream(config, "user-fresh", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+
+  // a nudge buffered before this first stream opened must still replay
+  expect(FakeEventSource.instances[0]!.url).toContain("last_event_id=earliest");
+});
+
+test("a reconnect that never saw a frame still asks for the whole buffer", async () => {
   connectStream(config, "user-blank", handlers());
   await vi.advanceTimersByTimeAsync(0);
 
   const first = FakeEventSource.instances[0]!;
-  first.emit("open");
   first.readyState = FakeEventSource.CLOSED;
   first.emit("error");
 
   await vi.advanceTimersByTimeAsync(60_000);
   expect(FakeEventSource.instances[1]!.url).toContain("last_event_id=earliest");
-});
-
-test("a fresh stream that never opened sends no cursor", async () => {
-  connectStream(config, "user-fresh", handlers());
-  await vi.advanceTimersByTimeAsync(0);
-
-  expect(FakeEventSource.instances[0]!.url).not.toContain("last_event_id");
 });
 
 test("a replayed frame that races its live copy shows once", async () => {
@@ -127,22 +127,10 @@ test("the cursor persists per end user across connections", async () => {
   await vi.advanceTimersByTimeAsync(0);
   expect(FakeEventSource.instances[1]!.url).toContain("last_event_id=n2");
 
-  // another user's stream never resumes from this one's cursor
+  // another user starts from the whole buffer, never this one's cursor
   connectStream(config, "user-other", handlers());
   await vi.advanceTimersByTimeAsync(0);
-  expect(FakeEventSource.instances[2]!.url).not.toContain("last_event_id");
-});
-
-test("a page that opened without a frame still claims the buffer on the next page", async () => {
-  const close = connectStream(config, "user-gap", handlers());
-  await vi.advanceTimersByTimeAsync(0);
-  FakeEventSource.instances[0]!.emit("open");
-  close();
-
-  // the next page must replay a first nudge buffered during the navigation gap
-  connectStream(config, "user-gap", handlers());
-  await vi.advanceTimersByTimeAsync(0);
-  expect(FakeEventSource.instances[1]!.url).toContain("last_event_id=earliest");
+  expect(FakeEventSource.instances[2]!.url).toContain("last_event_id=earliest");
 });
 
 test("one app's cursor never resumes or displaces another app's", async () => {
@@ -151,17 +139,33 @@ test("one app's cursor never resumes or displaces another app's", async () => {
   FakeEventSource.instances[0]!.emit("nudge", '{"id":"n7","text":"hi"}', "n7");
   close();
 
-  // a second app on the same origin, same customer-supplied hash, starts fresh
+  // a second app on the same origin, same customer-supplied hash, starts from the buffer
   const closeOther = connectStream({ ...config, key: "key_2" }, "user-apps", handlers());
   await vi.advanceTimersByTimeAsync(0);
-  expect(FakeEventSource.instances[1]!.url).not.toContain("last_event_id");
-  FakeEventSource.instances[1]!.emit("open");
+  expect(FakeEventSource.instances[1]!.url).toContain("last_event_id=earliest");
   closeOther();
 
-  // and its whole-buffer claim never displaces the first app's cursor
+  // and its whole-buffer request never displaces the first app's cursor
   connectStream(config, "user-apps", handlers());
   await vi.advanceTimersByTimeAsync(0);
   expect(FakeEventSource.instances[2]!.url).toContain("last_event_id=n7");
+});
+
+test("an account switch never displaces the previous user's cursor", async () => {
+  const closeA = connectStream(config, "user-a", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  FakeEventSource.instances[0]!.emit("nudge", '{"id":"n9","text":"hi"}', "n9");
+  closeA();
+
+  // the second account starts from the buffer without touching the first one's slot
+  const closeB = connectStream(config, "user-b", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(FakeEventSource.instances[1]!.url).toContain("last_event_id=earliest");
+  closeB();
+
+  connectStream(config, "user-a", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(FakeEventSource.instances[2]!.url).toContain("last_event_id=n9");
 });
 
 test("a retired stream closes for good instead of reconnecting", async () => {

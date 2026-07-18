@@ -17,13 +17,12 @@ export interface StreamHandlers {
 }
 
 /**
- * Opens the server-push channel, keyed by the end user. A server-closed
- * stream reopens with backoff, carrying the last seen event id because a
- * fresh EventSource starts without one. A stream that opens before any
- * frame arrives claims the whole buffer, and the claim persists with the
- * cursor per app and end user, so the next page's stream replays what a
- * navigation gap missed even when no nudge ever arrived. A retired stream
- * stays shut.
+ * Opens the server-push channel, keyed by the end user. A fresh stream asks
+ * for the whole buffer, so a nudge buffered before it opened still arrives,
+ * and each seen frame narrows the cursor. The cursor rides in the url from
+ * the first byte, so a server-closed reopen and the browser's own retry both
+ * carry it, and it persists per app and end user across pages. A retired
+ * stream stays shut.
  */
 export function connectStream(
   config: Config,
@@ -34,7 +33,7 @@ export function connectStream(
   let retryTimer: number | undefined;
   let retries = 0;
   let closed = false;
-  let lastEventId = loadCursor(config.key, endUserHash);
+  let lastEventId = loadCursor(config.key, endUserHash) || CURSOR_EARLIEST;
   const seenNudges = new Set<string>();
 
   const open = async () => {
@@ -48,7 +47,7 @@ export function connectStream(
       `${config.host}${STREAM_PATH}?key=${encodeURIComponent(config.key)}` +
         `&end_user_hash=${encodeURIComponent(endUserHash)}` +
         `&ts=${encodeURIComponent(timestamp)}&sig=${signature}` +
-        (lastEventId ? `&last_event_id=${encodeURIComponent(lastEventId)}` : ""),
+        `&last_event_id=${encodeURIComponent(lastEventId)}`,
     );
 
     const on = (name: string, handle: (data: string) => void) => {
@@ -78,12 +77,6 @@ export function connectStream(
 
     source.addEventListener("open", () => {
       retries = 0;
-      // an opened stream with no cursor claims the whole buffer, and persisting the claim
-      // means even the first nudge, buffered while the next page loads, still replays
-      if (!lastEventId) {
-        lastEventId = CURSOR_EARLIEST;
-        storeCursor(config.key, endUserHash, lastEventId);
-      }
     });
     source.addEventListener("error", () => {
       // CONNECTING means the browser is already retrying on its own
@@ -106,30 +99,33 @@ export function connectStream(
   };
 }
 
-/** Reads the app's stored cursor, honored only for the same end user. */
+/**
+ * Names the slot for one app and end user's cursor: apps on one origin
+ * share storage, and an account switch in one tab must not displace the
+ * previous user's position.
+ */
+function cursorKey(key: string, endUserHash: string): string {
+  return `${CURSOR_KEY_PREFIX}${key}:${endUserHash}`;
+}
+
+/** Reads the cursor stored for this app and end user. */
 function loadCursor(key: string, endUserHash: string): string {
-  const storageKey = CURSOR_KEY_PREFIX + key;
-  let raw = memoryCursors.get(storageKey) ?? "";
+  const storageKey = cursorKey(key, endUserHash);
+  let cursor = memoryCursors.get(storageKey) ?? "";
   try {
-    raw = sessionStorage.getItem(storageKey) ?? raw;
+    cursor = sessionStorage.getItem(storageKey) ?? cursor;
   } catch {
     // storage is blocked, use the in-memory copy
   }
-  const splitAt = raw.indexOf(":");
-  return splitAt > 0 && raw.slice(splitAt + 1) === endUserHash ? raw.slice(0, splitAt) : "";
+  return cursor;
 }
 
-/**
- * Records the cursor, so the next page's stream resumes where this one
- * stopped. The key carries the app, because two apps on one origin share
- * storage while their frame ids never interchange.
- */
+/** Records the cursor, so the next page's stream resumes where this one stopped. */
 function storeCursor(key: string, endUserHash: string, lastEventId: string): void {
-  const storageKey = CURSOR_KEY_PREFIX + key;
-  const value = `${lastEventId}:${endUserHash}`;
-  memoryCursors.set(storageKey, value);
+  const storageKey = cursorKey(key, endUserHash);
+  memoryCursors.set(storageKey, lastEventId);
   try {
-    sessionStorage.setItem(storageKey, value);
+    sessionStorage.setItem(storageKey, lastEventId);
   } catch {
     // best effort
   }
