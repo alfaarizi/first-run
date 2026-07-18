@@ -3,6 +3,23 @@
 Each entry records the date, the change, the rationale, and whether it is
 additive or breaking.
 
+## 2026-07-18
+
+### Changed
+
+- `api/openapi/stream.yaml` gives `last_event_id` replay semantics: a
+  reconnect carrying it replays the `nudge` frames a bounded per-user buffer
+  held while the stream was down, an unknown id or the reserved `earliest`
+  replays the whole buffer, and the `Last-Event-ID` request header takes
+  precedence over the query parameter (all three from the Mercure spec). The
+  buffer holds 8 frames for 30 minutes, matching the widget's session idle
+  window, so a nudge never resurfaces in a later session. Delivery stays
+  at-most-once: a nudge is claimed once buffered, and one that expires
+  unreplayed is dropped, not retried.
+
+Additive. The parameter existed and was ignored; clients that never send it
+keep a live-only stream.
+
 ## 2026-07-17
 
 ### Added

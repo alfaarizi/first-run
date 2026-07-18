@@ -9,8 +9,9 @@ info:
     subscribe another user.
 
     Each frame carries one named event from the widget contract (`nudge`,
-    `token`, `done`, `action`, `retired`). A reconnect reopens the stream
-    live, and frames sent while disconnected are not redelivered.
+    `token`, `done`, `action`, `retired`). A reconnect that carries the last
+    seen frame id replays the `nudge` frames a bounded per-user buffer held
+    while the stream was down. The other frame kinds reopen live only.
   contact:
     name: FirstRun
     url: https://github.com/alfaarizi/first-run
@@ -73,7 +74,20 @@ paths:
         - name: last_event_id
           in: query
           required: false
-          description: The last frame id the client saw, sent on reconnect. The stream reopens live.
+          description: >
+            The last frame id the client saw, sent on reconnect. Buffered
+            `nudge` frames after it replay in order before live delivery
+            resumes. An id the buffer no longer holds, or the reserved value
+            `earliest`, replays the whole buffer.
+          schema:
+            type: string
+            maxLength: 64
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: >
+            The browser-sent form of `last_event_id`, taking precedence over
+            the query parameter when both arrive.
           schema:
             type: string
             maxLength: 64
