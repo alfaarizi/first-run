@@ -11,6 +11,7 @@ dependencies = [
     "grpcio>=1.81.1",
     "httpx>=0.28",
     "pgvector>=0.4",
+    "protego>=0.3",
     "protobuf>=6.33.5",
     "pydantic-settings>=2.7",
     "uuid6>=2024.7.10",

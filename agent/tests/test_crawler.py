@@ -245,6 +245,25 @@ async def test_offsite_robots_redirect_reads_as_unavailable() -> None:
     assert f"{_ROOT}/" in urls
 
 
+async def test_robots_wildcard_disallow_is_honored() -> None:
+    def wildcard_robots(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/plain"},
+                text="User-agent: *\nDisallow: /*.tmp$",
+            )
+        if request.url.path == "/":
+            return _html('<a href="/draft.tmp">Draft</a><a href="/guide">Guide</a>')
+        return _site(request)
+
+    crawler = _crawler(transport=httpx.MockTransport(wildcard_robots))
+    urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
+
+    assert f"{_ROOT}/guide" in urls
+    assert f"{_ROOT}/draft.tmp" not in urls
+
+
 async def test_robots_denied_by_4xx_allows_the_crawl() -> None:
     def forbidden_robots(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":

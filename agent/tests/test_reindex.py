@@ -211,6 +211,32 @@ async def test_close_cancels_running_crawls_and_runs_their_cleanup() -> None:
     assert not indexer._running
 
 
+async def test_close_never_fails_sources_whose_crawl_never_started() -> None:
+    gate = asyncio.Event()
+    store = FakeStore()
+    indexer = Indexer(
+        crawler=FakeCrawler(gate=gate),
+        embedder=FakeEmbedder(),
+        store=store,
+        chunk_max_chars=2_000,
+        crawl_max_concurrent=1,
+    )
+    source_b = "019813f2-0000-7000-8000-0000000000f4"
+    for source_id in (_SOURCE, source_b):
+        indexer.start(
+            tenant_id=_TENANT,
+            app_id=_APP,
+            source_id=source_id,
+            source_url="https://d.example",
+        )
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+    await indexer.close()
+
+    assert store.events == ["indexing", "fail"]
+
+
 async def test_concurrent_crawls_are_bounded_by_the_slot_limit() -> None:
     gate = asyncio.Event()
     store = FakeStore()

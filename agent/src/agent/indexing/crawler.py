@@ -12,7 +12,6 @@ import asyncio
 import ipaddress
 import logging
 import socket
-import urllib.robotparser
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
@@ -21,6 +20,7 @@ from urllib.parse import SplitResult, urldefrag, urljoin, urlsplit, urlunsplit
 
 import httpx
 from bs4 import BeautifulSoup
+from protego import Protego
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +120,15 @@ class Crawler:
         async with httpx.AsyncClient(
             timeout=self._timeout,
             transport=self._transport,
-            headers={"User-Agent": _USER_AGENT},
+            headers={
+                "User-Agent": _USER_AGENT,
+                # Identity keeps the size cap exact. A decoded stream would
+                # let a small compressed body balloon past it.
+                "Accept-Encoding": "identity",
+            },
+            # Proxy variables in the environment would route around the
+            # pinned address.
+            trust_env=False,
         ) as client:
             robots, pin = await self._connect(client, root_url, root, addresses)
             frontier = _Frontier(root_netloc=root.netloc)
@@ -128,7 +136,7 @@ class Crawler:
             attempts = 0
             while frontier.queue and attempts < self._max_pages:
                 url = frontier.queue.popleft()
-                if not robots.can_fetch(_USER_AGENT, url):
+                if not robots.can_fetch(url, _USER_AGENT):
                     continue
                 attempts += 1
                 page = await self._fetch(client, url, frontier, pin)
@@ -141,7 +149,7 @@ class Crawler:
         root_url: str,
         root: SplitResult,
         addresses: list[str],
-    ) -> tuple[urllib.robotparser.RobotFileParser, _Pin]:
+    ) -> tuple[Protego, _Pin]:
         """Pin the first vetted address that connects, keeping its robots.txt."""
         for address in addresses:
             pin = _Pin(
@@ -182,7 +190,7 @@ class Crawler:
 
     async def _fetch_robots(
         self, client: httpx.AsyncClient, root_url: str, pin: _Pin
-    ) -> urllib.robotparser.RobotFileParser:
+    ) -> Protego:
         """Fetch robots.txt with RFC 9309 semantics.
 
         A 4xx answer allows the crawl, a 5xx answer or an unreachable host
@@ -191,8 +199,7 @@ class Crawler:
         redirect target sits outside the pinned egress, so it reads as
         unavailable.
         """
-        robots = urllib.robotparser.RobotFileParser()
-        lines: list[str] = []
+        rules = ""
         url = urljoin(root_url, "/robots.txt")
         try:
             async with asyncio.timeout(self._deadline_seconds):
@@ -211,16 +218,15 @@ class Crawler:
                             )
                         if response.status_code == 200:
                             body = await self._read_truncated(response)
-                            lines = body.decode(
+                            rules = body.decode(
                                 response.charset_encoding or "utf-8", "replace"
-                            ).splitlines()
+                            )
                         break
         except (httpx.ConnectError, httpx.ConnectTimeout):
             raise
         except (TimeoutError, httpx.HTTPError) as error:
             raise CrawlError(f"robots.txt unreachable: {error}") from error
-        robots.parse(lines)
-        return robots
+        return Protego.parse(rules)
 
     async def _fetch(
         self, client: httpx.AsyncClient, url: str, frontier: _Frontier, pin: _Pin

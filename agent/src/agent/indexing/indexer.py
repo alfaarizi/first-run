@@ -97,39 +97,40 @@ class Indexer:
         self, *, tenant_id: str, app_id: str, source_id: str, source_url: str
     ) -> None:
         crawl_id = str(uuid7())
+        marked = False
         try:
             # The semaphore bounds crawls, so one caller's burst of sources
             # cannot exhaust sockets or the embedding quota.
             async with self._crawl_slots:
-                await self._run_crawl(
+                await self._store.mark_indexing(
                     tenant_id=tenant_id,
                     app_id=app_id,
+                    source_id=source_id,
+                    url=source_url,
+                )
+                marked = True
+                await self._run_crawl(
+                    tenant_id=tenant_id,
                     source_id=source_id,
                     source_url=source_url,
                     crawl_id=crawl_id,
                 )
         except asyncio.CancelledError:
             # Shutdown cancels the task mid-crawl. Clean up, then let the
-            # cancellation propagate.
-            await self._fail(tenant_id, source_id, crawl_id)
+            # cancellation propagate. A crawl that never marked its source
+            # must not flip a READY source to FAILED.
+            if marked:
+                await self._fail(tenant_id, source_id, crawl_id)
             raise
         except Exception:
             logger.exception("reindex failed for source %s", source_id)
-            await self._fail(tenant_id, source_id, crawl_id)
+            if marked:
+                await self._fail(tenant_id, source_id, crawl_id)
 
     async def _run_crawl(
-        self,
-        *,
-        tenant_id: str,
-        app_id: str,
-        source_id: str,
-        source_url: str,
-        crawl_id: str,
+        self, *, tenant_id: str, source_id: str, source_url: str, crawl_id: str
     ) -> None:
         chunk_total = 0
-        await self._store.mark_indexing(
-            tenant_id=tenant_id, app_id=app_id, source_id=source_id, url=source_url
-        )
         async for page in self._crawler.crawl(source_url):
             chunks = chunk_page(page.url, page.html, max_chars=self._chunk_max_chars)
             if not chunks:

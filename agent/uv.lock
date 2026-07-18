@@ -17,6 +17,7 @@ dependencies = [
     { name = "grpcio" },
     { name = "httpx" },
     { name = "pgvector" },
+    { name = "protego" },
     { name = "protobuf" },
     { name = "pydantic-settings" },
     { name = "uuid6" },
@@ -41,6 +42,7 @@ requires-dist = [
     { name = "grpcio", specifier = ">=1.81.1" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "pgvector", specifier = ">=0.4" },
+    { name = "protego", specifier = ">=0.3" },
     { name = "protobuf", specifier = ">=6.33.5" },
     { name = "pydantic-settings", specifier = ">=2.7" },
     { name = "uuid6", specifier = ">=2024.7.10" },
@@ -776,6 +778,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/61/7c/5c0d34aa3024694d6dcb9271cdbdd08c4e47c1c0ad95ec7e7bc74cdea145/propcache-0.5.2-cp312-cp312-win_amd64.whl", hash = "sha256:d9ee8826a7d47863a08ac44e1a5f611a462eefc3a194b492da242128bec75b42", size = 42322, upload-time = "2026-05-08T21:00:32.918Z" },
     { url = "https://files.pythonhosted.org/packages/4d/91/875812f1a3feb20ceba818ef39fbe4d92f1081e04ac815c822496d0d038b/propcache-0.5.2-cp312-cp312-win_arm64.whl", hash = "sha256:2800a4a8ead6b28cccd1ec54b59346f0def7922ee1c7598e8499c733cfbb7c84", size = 38172, upload-time = "2026-05-08T21:00:35.124Z" },
     { url = "https://files.pythonhosted.org/packages/3a/ed/1cdcab6ba3d6ab7feca11fc14f0eeea80755bb53ef4e892079f31b10a25f/propcache-0.5.2-py3-none-any.whl", hash = "sha256:be1ddfcbb376e3de5d2e2db1d58d6d67463e6b4f9f040c000de8e300295465fe", size = 14036, upload-time = "2026-05-08T21:02:10.673Z" },
+]
+
+[[package]]
+name = "protego"
+version = "0.6.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/1b/6b0ee60bb1561843bfc62f5c7c3cb1ef6147b47e829a5fd6b7fcd2752471/protego-0.6.2.tar.gz", hash = "sha256:88ff004544ce44e61269cc6f8735f7837d12e09bb77619fc94fbb26b72e5d137", size = 3137854, upload-time = "2026-06-25T09:33:16.361Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/61/10/cbd3c06603bb8b3e0e871df24ee793a6e3b53d8c4cc8763f1b8b936649aa/protego-0.6.2-py3-none-any.whl", hash = "sha256:714de21d82527c9be900066c3211b266985dd6a19b6e70c57e033fc1a589f3ff", size = 10296, upload-time = "2026-06-25T09:33:14.771Z" },
 ]
 
 [[package]]
