@@ -163,11 +163,12 @@ function report(results) {
   const grounded = judged.filter((r) => r.verdict === 'grounded')
   const unanswerable = judged.filter((r) => !r.row.answerable)
   const honest = unanswerable.filter((r) => r.verdict === 'grounded')
+  // An answer that never streamed counts at the timeout, so silent failures
+  // widen the latency tail instead of vanishing from it.
+  const neverStreamed = results.filter((r) => r.answer.firstTokenMs === null).length
   const latencies = results
-    .map((r) => r.answer.firstTokenMs)
-    .filter((ms) => ms !== null)
+    .map((r) => r.answer.firstTokenMs ?? ANSWER_TIMEOUT_MS)
     .sort((a, b) => a - b)
-  // Empty when every answer failed to stream, which must still report, not crash.
   const p95 = latencies[Math.min(latencies.length - 1, Math.ceil(latencies.length * 0.95) - 1)]
 
   for (const r of judged.filter((r) => r.verdict === 'ungrounded')) {
@@ -176,7 +177,10 @@ function report(results) {
   console.log(`questions ${results.length}, judged ${judged.length}, judge errors ${results.length - judged.length}`)
   console.log(`groundedness ${(grounded.length / judged.length).toFixed(3)} (floor 0.90 once the judge is calibrated)`)
   console.log(`unanswerable honesty ${honest.length}/${unanswerable.length}`)
-  console.log(`first token p95 ${p95 === undefined ? 'n/a, nothing streamed' : (p95 / 1000).toFixed(2) + 's'} (target 1.5s)`)
+  console.log(
+    `first token p95 ${p95 === undefined ? 'n/a, no questions ran' : (p95 / 1000).toFixed(2) + 's'} ` +
+      `(target 1.5s${neverStreamed > 0 ? `; ${neverStreamed} never streamed, counted at timeout` : ''})`
+  )
   console.log('all numbers are SYNTHETIC because the set is drawn from demo docs')
 
   // Judge failures over 5% mean the numbers cannot be trusted at all.
