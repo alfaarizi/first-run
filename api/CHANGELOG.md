@@ -3,6 +3,19 @@
 Each entry records the date, the change, the rationale, and whether it is
 additive or breaking.
 
+## 2026-07-20
+
+### Changed
+
+- `openapi/messages.yaml` documents `413` for a body over 16 KB, aligning
+  the endpoint with the ingest contract and RFC 9110's Content Too Large.
+  The gateway answers it before the signature check, because the HMAC
+  covers the full body and a capped read could never verify, which had
+  misreported honest oversized requests as `401`.
+
+Additive. A response code clients already had to survive gains its correct
+value; nothing that verified before answers differently.
+
 ## 2026-07-19
 
 ### Added

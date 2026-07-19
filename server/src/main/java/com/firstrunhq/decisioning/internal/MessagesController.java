@@ -73,13 +73,16 @@ class MessagesController {
     if (origin != null && !app.allowedOrigins().contains(origin)) {
       return problem(HttpStatus.FORBIDDEN, "The origin is not on the app's allowed origins.");
     }
+    // Before the signature check, as on the ingest path: the HMAC covers the
+    // full body, so a signature over the capped read can never verify and an
+    // honest oversized request would die as a misleading 401.
+    if (body.length > MAX_BODY_BYTES) {
+      return problem(HttpStatus.PAYLOAD_TOO_LARGE, "The body exceeds 16 KB.");
+    }
     if (timestamp == null
         || signature == null
         || !signatureVerifier.verify(app.hmacKey(), timestamp, body, signature)) {
       return problem(HttpStatus.UNAUTHORIZED, "The request signature does not verify.");
-    }
-    if (body.length > MAX_BODY_BYTES) {
-      return problem(HttpStatus.BAD_REQUEST, "The body exceeds " + MAX_BODY_BYTES + " bytes.");
     }
 
     MessageBody message;
@@ -117,6 +120,7 @@ class MessagesController {
     return ResponseEntity.accepted().build();
   }
 
+  /** Builds the RFC 9457 problem body every rejection answers with. */
   private static ResponseEntity<Object> problem(HttpStatus status, String detail) {
     return ResponseEntity.status(status)
         .contentType(MediaType.APPLICATION_PROBLEM_JSON)

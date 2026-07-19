@@ -85,6 +85,18 @@ class MessagesControllerTests {
   }
 
   @Test
+  void answersContentTooLargeBeforeTheSignatureCheck() {
+    when(appDirectory.findBySdkKey("pk_test")).thenReturn(Optional.of(SDK_APP));
+
+    // Signed over the full body, which the capped read can never reproduce,
+    // so answering after the signature check would misreport this as 401.
+    ResponseEntity<Object> response = post(body("x".repeat(17_000)), true, null);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+    verifyNoInteractions(relay);
+  }
+
+  @Test
   void rejectsTextOverTheContractCap() {
     when(appDirectory.findBySdkKey("pk_test")).thenReturn(Optional.of(SDK_APP));
 
