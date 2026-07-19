@@ -25,7 +25,7 @@ flowchart LR
     EU("End User<br/>Onboards inside the customer's app.")
     FO("Founder<br/>Configures milestones, reads the dashboard.")
     FR("FirstRun<br/>Detects stuck users, nudges with cited answers.")
-    LLM("LLM Provider<br/><i>OpenAI / Bedrock</i><br/>Scores policy, writes answers.")
+    LLM("LLM Provider<br/><i>Anthropic chat, Voyage embeddings</i><br/>Scores policy, writes answers.")
     CUST("Customer API<br/>Runs confirmed actions.")
     STR("Stripe<br/>Meters usage for billing.")
     LF("Langfuse<br/>Stores agent traces.")
@@ -70,7 +70,7 @@ flowchart LR
       RDS[("Redis<br/>Holds session state and dedupe keys.")]
       RP[("Redpanda<br/><i>Kafka protocol</i><br/>Carries the event stream.")]
     end
-    LLM("LLM Provider<br/><i>OpenAI / Bedrock</i><br/>Scores policy, writes answers.")
+    LLM("LLM Provider<br/><i>Anthropic chat, Voyage embeddings</i><br/>Scores policy, writes answers.")
     CUST("Customer API<br/>Runs confirmed actions.")
     STR("Stripe<br/>Meters usage for billing.")
     LF("Langfuse<br/>Stores agent traces.")
