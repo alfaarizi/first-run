@@ -77,8 +77,9 @@ class FakeSearcher:
 
 
 class FakeChat:
-    def __init__(self, broken: bool = False) -> None:
+    def __init__(self, broken: bool = False, breaks_after_tokens: int = 0) -> None:
         self.broken = broken
+        self.breaks_after_tokens = breaks_after_tokens
         self.histories: list[list[Turn]] = []
         self.milestones: list[str] = []
 
@@ -94,8 +95,13 @@ class FakeChat:
         self.milestones.append(milestone_name)
         if self.broken:
             raise RuntimeError("provider outage")
+        streamed = 0
         for event in _fixture_events():
             yield event
+            if isinstance(event, AnswerToken):
+                streamed += 1
+                if streamed == self.breaks_after_tokens:
+                    raise RuntimeError("provider outage mid-stream")
 
 
 class AbortRaised(Exception):
@@ -205,7 +211,30 @@ async def test_a_failed_answer_yields_a_bare_done_and_keeps_the_stream() -> None
 
     kinds = [response.WhichOneof("frame") for response in responses]
     assert kinds == ["answer_done", "answer_done"]
+    assert all(response.answer_done.failed for response in responses)
     # A failed answer never becomes fabricated history.
+    assert chat.histories[1] == []
+
+
+async def test_a_mid_stream_failure_marks_the_done_failed() -> None:
+    chat = FakeChat(breaks_after_tokens=1)
+    service = _service(chat)
+    responses = [
+        response
+        async for response in service.Converse(
+            _frames(
+                _context_frame(),
+                _message_frame("m1", "How do I connect?"),
+                _message_frame("m2", "Still there?"),
+            ),
+            _grpc_context(),
+        )
+    ]
+
+    # Tokens streamed before the failure, so the done must carry the failed
+    # flag and the truncated turn must stay out of history.
+    dones = [r.answer_done for r in responses if r.WhichOneof("frame") == "answer_done"]
+    assert [done.failed for done in dones] == [True, True]
     assert chat.histories[1] == []
 
 

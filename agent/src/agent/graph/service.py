@@ -47,6 +47,7 @@ class ConversationService(ConversationServiceServicer):  # type: ignore[misc]
                 )
             message = frame.user_message
             answer_text: list[str] = []
+            failed = False
 
             with self._langfuse.start_as_current_observation(
                 name="converse",
@@ -85,17 +86,22 @@ class ConversationService(ConversationServiceServicer):  # type: ignore[misc]
                                 )
                             )
                 except Exception:
-                    # The stream outlives one bad answer. The server reads a
-                    # done frame with no tokens as a failed answer.
+                    # The stream outlives one bad answer. The failed flag tells
+                    # the server that any tokens already streamed are truncated.
+                    failed = True
                     log.exception("answer failed for message %s", message.message_id)
                     span.update(level="ERROR", status_message="answer failed")
                 span.update(output={"answer": "".join(answer_text)})
 
             yield conversation_pb2.ConverseResponse(
-                answer_done=conversation_pb2.AnswerDone(message_id=message.message_id)
+                answer_done=conversation_pb2.AnswerDone(
+                    message_id=message.message_id, failed=failed
+                )
             )
 
-            if answer_text:
+            # A truncated answer stays out of history: grounding later turns
+            # in text the failure cut short would corrupt them too.
+            if answer_text and not failed:
                 history.append(Turn(role="user", text=message.text))
                 history.append(Turn(role="assistant", text="".join(answer_text)))
                 del history[: -self._max_turns]
