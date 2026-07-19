@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.firstrunhq.apps.AppDirectory;
 import com.firstrunhq.apps.SdkApp;
 import com.firstrunhq.apps.SignatureVerifier;
+import com.firstrunhq.apps.WidgetContract;
 import com.firstrunhq.ingestion.EventEnvelope;
 import com.firstrunhq.ingestion.EventTopics;
 import jakarta.servlet.http.HttpServletRequest;
@@ -44,9 +45,6 @@ class IngestController {
 
   // Endpoint contract from api/openapi/ingest.yaml, read here and mirrored by the CORS policy.
   static final String PATH = "/v1/e";
-  static final String HEADER_SDK_KEY = "X-FirstRun-Key";
-  static final String HEADER_TIMESTAMP = "X-FirstRun-Timestamp";
-  static final String HEADER_SIGNATURE = "X-FirstRun-Signature";
 
   private static final int MAX_BODY_BYTES = 64 * 1024;
   private static final int MAX_BATCH_EVENTS = 50;
@@ -86,9 +84,12 @@ class IngestController {
    */
   @PostMapping(path = PATH, consumes = MediaType.APPLICATION_JSON_VALUE)
   ResponseEntity<Object> ingestEvents(
-      @RequestHeader(value = HEADER_SDK_KEY, required = false) @Nullable String sdkKey,
-      @RequestHeader(value = HEADER_TIMESTAMP, required = false) @Nullable String timestamp,
-      @RequestHeader(value = HEADER_SIGNATURE, required = false) @Nullable String signature,
+      @RequestHeader(value = WidgetContract.SDK_KEY_HEADER, required = false)
+          @Nullable String sdkKey,
+      @RequestHeader(value = WidgetContract.TIMESTAMP_HEADER, required = false)
+          @Nullable String timestamp,
+      @RequestHeader(value = WidgetContract.SIGNATURE_HEADER, required = false)
+          @Nullable String signature,
       @RequestHeader(value = HttpHeaders.ORIGIN, required = false) @Nullable String origin,
       HttpServletRequest request)
       throws IOException {

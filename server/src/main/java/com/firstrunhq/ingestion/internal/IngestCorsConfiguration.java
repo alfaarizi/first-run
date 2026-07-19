@@ -1,5 +1,6 @@
 package com.firstrunhq.ingestion.internal;
 
+import com.firstrunhq.apps.WidgetContract;
 import java.time.Duration;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
@@ -24,9 +25,9 @@ class IngestCorsConfiguration implements WebMvcConfigurer {
         .allowedMethods(HttpMethod.POST.name())
         .allowedHeaders(
             HttpHeaders.CONTENT_TYPE,
-            IngestController.HEADER_SDK_KEY,
-            IngestController.HEADER_TIMESTAMP,
-            IngestController.HEADER_SIGNATURE)
+            WidgetContract.SDK_KEY_HEADER,
+            WidgetContract.TIMESTAMP_HEADER,
+            WidgetContract.SIGNATURE_HEADER)
         .maxAge(Duration.ofDays(1).toSeconds());
   }
 }
