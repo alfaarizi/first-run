@@ -1,6 +1,6 @@
 import { STREAM_PATH } from "./constants";
 import { sign } from "./request";
-import type { ActionPayload, Citation, Config, NudgePayload } from "./types";
+import type { ActionPayload, Citation, Config, DoneFrame, NudgePayload, TokenFrame } from "./types";
 
 const CURSOR_KEY_PREFIX = "fr_stream:";
 const CURSOR_EARLIEST = "earliest";
@@ -72,11 +72,11 @@ export function connectStream(
       handlers.nudge(payload);
     });
     on("token", (data) => {
-      const frame = JSON.parse(data) as { message_id: string; text: string };
+      const frame = JSON.parse(data) as TokenFrame;
       handlers.token(frame.message_id, frame.text);
     });
     on("done", (data) => {
-      const frame = JSON.parse(data) as { message_id: string; citations?: Citation[] };
+      const frame = JSON.parse(data) as DoneFrame;
       handlers.done(frame.message_id, frame.citations ?? []);
     });
     on("action", (data) => handlers.action(JSON.parse(data) as ActionPayload));

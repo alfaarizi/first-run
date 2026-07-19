@@ -350,6 +350,27 @@ test("an answer that ends without tokens or citations reads as a failure", async
   expect(query(".fr-message-agent .fr-body")?.textContent).toBe(TRY_AGAIN_TEXT);
 });
 
+test("an answer idle past its window appends the retry line to partial text", async () => {
+  vi.useFakeTimers();
+  try {
+    const { ui, callbacks, query } = createUi();
+    query<HTMLButtonElement>(".fr-launcher")?.click();
+
+    const input = query<HTMLTextAreaElement>(".fr-input");
+    input!.value = "help";
+    input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await vi.waitFor(() => expect(callbacks.onSend).toHaveBeenCalled());
+
+    ui.appendToken(callbacks.onSend.mock.calls[0]![0], "Half an answer");
+    vi.advanceTimersByTime(35_000);
+
+    // a half answer must never read as a finished one
+    expect(query(".fr-message-agent .fr-body")?.textContent).toBe(`Half an answer ${TRY_AGAIN_TEXT}`);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("frames for another conversation's message never reach the slot", async () => {
   const { ui, callbacks, query } = createUi();
   query<HTMLButtonElement>(".fr-launcher")?.click();

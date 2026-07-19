@@ -43,6 +43,18 @@ export interface Citation {
   url: string;
 }
 
+/** The data of one `token` stream frame: a span of the answer to one message. */
+export interface TokenFrame {
+  message_id: string;
+  text: string;
+}
+
+/** The data of the `done` stream frame closing one message's answer. */
+export interface DoneFrame {
+  message_id: string;
+  citations?: Citation[];
+}
+
 /** A proposed action awaiting the user's explicit click, with the registry's copy. */
 export interface ActionPayload {
   execution_id: string;

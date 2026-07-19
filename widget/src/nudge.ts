@@ -306,8 +306,9 @@ export class NudgeUi {
   private keepAnswerAlive(): void {
     clearTimeout(this.answerTimer);
     this.answerTimer = setTimeout(() => {
-      if (this.answer?.isConnected && !this.answer.textContent) {
-        this.answer.textContent = TRY_AGAIN_TEXT;
+      if (this.answer?.isConnected) {
+        // the retry line joins any partial text, so a half answer never reads as done
+        this.answer.append(this.answer.textContent ? ` ${TRY_AGAIN_TEXT}` : TRY_AGAIN_TEXT);
       }
       this.dropAnswer();
     }, ANSWER_IDLE_MS);
