@@ -85,8 +85,8 @@ export const NUDGE_CSS = `
   box-shadow: var(--box-shadow);
 }
 .fr-expanded {
-  width: min(400px, calc(100vw - 32px));
-  height: min(520px, calc(100dvh - 32px));
+  width: min(400px, calc(100vw - 40px));
+  height: min(704px, calc(100dvh - 40px));
 }
 .fr-launcher {
   position: absolute;
