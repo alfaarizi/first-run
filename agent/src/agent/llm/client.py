@@ -27,10 +27,9 @@ log = logging.getLogger(__name__)
 # Comfortably under every Voyage model's per-request input cap.
 _MAX_BATCH = 128
 
-# Voyage rate limits are per-minute windows (a payment-methodless key floors
-# at 3 requests a minute), so one pause reaches the next window. Indexing can
-# wait through several; a query gets one, because the server's 30s answer
-# watchdog turns a longer wait into a certain failure that still bills.
+# Voyage rate limits are per-minute windows, so one pause reaches the next
+# window. Indexing can wait through several. A query gets one: past the
+# server's 30s answer watchdog, waiting buys a failure that still bills.
 _RATE_LIMIT_PAUSE_SECONDS = 25.0
 _INDEX_RATE_LIMIT_ATTEMPTS = 6
 _QUERY_RATE_LIMIT_ATTEMPTS = 2
@@ -40,6 +39,7 @@ class EmbeddingClient:
     """Embeds text with the Voyage model named in settings."""
 
     def __init__(self) -> None:
+        """Read the model, dimension, and key from settings."""
         settings = get_settings()
         self._client = voyageai.AsyncClient(api_key=settings.voyage_api_key)
         self._model = settings.embedding_model
@@ -75,6 +75,7 @@ class EmbeddingClient:
     async def _embed(
         self, texts: list[str], *, input_type: str, attempts: int
     ) -> voyageai.object.EmbeddingsObject:
+        """Embed one batch, pausing through up to ``attempts`` rate-limit windows."""
         for attempt in range(1, attempts + 1):
             try:
                 return await self._client.embed(
@@ -125,6 +126,7 @@ class ChatClient:
     """Streams grounded answers with the chat model named in settings."""
 
     def __init__(self) -> None:
+        """Read the model, token budget, and key from settings."""
         settings = get_settings()
         self._client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
         self._model = settings.answer_model
@@ -183,6 +185,7 @@ class ChatClient:
 def _build_user_content(
     question: str, chunks: Sequence[RetrievedChunk], milestone_name: str
 ) -> list[SearchResultBlockParam | TextBlockParam]:
+    """Assemble the user turn: one search-result block per chunk, then the question."""
     content: list[SearchResultBlockParam | TextBlockParam] = [
         SearchResultBlockParam(
             type="search_result",

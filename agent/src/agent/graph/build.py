@@ -35,6 +35,7 @@ def build_graph(
     """Compile the retrieve-then-answer graph over the given clients."""
 
     async def retrieve(state: ConversationState) -> dict[str, object]:
+        """Embed the question and pull the nearest chunks into state."""
         with langfuse.start_as_current_observation(
             name="retrieve", as_type="retriever", input={"question": state["question"]}
         ) as span:
@@ -49,6 +50,7 @@ def build_graph(
         return {"chunks": chunks}
 
     async def answer(state: ConversationState) -> dict[str, object]:
+        """Stream the grounded answer's events out through the graph writer."""
         writer = get_stream_writer()
         with langfuse.start_as_current_observation(
             name="answer", as_type="generation", model=answer_model

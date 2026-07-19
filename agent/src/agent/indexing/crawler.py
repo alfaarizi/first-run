@@ -32,9 +32,12 @@ Origin = tuple[str, int]
 
 
 def _origin(split: SplitResult, allow_http: bool = False) -> Origin | None:
-    # https only, with the default port folded in. A malformed authority,
-    # such as an out-of-range port, reads as no origin. ``allow_http`` exists
-    # for the local compose stack, whose demo docs have no TLS.
+    """Read the URL's origin as a host-port pair, or None when uncrawlable.
+
+    A malformed authority, such as an out-of-range port, reads as no origin.
+    ``allow_http`` exists for the local compose stack, whose demo docs have
+    no TLS.
+    """
     schemes = ("https", "http") if allow_http else ("https",)
     if split.scheme not in schemes or not split.hostname:
         return None
@@ -76,6 +79,7 @@ class _Frontier:
     seen: set[str] = field(default_factory=set)
 
     def add(self, url: str) -> None:
+        """Enqueue the URL when it is on-site, unseen, and under the bound."""
         if len(self.seen) >= self.max_size:
             return
         url = urldefrag(url).url
@@ -105,27 +109,35 @@ class _Pin:
 
 
 async def _resolve(host: str) -> list[str]:
+    """Resolve the host to its addresses via the event loop's resolver."""
     loop = asyncio.get_running_loop()
     infos = await loop.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
     return [str(info[4][0]) for info in infos]
 
 
 def _is_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    # is_global alone admits multicast and some reserved space,
-    # such as the NAT64 prefix that maps loopback.
+    """Report whether the address is safe crawler egress.
+
+    ``is_global`` alone admits multicast and some reserved space, such as
+    the NAT64 prefix that maps loopback.
+    """
     return ip.is_global and not (
         ip.is_multicast or ip.is_reserved or ip.is_link_local or ip.is_unspecified
     )
 
 
 def _is_identity(response: httpx.Response) -> bool:
-    # A compressed body ignores the identity request: unreadable as text and
-    # a decompression risk to the size cap.
+    """Report whether the body arrived uncompressed.
+
+    A compressed body ignored the identity request. It is unreadable as
+    text and a decompression risk to the size cap.
+    """
     encoding = response.headers.get("content-encoding", "").strip().lower()
     return encoding in ("", "identity")
 
 
 def _decode(response: httpx.Response, body: bytes) -> str:
+    """Decode the body by its declared charset, replacing what cannot map."""
     try:
         return body.decode(response.charset_encoding or "utf-8", "replace")
     except LookupError:
@@ -147,6 +159,7 @@ class Crawler:
         resolve: Callable[[str], Awaitable[list[str]]] = _resolve,
         allow_local: bool = False,
     ) -> None:
+        """Configure the crawl bounds; nothing connects until ``crawl``."""
         self._max_pages = max_pages
         self._timeout = httpx.Timeout(timeout_seconds)
         self._deadline_seconds = deadline_seconds
@@ -223,6 +236,7 @@ class Crawler:
     def _stream(
         self, client: httpx.AsyncClient, url: str, pin: _Pin
     ) -> AbstractAsyncContextManager[httpx.Response]:
+        """Open a streamed GET wired to the pinned address for the URL's host."""
         return client.stream(
             "GET",
             pin.wire_url(url),
@@ -231,8 +245,11 @@ class Crawler:
         )
 
     async def _read_capped(self, response: httpx.Response) -> bytes | None:
-        # Callers reject non-identity encodings first, so these are wire bytes
-        # and the cap bounds allocation with no decompression to expand them.
+        """Read the body whole, or None once it exceeds the size cap.
+
+        Callers reject non-identity encodings first, so these are wire bytes
+        and the cap bounds allocation with no decompression to expand them.
+        """
         body = bytearray()
         async for part in response.aiter_bytes():
             body.extend(part)
@@ -241,6 +258,7 @@ class Crawler:
         return bytes(body)
 
     async def _read_truncated(self, response: httpx.Response) -> bytes:
+        """Read the body up to the size cap, discarding the remainder."""
         body = bytearray()
         async for part in response.aiter_bytes():
             body.extend(part)
@@ -302,6 +320,12 @@ class Crawler:
     async def _fetch(
         self, client: httpx.AsyncClient, url: str, frontier: _Frontier, pin: _Pin
     ) -> Page | None:
+        """Fetch one page and feed its links to the frontier.
+
+        Returns None for a skipped page: a redirect, a non-HTML answer, or a
+        body over the size cap. Raises ``CrawlError`` for a transient failure,
+        which fails the whole crawl rather than silently thinning the index.
+        """
         try:
             async with asyncio.timeout(self._deadline_seconds):
                 async with self._stream(client, url, pin) as response:
@@ -325,7 +349,6 @@ class Crawler:
                         logger.warning("skipping %s, response over size cap", url)
                         return None
         except (TimeoutError, httpx.HTTPError) as error:
-            # A transient failure fails the whole crawl.
             raise CrawlError(f"fetch of {url} failed: {error!r}") from error
 
         html = _decode(response, body)
@@ -335,6 +358,7 @@ class Crawler:
 
 
 def _links(page_url: str, html: str) -> list[str]:
+    """Collect the page's anchor targets as absolute URLs."""
     soup = BeautifulSoup(html, "html.parser")
     # A <base href> retargets all relative links. Resolve anchors against it.
     base = soup.find("base")
