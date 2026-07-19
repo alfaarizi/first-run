@@ -42,9 +42,11 @@ class KnowledgeController {
     if (tenantId == null) {
       throw KnowledgeMutationException.unauthorized();
     }
+    // A malformed id is a client bug and answers as one; only a row absent
+    // from this tenant resolves to the not-found null payload.
     UUID appId = parse(input.appId());
     if (appId == null) {
-      return new AddDocSourcePayload(null);
+      throw KnowledgeMutationException.invalidId("appId");
     }
     requireCrawlableUrl(input.url());
     DocSource source;
@@ -65,7 +67,10 @@ class KnowledgeController {
       throw KnowledgeMutationException.unauthorized();
     }
     UUID sourceId = parse(input.docSourceId());
-    DocSource source = sourceId == null ? null : repository.find(tenantId, sourceId).orElse(null);
+    if (sourceId == null) {
+      throw KnowledgeMutationException.invalidId("docSourceId");
+    }
+    DocSource source = repository.find(tenantId, sourceId).orElse(null);
     if (source == null) {
       return new ReindexDocSourcePayload(null);
     }

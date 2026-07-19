@@ -23,6 +23,10 @@ class KnowledgeMutationException extends RuntimeException {
         ErrorType.BAD_REQUEST, "The URL must be absolute http or https.");
   }
 
+  static KnowledgeMutationException invalidId(String field) {
+    return new KnowledgeMutationException(ErrorType.BAD_REQUEST, field + " must be a UUID.");
+  }
+
   ErrorType errorType() {
     return errorType;
   }

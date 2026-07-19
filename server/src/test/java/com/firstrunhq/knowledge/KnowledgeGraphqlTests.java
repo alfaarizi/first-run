@@ -147,6 +147,23 @@ class KnowledgeGraphqlTests {
   }
 
   @Test
+  void rejectsAnIdThatIsNotAUuid() {
+    // A malformed id is a client bug and answers as one; the null payload is
+    // reserved for rows genuinely absent from the tenant.
+    asTenant(TENANT_A)
+        .document(REINDEX_DOC_SOURCE)
+        .variable("input", Map.of("docSourceId", "not-a-uuid"))
+        .execute()
+        .errors()
+        .satisfy(
+            errors -> {
+              assertThat(errors).hasSize(1);
+              assertThat(errors.getFirst().getErrorType()).isEqualTo(ErrorType.BAD_REQUEST);
+              assertThat(errors.getFirst().getMessage()).isEqualTo("docSourceId must be a UUID.");
+            });
+  }
+
+  @Test
   void resolvesAnotherTenantsAppToAnEmptyPayload() {
     add(asTenant(TENANT_A), APP_B, "https://docs.example.com/")
         .path("addDocSource.docSource")
