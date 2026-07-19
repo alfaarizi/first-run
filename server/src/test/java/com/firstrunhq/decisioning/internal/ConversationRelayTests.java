@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -66,16 +67,30 @@ class ConversationRelayTests {
     boolean accepted = relay.relay(SDK_APP, messageId, SESSION, END_USER, "answer", null);
 
     assertThat(accepted).isTrue();
-    ArgumentCaptor<Object> frames = ArgumentCaptor.forClass(Object.class);
-    verify(streams).pushAnswerFrame(eq(APP), eq(END_USER), eq("token"), frames.capture());
-    verify(streams).pushAnswerFrame(eq(APP), eq(END_USER), eq("done"), frames.capture());
-    assertThat(frames.getAllValues().get(0))
-        .isEqualTo(new TokenFrame(messageId.toString(), "Use Settings."));
-    assertThat(frames.getAllValues().get(1))
-        .isEqualTo(
+    ArgumentCaptor<AnswerFrame> frames = ArgumentCaptor.forClass(AnswerFrame.class);
+    verify(streams, times(2)).pushAnswerFrame(eq(APP), eq(END_USER), frames.capture());
+    assertThat(frames.getAllValues())
+        .containsExactly(
+            new TokenFrame(messageId.toString(), "Use Settings."),
             new DoneFrame(
                 messageId.toString(),
                 List.of(new DoneFrame.Citation("Setup", "https://docs.example.com/setup"))));
+  }
+
+  @Test
+  void aMidStreamFailureDegradesToTheRetryLine() {
+    UUID messageId = UUID.randomUUID();
+    relay.relay(SDK_APP, messageId, SESSION, END_USER, "fail-mid-stream", null);
+
+    // The truncated tokens must close with the retry line and no citations,
+    // never as a complete cited answer.
+    ArgumentCaptor<AnswerFrame> frames = ArgumentCaptor.forClass(AnswerFrame.class);
+    verify(streams, times(3)).pushAnswerFrame(eq(APP), eq(END_USER), frames.capture());
+    assertThat(frames.getAllValues())
+        .containsExactly(
+            new TokenFrame(messageId.toString(), "Half an ans"),
+            new TokenFrame(messageId.toString(), ConversationRelay.FAILURE_TEXT),
+            new DoneFrame(messageId.toString(), List.of()));
   }
 
   @Test
@@ -154,6 +169,15 @@ class ConversationRelayTests {
   }
 
   @Test
+  void dropsAMessageThatRepeatsACompletedId() {
+    UUID messageId = UUID.randomUUID();
+    relay.relay(SDK_APP, messageId, SESSION, END_USER, "answer", null);
+    relay.relay(SDK_APP, messageId, SESSION, END_USER, "answer", null);
+
+    assertThat(agent.messages).hasSize(1);
+  }
+
+  @Test
   void anAnswerWithoutTokensDegradesToTheRetryLine() {
     UUID messageId = UUID.randomUUID();
     relay.relay(SDK_APP, messageId, SESSION, END_USER, "fail-silently", null);
@@ -162,11 +186,9 @@ class ConversationRelayTests {
         .pushAnswerFrame(
             eq(APP),
             eq(END_USER),
-            eq("token"),
             eq(new TokenFrame(messageId.toString(), ConversationRelay.FAILURE_TEXT)));
     verify(streams)
-        .pushAnswerFrame(
-            eq(APP), eq(END_USER), eq("done"), eq(new DoneFrame(messageId.toString(), List.of())));
+        .pushAnswerFrame(eq(APP), eq(END_USER), eq(new DoneFrame(messageId.toString(), List.of())));
   }
 
   @Test
@@ -175,14 +197,12 @@ class ConversationRelayTests {
     relay.relay(SDK_APP, messageId, SESSION, END_USER, "stray-token", null);
 
     verify(streams, never())
-        .pushAnswerFrame(
-            eq(APP), eq(END_USER), eq("token"), eq(new TokenFrame("unknown", "stray")));
+        .pushAnswerFrame(eq(APP), eq(END_USER), eq(new TokenFrame("unknown", "stray")));
     // The real message streamed nothing, so it degrades to the retry line.
     verify(streams)
         .pushAnswerFrame(
             eq(APP),
             eq(END_USER),
-            eq("token"),
             eq(new TokenFrame(messageId.toString(), ConversationRelay.FAILURE_TEXT)));
   }
 
@@ -240,6 +260,19 @@ class ConversationRelayTests {
             }
             // hold: no reply, so the answer stays pending
             case "hold" -> {}
+            // fail-mid-stream: tokens already streamed, then a failed done
+            case "fail-mid-stream" -> {
+              responses.onNext(
+                  ConverseResponse.newBuilder()
+                      .setAnswerChunk(
+                          AnswerChunk.newBuilder().setMessageId(messageId).setText("Half an ans"))
+                      .build());
+              responses.onNext(
+                  ConverseResponse.newBuilder()
+                      .setAnswerDone(
+                          AnswerDone.newBuilder().setMessageId(messageId).setFailed(true))
+                      .build());
+            }
             // fail-silently: a done frame with no tokens, the agent-side failure shape
             default ->
                 responses.onNext(

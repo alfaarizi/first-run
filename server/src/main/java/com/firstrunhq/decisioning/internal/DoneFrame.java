@@ -9,7 +9,12 @@ import java.util.List;
  * message id lets the widget bind the frame to the question it sent (api/openapi/messages.yaml).
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-record DoneFrame(String messageId, List<Citation> citations) {
+record DoneFrame(String messageId, List<Citation> citations) implements AnswerFrame {
+
+  @Override
+  public String event() {
+    return "done";
+  }
 
   /** A source the answer cites, in the shape the widget renders. */
   record Citation(String title, String url) {}

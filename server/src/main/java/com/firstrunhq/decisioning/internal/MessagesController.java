@@ -107,11 +107,10 @@ class MessagesController {
           HttpStatus.BAD_REQUEST, "text must be 1 to " + MAX_TEXT_CHARS + " characters.");
     }
 
-    // Holdout users are not gated here. The holdout suppresses proactive
-    // interventions, the nudges that carry the lift signal (INV-6); a question
-    // the user asks first is reactive, and answering it only makes lift more
-    // conservative. When actions land (US-18), executing one for a holdout is
-    // the leak to gate.
+    // Holdout users are not gated here: the holdout suppresses the proactive
+    // nudges that carry the lift signal, and answering a question the user
+    // asked first only makes measured lift more conservative. The leak to
+    // gate is executing an action for a holdout, once actions land.
     if (!relay.relay(app, id, sessionId, endUserHash, text, message.ref())) {
       return problem(HttpStatus.TOO_MANY_REQUESTS, "The app's conversation budget is spent.");
     }

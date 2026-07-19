@@ -97,7 +97,7 @@ class MessagesControllerTests {
   @Test
   void answersAHoldoutUsersReactiveQuestionLikeAnyOther() {
     // The holdout suppresses proactive nudges, not a question the user asks
-    // first, so a holdout hash reaches the relay unblocked (INV-6).
+    // first, so a holdout hash reaches the relay unblocked.
     when(appDirectory.findBySdkKey("pk_test")).thenReturn(Optional.of(SDK_APP));
     when(relay.relay(any(), any(), any(), any(), any(), any())).thenReturn(true);
 

@@ -11,8 +11,11 @@ import com.firstrunhq.v1.UserMessage;
 import io.grpc.stub.StreamObserver;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -50,6 +53,10 @@ class ConversationRelay {
   // The signing key ships in the page, so anyone can mint valid messages. The
   // budget keeps one flooded app from pinning unbounded agent streams.
   private static final int MAX_CONVERSATIONS_PER_APP = 1_000;
+
+  // The widget never reuses an id, so remembering a bounded tail of finished
+  // ones is enough to drop any repeat, not only an in-flight one.
+  private static final int MAX_COMPLETED_IDS = 256;
 
   private static final NoArgGenerator UUID_V7 = Generators.timeBasedEpochRandomGenerator();
   private static final Logger log = LoggerFactory.getLogger(ConversationRelay.class);
@@ -92,8 +99,16 @@ class ConversationRelay {
         count.decrementAndGet();
         return false;
       }
-      conversation =
-          conversations.computeIfAbsent(key, unused -> open(key, app, sessionId, endUserHash, ref));
+      try {
+        conversation =
+            conversations.computeIfAbsent(
+                key, unused -> open(key, app, sessionId, endUserHash, ref));
+      } catch (RuntimeException openFailed) {
+        // The reservation must not outlive a conversation that never opened,
+        // or agent outages ratchet the app toward a permanent 429.
+        count.decrementAndGet();
+        throw openFailed;
+      }
       // Lost the creation race: give back the reservation the winner kept.
       if (!conversation.opening.compareAndSet(true, false)) {
         count.decrementAndGet();
@@ -154,6 +169,17 @@ class ConversationRelay {
     private final String endUserHash;
     private final Map<String, PendingAnswer> pending = new ConcurrentHashMap<>();
 
+    // Finished ids, insertion-order bounded. Synchronized on itself because
+    // send and finish run on different threads.
+    private final Set<String> completed =
+        Collections.newSetFromMap(
+            new LinkedHashMap<>(16, 0.75f, false) {
+              @Override
+              protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+                return size() > MAX_COMPLETED_IDS;
+              }
+            });
+
     @SuppressWarnings("NullAway.Init") // assigned once in start, before any use
     private StreamObserver<ConverseRequest> requests;
 
@@ -171,10 +197,16 @@ class ConversationRelay {
     synchronized void send(UUID messageId, String text) {
       lastActivity = Instant.now();
       String id = messageId.toString();
-      // A repeated in-flight id is a client retry. Dropping it keeps the
-      // pending answer and its watchdog, and spends no second model call.
+      // A repeated id, pending or already answered, is a client retry. The
+      // contract drops it, so it never displaces an answer or spends a
+      // second model call.
       if (pending.containsKey(id)) {
         return;
+      }
+      synchronized (completed) {
+        if (completed.contains(id)) {
+          return;
+        }
       }
       pending.put(
           id,
@@ -203,7 +235,7 @@ class ConversationRelay {
           if (answer != null) {
             answer.streamedTokens = true;
             streams.pushAnswerFrame(
-                appId, endUserHash, "token", new TokenFrame(chunk.getMessageId(), chunk.getText()));
+                appId, endUserHash, new TokenFrame(chunk.getMessageId(), chunk.getText()));
           }
         }
         case CITATION -> {
@@ -215,7 +247,10 @@ class ConversationRelay {
             answer.citations.add(new DoneFrame.Citation(title, citation.getSourceUrl()));
           }
         }
-        case ANSWER_DONE -> finish(response.getAnswerDone().getMessageId(), false);
+        case ANSWER_DONE -> {
+          var done = response.getAnswerDone();
+          finish(done.getMessageId(), done.getFailed());
+        }
         // Proposals wait for the action registry; nothing renders them yet.
         case ACTION_PROPOSAL, FRAME_NOT_SET -> {}
       }
@@ -246,23 +281,25 @@ class ConversationRelay {
 
     /**
      * Closes one answer exactly once: the agent's done frame and the watchdog race, and the loser
-     * finds the entry gone. An answer with no tokens failed agent-side, so it degrades to the retry
-     * line instead of an empty bubble.
+     * finds the entry gone. A timed-out, agent-failed, or token-less answer degrades to the retry
+     * line, so a truncated answer never closes as a complete one.
      */
-    private void finish(String messageId, boolean timedOut) {
+    private void finish(String messageId, boolean failed) {
       PendingAnswer answer = pending.remove(messageId);
       if (answer == null) {
         return;
       }
       answer.watchdog.cancel(false);
-      if (timedOut || !answer.streamedTokens) {
-        streams.pushAnswerFrame(
-            appId, endUserHash, "token", new TokenFrame(messageId, FAILURE_TEXT));
-        streams.pushAnswerFrame(appId, endUserHash, "done", new DoneFrame(messageId, List.of()));
+      synchronized (completed) {
+        completed.add(messageId);
+      }
+      if (failed || !answer.streamedTokens) {
+        streams.pushAnswerFrame(appId, endUserHash, new TokenFrame(messageId, FAILURE_TEXT));
+        streams.pushAnswerFrame(appId, endUserHash, new DoneFrame(messageId, List.of()));
         return;
       }
       streams.pushAnswerFrame(
-          appId, endUserHash, "done", new DoneFrame(messageId, answer.citations));
+          appId, endUserHash, new DoneFrame(messageId, List.copyOf(answer.citations)));
     }
 
     private void failAllPending() {

@@ -8,4 +8,10 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
  * id lets the widget bind the frame to the question it sent (api/openapi/messages.yaml).
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-record TokenFrame(String messageId, String text) {}
+record TokenFrame(String messageId, String text) implements AnswerFrame {
+
+  @Override
+  public String event() {
+    return "token";
+  }
+}

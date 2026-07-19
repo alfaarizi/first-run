@@ -111,9 +111,9 @@ class NudgeStreams {
    * buffered: a reconnect reopens live only (api/openapi/stream.yaml), because a replayed
    * half-answer would render as a fresh one.
    */
-  void pushAnswerFrame(UUID appId, String endUserHash, String name, Object data) {
+  void pushAnswerFrame(UUID appId, String endUserHash, AnswerFrame frame) {
     for (Stream stream : streams.getOrDefault(key(appId, endUserHash), List.of())) {
-      stream.sendLive(name, data);
+      stream.sendLive(frame.event(), frame);
     }
   }
 
