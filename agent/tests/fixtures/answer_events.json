@@ -1,0 +1,11 @@
+[
+  {"type": "token", "text": "Connect it from "},
+  {"type": "token", "text": "Settings > Data sources."},
+  {
+    "type": "citation",
+    "source_url": "https://docs.example.com/setup",
+    "title": "Setup > Data sources",
+    "snippet": "Connect a data source from Settings."
+  },
+  {"type": "done", "input_tokens": 100, "output_tokens": 12}
+]

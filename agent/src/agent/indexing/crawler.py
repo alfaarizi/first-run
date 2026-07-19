@@ -31,10 +31,12 @@ _FRONTIER_SCALE = 10
 Origin = tuple[str, int]
 
 
-def _origin(split: SplitResult) -> Origin | None:
+def _origin(split: SplitResult, allow_http: bool = False) -> Origin | None:
     # https only, with the default port folded in. A malformed authority,
-    # such as an out-of-range port, reads as no origin.
-    if split.scheme != "https" or not split.hostname:
+    # such as an out-of-range port, reads as no origin. ``allow_http`` exists
+    # for the local compose stack, whose demo docs have no TLS.
+    schemes = ("https", "http") if allow_http else ("https",)
+    if split.scheme not in schemes or not split.hostname:
         return None
     try:
         port = split.port
@@ -69,6 +71,7 @@ class _Frontier:
 
     root_origin: Origin
     max_size: int
+    allow_http: bool = False
     queue: deque[str] = field(default_factory=deque)
     seen: set[str] = field(default_factory=set)
 
@@ -77,7 +80,7 @@ class _Frontier:
             return
         url = urldefrag(url).url
         try:
-            on_site = _origin(urlsplit(url)) == self.root_origin
+            on_site = _origin(urlsplit(url), self.allow_http) == self.root_origin
         except ValueError:
             return
         if on_site and url not in self.seen:
@@ -142,6 +145,7 @@ class Crawler:
         max_response_bytes: int,
         transport: httpx.AsyncBaseTransport | None = None,
         resolve: Callable[[str], Awaitable[list[str]]] = _resolve,
+        allow_local: bool = False,
     ) -> None:
         self._max_pages = max_pages
         self._timeout = httpx.Timeout(timeout_seconds)
@@ -149,17 +153,23 @@ class Crawler:
         self._max_response_bytes = max_response_bytes
         self._transport = transport
         self._resolve = resolve
+        # Lifts the public-address and https gates for the compose network.
+        # Never set outside local development: it reopens SSRF.
+        self._allow_local = allow_local
 
     async def crawl(self, root_url: str) -> AsyncIterator[Page]:
         """Yield pages reachable from ``root_url``, at most ``max_pages`` fetches."""
         root = urlsplit(root_url)
-        root_origin = _origin(root)
+        root_origin = _origin(root, self._allow_local)
         if root_origin is None:
             raise CrawlError(f"not a public https URL: {root_url}")
         addresses = await self._resolve(root.hostname or "")
-        for address in addresses:
-            if not _is_public(ipaddress.ip_address(address)):
-                raise CrawlError(f"host resolves to a non-public address: {address}")
+        if not self._allow_local:
+            for address in addresses:
+                if not _is_public(ipaddress.ip_address(address)):
+                    raise CrawlError(
+                        f"host resolves to a non-public address: {address}"
+                    )
 
         async with httpx.AsyncClient(
             timeout=self._timeout,
@@ -178,6 +188,7 @@ class Crawler:
             frontier = _Frontier(
                 root_origin=root_origin,
                 max_size=self._max_pages * _FRONTIER_SCALE,
+                allow_http=self._allow_local,
             )
             frontier.add(root_url)
             attempts = 0
@@ -198,7 +209,7 @@ class Crawler:
         addresses: list[str],
     ) -> tuple[Protego, _Pin]:
         """Pin the first vetted address that connects, keeping its robots.txt."""
-        root_origin = _origin(root)
+        root_origin = _origin(root, self._allow_local)
         for address in addresses:
             pin = _Pin(
                 netloc=root.netloc, hostname=root.hostname or "", address=address
@@ -263,7 +274,8 @@ class Crawler:
                             target = _join(url, response.headers.get("location", ""))
                             if (
                                 target is None
-                                or _origin(urlsplit(target)) != root_origin
+                                or _origin(urlsplit(target), self._allow_local)
+                                != root_origin
                             ):
                                 raise CrawlError("robots.txt redirects off-site")
                             url = target

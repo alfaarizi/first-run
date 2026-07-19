@@ -19,11 +19,21 @@ class Settings(BaseSettings):
 
     database_url: str
     voyage_api_key: str
+    anthropic_api_key: str
 
     embedding_model: str = "voyage-4-lite"
     # Must match the doc_chunk vector(1024) column.
     # Changing requires a new migration and a full reindex of every tenant.
     embedding_dimension: int = 1024
+
+    # Small tier on purpose: grounded synthesis over retrieved chunks is a
+    # small-model task, and one frontier answer spends half the per-MAU cost
+    # guardrail. The golden set decides any step up, never a vibe.
+    answer_model: str = "claude-haiku-4-5"
+    answer_max_tokens: int = 1024
+    retrieval_top_k: int = 8
+    # Turns kept per conversation. Older turns fall off the front.
+    conversation_max_turns: int = 20
 
     grpc_port: int = 50051
 
@@ -33,6 +43,10 @@ class Settings(BaseSettings):
     # Wall clock per request
     crawl_deadline_seconds: float = 30.0
     crawl_max_response_bytes: int = 2_000_000
+    # Lifts the crawler's public-address and https gates so the compose
+    # stack can index the demo docs. Never set in production: it reopens SSRF.
+    crawl_allow_local: bool = False
+
     chunk_max_chars: int = 2_000
 
 

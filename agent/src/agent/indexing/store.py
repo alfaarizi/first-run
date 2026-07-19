@@ -38,8 +38,10 @@ class ChunkStore:
         # database is reachable.
         async with self._pool_lock:
             if self._pool is None:
+                # min_size 1: two agent pools share this database, so the
+                # idle floor stays one connection each.
                 self._pool = await asyncpg.create_pool(
-                    self._database_url, init=register_vector
+                    self._database_url, init=register_vector, min_size=1
                 )
             return self._pool
 
