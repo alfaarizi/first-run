@@ -30,6 +30,7 @@ class KnowledgeController {
   private final DocSourceRepository repository;
   private final ReindexClient reindexClient;
 
+  /** Persists doc sources locally and asks the agent to crawl them. */
   KnowledgeController(DocSourceRepository repository, ReindexClient reindexClient) {
     this.repository = repository;
     this.reindexClient = reindexClient;
@@ -39,23 +40,16 @@ class KnowledgeController {
   AddDocSourcePayload addDocSource(
       @Argument AddDocSourceInput input,
       @ContextValue(name = TenantContext.TENANT_ID_KEY, required = false) @Nullable UUID tenantId) {
-    if (tenantId == null) {
-      throw KnowledgeMutationException.unauthorized();
-    }
-    // A malformed id is a client bug and answers as one; only a row absent
-    // from this tenant resolves to the not-found null payload.
-    UUID appId = parse(input.appId());
-    if (appId == null) {
-      throw KnowledgeMutationException.invalidId("appId");
-    }
+    UUID tenant = requireTenant(tenantId);
+    UUID appId = requireUuid(input.appId(), "appId");
     requireCrawlableUrl(input.url());
     DocSource source;
     try {
-      source = repository.upsert(tenantId, appId, input.url());
+      source = repository.upsert(tenant, appId, input.url());
     } catch (DataIntegrityViolationException unknownApp) {
       return new AddDocSourcePayload(null);
     }
-    triggerReindex(tenantId, source);
+    triggerReindex(tenant, source);
     return new AddDocSourcePayload(source);
   }
 
@@ -63,18 +57,13 @@ class KnowledgeController {
   ReindexDocSourcePayload reindexDocSource(
       @Argument ReindexDocSourceInput input,
       @ContextValue(name = TenantContext.TENANT_ID_KEY, required = false) @Nullable UUID tenantId) {
-    if (tenantId == null) {
-      throw KnowledgeMutationException.unauthorized();
-    }
-    UUID sourceId = parse(input.docSourceId());
-    if (sourceId == null) {
-      throw KnowledgeMutationException.invalidId("docSourceId");
-    }
-    DocSource source = repository.find(tenantId, sourceId).orElse(null);
+    UUID tenant = requireTenant(tenantId);
+    UUID sourceId = requireUuid(input.docSourceId(), "docSourceId");
+    DocSource source = repository.find(tenant, sourceId).orElse(null);
     if (source == null) {
       return new ReindexDocSourcePayload(null);
     }
-    triggerReindex(tenantId, source);
+    triggerReindex(tenant, source);
     return new ReindexDocSourcePayload(source);
   }
 
@@ -82,22 +71,17 @@ class KnowledgeController {
   List<DocSource> docSources(
       App app,
       @ContextValue(name = TenantContext.TENANT_ID_KEY, required = false) @Nullable UUID tenantId) {
-    if (tenantId == null) {
-      throw KnowledgeMutationException.unauthorized();
-    }
-    return repository.findByApp(tenantId, app.id());
+    return repository.findByApp(requireTenant(tenantId), app.id());
   }
 
   @SchemaMapping(typeName = "DocSource", field = "chunkCount")
   int chunkCount(
       DocSource source,
       @ContextValue(name = TenantContext.TENANT_ID_KEY, required = false) @Nullable UUID tenantId) {
-    if (tenantId == null) {
-      throw KnowledgeMutationException.unauthorized();
-    }
-    return repository.chunkCount(tenantId, source.id());
+    return repository.chunkCount(requireTenant(tenantId), source.id());
   }
 
+  /** Turns the module's client-safe exception into its GraphQL error. */
   @GraphQlExceptionHandler
   GraphQLError handle(KnowledgeMutationException exception, DataFetchingEnvironment env) {
     return GraphqlErrorBuilder.newError(env)
@@ -115,6 +99,26 @@ class KnowledgeController {
     }
   }
 
+  /** Rejects a request that carries no tenant; every field here is tenant-scoped. */
+  private static UUID requireTenant(@Nullable UUID tenantId) {
+    if (tenantId == null) {
+      throw KnowledgeMutationException.unauthorized();
+    }
+    return tenantId;
+  }
+
+  /**
+   * A malformed id is a client bug and answers as one; only a row absent from this tenant resolves
+   * to the not-found null payload.
+   */
+  private static UUID requireUuid(String id, String field) {
+    try {
+      return UUID.fromString(id);
+    } catch (IllegalArgumentException unparseable) {
+      throw KnowledgeMutationException.invalidId(field);
+    }
+  }
+
   /** Rejects obvious non-URLs. The agent's crawler enforces the real egress policy. */
   private static void requireCrawlableUrl(String url) {
     URI uri;
@@ -127,14 +131,6 @@ class KnowledgeController {
     boolean crawlable = ("http".equals(scheme) || "https".equals(scheme)) && uri.getHost() != null;
     if (!crawlable) {
       throw KnowledgeMutationException.invalidUrl();
-    }
-  }
-
-  private static @Nullable UUID parse(String id) {
-    try {
-      return UUID.fromString(id);
-    } catch (IllegalArgumentException unparseable) {
-      return null;
     }
   }
 }

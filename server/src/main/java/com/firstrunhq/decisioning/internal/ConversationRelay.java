@@ -41,9 +41,8 @@ class ConversationRelay {
 
   static final String FAILURE_TEXT = "Something went wrong finding an answer. Try again.";
 
-  // Streaming has no unary deadline, so a watchdog bounds each answer instead
-  // (the retry-with-backoff treatment fits unary calls like Reindex, not a
-  // held-open bidi stream).
+  // Streaming has no unary deadline, so a watchdog bounds each answer.
+  // Retry-with-backoff fits unary calls like Reindex, not a held-open stream.
   private static final Duration ANSWER_TIMEOUT = Duration.ofSeconds(30);
 
   // Matches the session idle window, so a conversation dies with its session.
@@ -68,6 +67,7 @@ class ConversationRelay {
   private final Map<UUID, AtomicInteger> appCounts = new ConcurrentHashMap<>();
   private final ScheduledExecutorService scheduler;
 
+  /** Opens the agent channel and starts the idle-conversation sweeper. */
   ConversationRelay(GrpcChannelFactory channels, NudgeStreams streams, NudgeContexts contexts) {
     this.stub = ConversationServiceGrpc.newStub(channels.createChannel("agent"));
     this.streams = streams;
@@ -94,28 +94,42 @@ class ConversationRelay {
     String key = app.id() + ":" + endUserHash + ":" + sessionId;
     Conversation conversation = conversations.get(key);
     if (conversation == null) {
-      AtomicInteger count = appCounts.computeIfAbsent(app.id(), id -> new AtomicInteger());
-      if (count.incrementAndGet() > MAX_CONVERSATIONS_PER_APP) {
-        count.decrementAndGet();
+      conversation = openWithinBudget(key, app, sessionId, endUserHash, ref);
+      if (conversation == null) {
         return false;
-      }
-      try {
-        conversation =
-            conversations.computeIfAbsent(
-                key, unused -> open(key, app, sessionId, endUserHash, ref));
-      } catch (RuntimeException openFailed) {
-        // The reservation must not outlive a conversation that never opened,
-        // or agent outages ratchet the app toward a permanent 429.
-        count.decrementAndGet();
-        throw openFailed;
-      }
-      // Lost the creation race: give back the reservation the winner kept.
-      if (!conversation.opening.compareAndSet(true, false)) {
-        count.decrementAndGet();
       }
     }
     conversation.send(messageId, text);
     return true;
+  }
+
+  /**
+   * Opens the keyed conversation under the app's budget, or returns null when the budget is spent.
+   * The count is reserved before the open and paid back on failure or on losing the creation race,
+   * so it always matches the conversations actually held.
+   */
+  private @Nullable Conversation openWithinBudget(
+      String key, SdkApp app, UUID sessionId, String endUserHash, @Nullable UUID ref) {
+    AtomicInteger count = appCounts.computeIfAbsent(app.id(), id -> new AtomicInteger());
+    if (count.incrementAndGet() > MAX_CONVERSATIONS_PER_APP) {
+      count.decrementAndGet();
+      return null;
+    }
+    Conversation conversation;
+    try {
+      conversation =
+          conversations.computeIfAbsent(key, unused -> open(key, app, sessionId, endUserHash, ref));
+    } catch (RuntimeException openFailed) {
+      // The reservation must not outlive a conversation that never opened,
+      // or agent outages ratchet the app toward a permanent 429.
+      count.decrementAndGet();
+      throw openFailed;
+    }
+    // Lost the creation race: give back the reservation the winner kept.
+    if (!conversation.opening.compareAndSet(true, false)) {
+      count.decrementAndGet();
+    }
+    return conversation;
   }
 
   private Conversation open(
@@ -145,6 +159,7 @@ class ConversationRelay {
     return conversation;
   }
 
+  /** Closes every conversation idle past the timeout, run by the sweeper. */
   private void evictIdle() {
     Instant cutoff = Instant.now().minus(IDLE_TIMEOUT);
     conversations.values().stream()
@@ -152,6 +167,7 @@ class ConversationRelay {
         .forEach(Conversation::close);
   }
 
+  /** Drops the conversation from the registry, paying its budget back exactly once. */
   private void remove(Conversation conversation) {
     if (conversations.remove(conversation.key, conversation)) {
       appCounts.getOrDefault(conversation.appId, new AtomicInteger()).decrementAndGet();
@@ -189,11 +205,13 @@ class ConversationRelay {
       this.endUserHash = endUserHash;
     }
 
+    /** Opens the agent stream, sending the contract's context frame first. */
     void start(ConversationContext context) {
       requests = stub.converse(this);
       requests.onNext(ConverseRequest.newBuilder().setContext(context).build());
     }
 
+    /** Forwards one user message, arming its watchdog and dropping client retries. */
     synchronized void send(UUID messageId, String text) {
       lastActivity = Instant.now();
       String id = messageId.toString();
@@ -225,6 +243,7 @@ class ConversationRelay {
       }
     }
 
+    /** Routes one agent frame to the user's streams by its message id. */
     @Override
     public void onNext(ConverseResponse response) {
       lastActivity = Instant.now();
@@ -256,6 +275,7 @@ class ConversationRelay {
       }
     }
 
+    /** Fails every in-flight answer when the agent stream dies. */
     @Override
     public void onError(Throwable failure) {
       log.warn("agent conversation stream failed", failure);
@@ -263,17 +283,19 @@ class ConversationRelay {
       remove(this);
     }
 
+    /** Retires the conversation when the agent closes its side. */
     @Override
     public void onCompleted() {
       failAllPending();
       remove(this);
     }
 
+    /** Half-closes toward the agent and retires the conversation. */
     void close() {
       try {
         requests.onCompleted();
       } catch (IllegalStateException alreadyClosed) {
-        // the observer half-closed first, which is the state close wants
+        // The observer half-closed first, which is the state close wants.
       }
       failAllPending();
       remove(this);
@@ -302,6 +324,7 @@ class ConversationRelay {
           appId, endUserHash, new DoneFrame(messageId, List.copyOf(answer.citations)));
     }
 
+    /** Closes every in-flight answer as failed, each yielding the retry line. */
     private void failAllPending() {
       pending.keySet().forEach(messageId -> finish(messageId, true));
     }
