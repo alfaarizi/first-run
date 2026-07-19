@@ -2,6 +2,9 @@
 
 from pydantic import BaseModel, Field
 
+# Citations quote whole blocks, so a rendered snippet needs a bound.
+MAX_SNIPPET_CHARS = 300
+
 
 class AnswerToken(BaseModel):
     """One streamed span of answer text."""
@@ -14,7 +17,7 @@ class Citation(BaseModel):
 
     source_url: str = Field(min_length=1)
     title: str
-    snippet: str
+    snippet: str = Field(max_length=MAX_SNIPPET_CHARS)
 
 
 class AnswerDone(BaseModel):

@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 import anthropic
 import pydantic
@@ -13,18 +14,26 @@ from anthropic.types import MessageParam, SearchResultBlockParam, TextBlockParam
 
 from agent.config import get_settings
 from agent.retrieval.search import RetrievedChunk
-from agent.schemas.answer import AnswerDone, AnswerEvent, AnswerToken, Citation
+from agent.schemas.answer import (
+    MAX_SNIPPET_CHARS,
+    AnswerDone,
+    AnswerEvent,
+    AnswerToken,
+    Citation,
+)
 
 log = logging.getLogger(__name__)
 
 # Comfortably under every Voyage model's per-request input cap.
 _MAX_BATCH = 128
 
-# The SDK's own retries back off in seconds, but Voyage rate limits are
-# per-minute windows (a payment-methodless key floors at 3 requests a
-# minute), so 429s pause long enough to enter the next window.
-_RATE_LIMIT_ATTEMPTS = 6
+# Voyage rate limits are per-minute windows (a payment-methodless key floors
+# at 3 requests a minute), so one pause reaches the next window. Indexing can
+# wait through several; a query gets one, because the server's 30s answer
+# watchdog turns a longer wait into a certain failure that still bills.
 _RATE_LIMIT_PAUSE_SECONDS = 25.0
+_INDEX_RATE_LIMIT_ATTEMPTS = 6
+_QUERY_RATE_LIMIT_ATTEMPTS = 2
 
 
 class EmbeddingClient:
@@ -46,7 +55,9 @@ class EmbeddingClient:
         embeddings: list[list[float]] = []
         for start in range(0, len(texts), _MAX_BATCH):
             batch = list(texts[start : start + _MAX_BATCH])
-            result = await self._embed(batch, input_type="document")
+            result = await self._embed(
+                batch, input_type="document", attempts=_INDEX_RATE_LIMIT_ATTEMPTS
+            )
             embeddings.extend(result.embeddings)
         return embeddings
 
@@ -56,13 +67,15 @@ class EmbeddingClient:
         The query side of the same asymmetric prompt split
         ``embed_documents`` explains.
         """
-        result = await self._embed([text], input_type="query")
+        result = await self._embed(
+            [text], input_type="query", attempts=_QUERY_RATE_LIMIT_ATTEMPTS
+        )
         return list(result.embeddings[0])
 
     async def _embed(
-        self, texts: list[str], *, input_type: str
+        self, texts: list[str], *, input_type: str, attempts: int
     ) -> voyageai.object.EmbeddingsObject:
-        for attempt in range(1, _RATE_LIMIT_ATTEMPTS + 1):
+        for attempt in range(1, attempts + 1):
             try:
                 return await self._client.embed(
                     texts,
@@ -73,7 +86,7 @@ class EmbeddingClient:
                     output_dimension=self._dimension,
                 )
             except voyageai.error.RateLimitError:
-                if attempt == _RATE_LIMIT_ATTEMPTS:
+                if attempt == attempts:
                     raise
                 log.warning("voyage rate limited, pausing for the next window")
                 await asyncio.sleep(_RATE_LIMIT_PAUSE_SECONDS)
@@ -99,15 +112,12 @@ Rules:
   steps.
 """
 
-# Citations quote whole blocks, so a rendered snippet needs a bound.
-_MAX_SNIPPET_CHARS = 300
-
 
 @dataclass(frozen=True)
 class Turn:
     """One prior conversation turn, kept as plain text."""
 
-    role: str
+    role: Literal["user", "assistant"]
     text: str
 
 
@@ -196,7 +206,7 @@ def _parse_citation(raw: object) -> Citation | None:
         return Citation(
             source_url=str(getattr(raw, "source", "")),
             title=str(getattr(raw, "title", None) or ""),
-            snippet=str(getattr(raw, "cited_text", ""))[:_MAX_SNIPPET_CHARS],
+            snippet=str(getattr(raw, "cited_text", ""))[:MAX_SNIPPET_CHARS],
         )
     except pydantic.ValidationError:
         log.warning("dropped a citation that failed schema parse")
