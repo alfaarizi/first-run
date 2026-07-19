@@ -91,11 +91,17 @@ function start(config: Config): void {
   const ui = new NudgeUi({
     onDismiss: safe((nudgeId) => enqueueInterventionEvent("fr.nudge_dismissed", nudgeId)),
     onEngage: safe((nudgeId) => enqueueInterventionEvent("fr.nudge_engaged", nudgeId)),
-    onSend: (text) =>
+    onSend: (text, ref) =>
       post(
         config,
         MESSAGES_PATH,
-        JSON.stringify({ session_id: sessionId(), end_user_hash: endUserHash, text }),
+        JSON.stringify({
+          id: uuidv7(),
+          session_id: sessionId(),
+          end_user_hash: endUserHash,
+          text,
+          ...(ref && { ref }),
+        }),
       ).then((result) => result.ok),
   });
 

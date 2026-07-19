@@ -246,7 +246,7 @@ test("a send renders the user text and a failed send frees the slot", async () =
   input!.value = "how do I connect?";
   input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
 
-  expect(callbacks.onSend).toHaveBeenCalledWith("how do I connect?");
+  expect(callbacks.onSend).toHaveBeenCalledWith("how do I connect?", undefined);
   expect(query(".fr-message-user .fr-body")?.textContent).toBe("how do I connect?");
   expect(query(".fr-message-user .fr-time")?.textContent).toMatch(/^\d{1,2}:\d{2}/);
 

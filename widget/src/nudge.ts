@@ -19,7 +19,8 @@ const TIME_FORMAT = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute
 export interface NudgeCallbacks {
   onDismiss(nudgeId: string): void;
   onEngage(nudgeId: string): void;
-  onSend(text: string): Promise<boolean>;
+  /** `ref` names the nudge this message answers, when the panel opened from one. */
+  onSend(text: string, ref?: string): Promise<boolean>;
 }
 
 /**
@@ -39,6 +40,7 @@ export class NudgeUi {
   private bubble: HTMLElement | undefined;
   private pendingNudge: NudgePayload | undefined;
   private readonly nudgesAwaitingReply = new Set<string>();
+  private lastEngagedNudge: string | undefined;
   private answer: HTMLElement | undefined;
   private answerTimer: number | undefined;
   private morphTimer: number | undefined;
@@ -110,6 +112,7 @@ export class NudgeUi {
   reset(): void {
     this.dropAnswer();
     this.removeBubble();
+    this.lastEngagedNudge = undefined;
     this.messages.replaceChildren();
     this.panel.querySelector(".fr-confirm")?.remove();
     this.composer.clear();
@@ -202,6 +205,7 @@ export class NudgeUi {
     if (nudge) {
       this.removeBubble();
       this.appendMessage("agent", nudge.text);
+      this.lastEngagedNudge = nudge.id;
       this.callbacks.onEngage(nudge.id);
     }
     this.morph();
@@ -246,6 +250,10 @@ export class NudgeUi {
 
     this.composer.clear();
     this.appendMessage("user", text);
+    const awaiting = this.nudgesAwaitingReply.values().next().value;
+    if (awaiting) this.lastEngagedNudge = awaiting;
+    // binds the message to the nudge that opened the conversation
+    const ref = this.lastEngagedNudge;
     for (const id of this.nudgesAwaitingReply) this.callbacks.onEngage(id);
     this.nudgesAwaitingReply.clear();
     const answer = this.appendMessage("agent");
@@ -253,7 +261,7 @@ export class NudgeUi {
     this.keepAnswerAlive();
 
     void this.callbacks
-      .onSend(text)
+      .onSend(text, ref)
       .catch(() => false)
       .then((delivered) => {
         // a failed send frees the slot, so the user can try again
