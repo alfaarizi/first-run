@@ -14,11 +14,16 @@ import org.testcontainers.utility.DockerImageName;
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
 
+  /** Provides the pgvector-enabled Postgres the migrations and RLS suites run against. */
   @Bean
   @ServiceConnection
   PostgreSQLContainer<?> postgresContainer() {
-    return new PostgreSQLContainer<>(
-        DockerImageName.parse("pgvector/pgvector:pg17").asCompatibleSubstituteFor("postgres"));
+    PostgreSQLContainer<?> container =
+        new PostgreSQLContainer<>(
+            DockerImageName.parse("pgvector/pgvector:pg17").asCompatibleSubstituteFor("postgres"));
+    // The superuser creates pgvector before Flyway connects
+    container.withInitScript("init-pgvector.sql");
+    return container;
   }
 
   /**
@@ -33,6 +38,7 @@ public class TestcontainersConfiguration {
     return container;
   }
 
+  /** Provides the Redpanda broker the stream-processing suites consume from. */
   @Bean
   @ServiceConnection
   RedpandaContainer redpandaContainer() {

@@ -21,7 +21,8 @@ widget-bundle:
 	else echo ">> skipping widget-bundle, widget/ is not scaffolded"; fi
 
 # --wait returns once every healthcheck passes, so seed can run immediately.
-up: widget-bundle
+# The schema and stubs are gitignored, so they regenerate before images build.
+up: widget-bundle generate-schema generate-agent
 	@if [ ! -f .env ]; then echo "up: missing .env, run 'cp .env.example .env'" >&2; exit 1; fi
 	docker compose up --detach --build --wait
 	@echo ">> dashboard  http://localhost:5173"
@@ -86,7 +87,8 @@ test-server: generate-schema
 test-server-unit:
 	cd server && ./mvnw -q verify -DexcludedGroups=integration
 
-test-agent:
+# Stubs are gitignored, so a fresh checkout regenerates them before pytest.
+test-agent: generate-agent
 	cd agent && uv run pytest
 
 test-widget:
