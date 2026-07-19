@@ -22,6 +22,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.grpc.client.GrpcChannelFactory;
@@ -76,7 +77,13 @@ class ConversationRelay {
   }
 
   /** Forwards one message, or reports false when the app's conversation budget is spent. */
-  boolean relay(SdkApp app, UUID messageId, UUID sessionId, String endUserHash, String text) {
+  boolean relay(
+      SdkApp app,
+      UUID messageId,
+      UUID sessionId,
+      String endUserHash,
+      String text,
+      @Nullable UUID ref) {
     String key = app.id() + ":" + endUserHash + ":" + sessionId;
     Conversation conversation = conversations.get(key);
     if (conversation == null) {
@@ -86,7 +93,7 @@ class ConversationRelay {
         return false;
       }
       conversation =
-          conversations.computeIfAbsent(key, unused -> open(key, app, sessionId, endUserHash));
+          conversations.computeIfAbsent(key, unused -> open(key, app, sessionId, endUserHash, ref));
       // Lost the creation race: give back the reservation the winner kept.
       if (!conversation.opening.compareAndSet(true, false)) {
         count.decrementAndGet();
@@ -96,8 +103,15 @@ class ConversationRelay {
     return true;
   }
 
-  private Conversation open(String key, SdkApp app, UUID sessionId, String endUserHash) {
-    NudgeContexts.NudgeContext nudge = contexts.latest(app.id(), endUserHash).orElse(null);
+  private Conversation open(
+      String key, SdkApp app, UUID sessionId, String endUserHash, @Nullable UUID ref) {
+    // The ref names the nudge that opened the chat. An unknown ref yields no
+    // context, because a guessed milestone hint corrupts attribution.
+    NudgeContexts.NudgeContext nudge =
+        (ref != null
+                ? contexts.find(app.id(), endUserHash, ref)
+                : contexts.latest(app.id(), endUserHash))
+            .orElse(null);
     ConversationContext.Builder context =
         ConversationContext.newBuilder()
             .setConversationId(UUID_V7.generate().toString())
@@ -157,6 +171,11 @@ class ConversationRelay {
     synchronized void send(UUID messageId, String text) {
       lastActivity = Instant.now();
       String id = messageId.toString();
+      // A repeated in-flight id is a client retry. Dropping it keeps the
+      // pending answer and its watchdog, and spends no second model call.
+      if (pending.containsKey(id)) {
+        return;
+      }
       pending.put(
           id,
           new PendingAnswer(
@@ -179,11 +198,12 @@ class ConversationRelay {
       lastActivity = Instant.now();
       switch (response.getFrameCase()) {
         case ANSWER_CHUNK -> {
-          PendingAnswer answer = pending.get(response.getAnswerChunk().getMessageId());
+          var chunk = response.getAnswerChunk();
+          PendingAnswer answer = pending.get(chunk.getMessageId());
           if (answer != null) {
             answer.streamedTokens = true;
             streams.pushAnswerFrame(
-                appId, endUserHash, "token", new TokenFrame(response.getAnswerChunk().getText()));
+                appId, endUserHash, "token", new TokenFrame(chunk.getMessageId(), chunk.getText()));
           }
         }
         case CITATION -> {
@@ -236,11 +256,13 @@ class ConversationRelay {
       }
       answer.watchdog.cancel(false);
       if (timedOut || !answer.streamedTokens) {
-        streams.pushAnswerFrame(appId, endUserHash, "token", new TokenFrame(FAILURE_TEXT));
-        streams.pushAnswerFrame(appId, endUserHash, "done", new DoneFrame(List.of()));
+        streams.pushAnswerFrame(
+            appId, endUserHash, "token", new TokenFrame(messageId, FAILURE_TEXT));
+        streams.pushAnswerFrame(appId, endUserHash, "done", new DoneFrame(messageId, List.of()));
         return;
       }
-      streams.pushAnswerFrame(appId, endUserHash, "done", new DoneFrame(answer.citations));
+      streams.pushAnswerFrame(
+          appId, endUserHash, "done", new DoneFrame(messageId, answer.citations));
     }
 
     private void failAllPending() {

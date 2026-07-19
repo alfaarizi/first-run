@@ -2,7 +2,9 @@ package com.firstrunhq.decisioning.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -45,7 +47,7 @@ class MessagesControllerTests {
   @Test
   void acceptsASignedMessageAndHandsItToTheRelay() {
     when(appDirectory.findBySdkKey("pk_test")).thenReturn(Optional.of(SDK_APP));
-    when(relay.relay(any(), any(), any(), any(), any())).thenReturn(true);
+    when(relay.relay(any(), any(), any(), any(), any(), any())).thenReturn(true);
 
     ResponseEntity<Object> response = post(body("How do I connect?"), true, null);
 
@@ -53,7 +55,7 @@ class MessagesControllerTests {
   }
 
   @Test
-  void rejectsAnUnknownSdkKeyBeforeReadingTheBody() {
+  void rejectsAnUnknownSdkKeyWithZeroSideEffects() {
     when(appDirectory.findBySdkKey("pk_test")).thenReturn(Optional.empty());
 
     ResponseEntity<Object> response = post(body("hi"), true, null);
@@ -97,7 +99,7 @@ class MessagesControllerTests {
     // The holdout suppresses proactive nudges, not a question the user asks
     // first, so a holdout hash reaches the relay unblocked (INV-6).
     when(appDirectory.findBySdkKey("pk_test")).thenReturn(Optional.of(SDK_APP));
-    when(relay.relay(any(), any(), any(), any(), any())).thenReturn(true);
+    when(relay.relay(any(), any(), any(), any(), any(), any())).thenReturn(true);
 
     ResponseEntity<Object> response = post(body("hi"), true, null);
 
@@ -105,9 +107,24 @@ class MessagesControllerTests {
   }
 
   @Test
+  void forwardsTheRefThatOpenedTheConversation() {
+    when(appDirectory.findBySdkKey("pk_test")).thenReturn(Optional.of(SDK_APP));
+    when(relay.relay(any(), any(), any(), any(), any(), any())).thenReturn(true);
+    UUID ref = UUID.randomUUID();
+    String body =
+        """
+        {"id":"%s","session_id":"%s","end_user_hash":"9f86d081884c7d65","text":"hi","ref":"%s"}"""
+            .formatted(UUID.randomUUID(), UUID.randomUUID(), ref);
+
+    post(body, true, null);
+
+    verify(relay).relay(any(), any(), any(), any(), eq("hi"), eq(ref));
+  }
+
+  @Test
   void answersTooManyRequestsWhenTheConversationBudgetIsSpent() {
     when(appDirectory.findBySdkKey("pk_test")).thenReturn(Optional.of(SDK_APP));
-    when(relay.relay(any(), any(), any(), any(), any())).thenReturn(false);
+    when(relay.relay(any(), any(), any(), any(), any(), any())).thenReturn(false);
 
     ResponseEntity<Object> response = post(body("hi"), true, null);
 

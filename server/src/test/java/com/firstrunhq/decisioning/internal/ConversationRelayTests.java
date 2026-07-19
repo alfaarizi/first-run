@@ -62,16 +62,19 @@ class ConversationRelayTests {
 
   @Test
   void relaysTokensThenClosesTheAnswerWithItsCitations() {
-    boolean accepted = relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer");
+    UUID messageId = UUID.randomUUID();
+    boolean accepted = relay.relay(SDK_APP, messageId, SESSION, END_USER, "answer", null);
 
     assertThat(accepted).isTrue();
     ArgumentCaptor<Object> frames = ArgumentCaptor.forClass(Object.class);
     verify(streams).pushAnswerFrame(eq(APP), eq(END_USER), eq("token"), frames.capture());
     verify(streams).pushAnswerFrame(eq(APP), eq(END_USER), eq("done"), frames.capture());
-    assertThat(frames.getAllValues().get(0)).isEqualTo(new TokenFrame("Use Settings."));
+    assertThat(frames.getAllValues().get(0))
+        .isEqualTo(new TokenFrame(messageId.toString(), "Use Settings."));
     assertThat(frames.getAllValues().get(1))
         .isEqualTo(
             new DoneFrame(
+                messageId.toString(),
                 List.of(new DoneFrame.Citation("Setup", "https://docs.example.com/setup"))));
   }
 
@@ -84,7 +87,7 @@ class ConversationRelayTests {
         END_USER,
         new NudgeContexts.NudgeContext(nudgeId, milestoneId, "data_source_connected"));
 
-    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer");
+    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer", null);
 
     var context = agent.context;
     assertThat(context).isNotNull();
@@ -98,34 +101,89 @@ class ConversationRelayTests {
 
   @Test
   void reusesOneAgentStreamAcrossASessionsMessages() {
-    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer");
-    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer");
+    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer", null);
+    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer", null);
 
     assertThat(agent.conversations).isEqualTo(1);
     assertThat(agent.messages).hasSize(2);
   }
 
   @Test
+  void opensTheConversationWithTheNudgeContextTheRefNames() {
+    UUID referredNudge = UUID.randomUUID();
+    contexts.record(
+        APP,
+        END_USER,
+        new NudgeContexts.NudgeContext(referredNudge, UUID.randomUUID(), "project_created"));
+    contexts.record(
+        APP,
+        END_USER,
+        new NudgeContexts.NudgeContext(
+            UUID.randomUUID(), UUID.randomUUID(), "data_source_connected"));
+
+    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer", referredNudge);
+
+    var context = agent.context;
+    assertThat(context).isNotNull();
+    assertThat(context.getInterventionId()).isEqualTo(referredNudge.toString());
+    assertThat(context.getMilestoneName()).isEqualTo("project_created");
+  }
+
+  @Test
+  void anUnknownRefOpensWithoutNudgeContext() {
+    contexts.record(
+        APP,
+        END_USER,
+        new NudgeContexts.NudgeContext(
+            UUID.randomUUID(), UUID.randomUUID(), "data_source_connected"));
+
+    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer", UUID.randomUUID());
+
+    var context = agent.context;
+    assertThat(context).isNotNull();
+    assertThat(context.getInterventionId()).isEmpty();
+  }
+
+  @Test
+  void dropsAMessageThatRepeatsAPendingId() {
+    UUID messageId = UUID.randomUUID();
+    relay.relay(SDK_APP, messageId, SESSION, END_USER, "hold", null);
+    relay.relay(SDK_APP, messageId, SESSION, END_USER, "hold", null);
+
+    assertThat(agent.messages).hasSize(1);
+  }
+
+  @Test
   void anAnswerWithoutTokensDegradesToTheRetryLine() {
-    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "fail-silently");
+    UUID messageId = UUID.randomUUID();
+    relay.relay(SDK_APP, messageId, SESSION, END_USER, "fail-silently", null);
 
     verify(streams)
         .pushAnswerFrame(
-            eq(APP), eq(END_USER), eq("token"), eq(new TokenFrame(ConversationRelay.FAILURE_TEXT)));
+            eq(APP),
+            eq(END_USER),
+            eq("token"),
+            eq(new TokenFrame(messageId.toString(), ConversationRelay.FAILURE_TEXT)));
     verify(streams)
-        .pushAnswerFrame(eq(APP), eq(END_USER), eq("done"), eq(new DoneFrame(List.of())));
+        .pushAnswerFrame(
+            eq(APP), eq(END_USER), eq("done"), eq(new DoneFrame(messageId.toString(), List.of())));
   }
 
   @Test
   void aTokenForAnUnknownMessageNeverReachesTheStream() {
-    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "stray-token");
+    UUID messageId = UUID.randomUUID();
+    relay.relay(SDK_APP, messageId, SESSION, END_USER, "stray-token", null);
 
     verify(streams, never())
-        .pushAnswerFrame(eq(APP), eq(END_USER), eq("token"), eq(new TokenFrame("stray")));
+        .pushAnswerFrame(
+            eq(APP), eq(END_USER), eq("token"), eq(new TokenFrame("unknown", "stray")));
     // The real message streamed nothing, so it degrades to the retry line.
     verify(streams)
         .pushAnswerFrame(
-            eq(APP), eq(END_USER), eq("token"), eq(new TokenFrame(ConversationRelay.FAILURE_TEXT)));
+            eq(APP),
+            eq(END_USER),
+            eq("token"),
+            eq(new TokenFrame(messageId.toString(), ConversationRelay.FAILURE_TEXT)));
   }
 
   /** Answers each user message inline, scripted by the message text. */
@@ -180,6 +238,8 @@ class ConversationRelayTests {
                       .setAnswerDone(AnswerDone.newBuilder().setMessageId(messageId))
                       .build());
             }
+            // hold: no reply, so the answer stays pending
+            case "hold" -> {}
             // fail-silently: a done frame with no tokens, the agent-side failure shape
             default ->
                 responses.onNext(

@@ -112,7 +112,7 @@ class MessagesController {
     // the user asks first is reactive, and answering it only makes lift more
     // conservative. When actions land (US-18), executing one for a holdout is
     // the leak to gate.
-    if (!relay.relay(app, id, sessionId, endUserHash, text)) {
+    if (!relay.relay(app, id, sessionId, endUserHash, text, message.ref())) {
       return problem(HttpStatus.TOO_MANY_REQUESTS, "The app's conversation budget is spent.");
     }
     return ResponseEntity.accepted().build();
