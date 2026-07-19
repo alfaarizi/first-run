@@ -169,10 +169,12 @@ export function FunnelView({ appId }: { appId: string }) {
   )
 }
 
+/** Formats step conversion as a whole percentage, an empty cohort as a dash. */
 function conversion(completed: number, entered: number): string {
   return entered === 0 ? '—' : `${Math.round((completed / entered) * 100)}%`
 }
 
+/** Rounds a duration to its largest sensible unit, seconds through days. */
 function formatSeconds(seconds: number): string {
   if (seconds < 60) return `${seconds}s`
   if (seconds < 3_600) return `${Math.round(seconds / 60)}m`
