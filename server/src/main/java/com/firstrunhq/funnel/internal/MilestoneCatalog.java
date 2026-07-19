@@ -35,6 +35,7 @@ class MilestoneCatalog {
     this.tenantContext = tenantContext;
   }
 
+  /** Defines one milestone under the app's cap, in the tenant's RLS scope. */
   @Transactional
   Milestone create(UUID tenantId, CreateMilestoneInput input) {
     validate(input);
@@ -76,6 +77,7 @@ class MilestoneCatalog {
     }
   }
 
+  /** Rejects an input that breaks the name grammar, a blank title, or a position under 1. */
   private static void validate(CreateMilestoneInput input) {
     if (input.name().startsWith("fr.")) {
       throw MilestoneDefinitionException.invalidInput(
@@ -97,6 +99,7 @@ class MilestoneCatalog {
     }
   }
 
+  /** Parses the app id, answering an unparseable one as the same not-found an unknown one gets. */
   private static UUID parseAppId(String appId) {
     try {
       return UUID.fromString(appId);
@@ -105,6 +108,7 @@ class MilestoneCatalog {
     }
   }
 
+  /** Names which unique constraint the insert hit, the milestone name or its position. */
   private static MilestoneDefinitionException duplicate(
       CreateMilestoneInput input, DuplicateKeyException e) {
     String detail = String.valueOf(e.getMessage());

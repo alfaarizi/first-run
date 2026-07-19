@@ -7,6 +7,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Component;
 
+/** Meters each tenant's event throughput, so one noisy tenant cannot starve the rest. */
 @Component
 class TenantRateLimiter {
 

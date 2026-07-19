@@ -38,6 +38,7 @@ class EventStreamProcessor {
     this.stuckGate = stuckGate;
   }
 
+  /** Applies one event: progress, session features, then the gate, claimed last. */
   @KafkaListener(topics = EventTopics.EVENTS_RAW, groupId = GROUP)
   void onEvent(ConsumerRecord<String, String> record) throws JsonProcessingException {
     EventEnvelope envelope = objectMapper.readValue(record.value(), EventEnvelope.class);
@@ -64,6 +65,7 @@ class EventStreamProcessor {
     deduper.claim(envelope.appId(), envelope.id());
   }
 
+  /** Rejects an envelope missing a required field, before any side effect. */
   private static void requireComplete(EventEnvelope envelope) {
     if (envelope.tenantId() == null
         || envelope.appId() == null

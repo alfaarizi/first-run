@@ -23,6 +23,7 @@ class AppController {
     this.reader = reader;
   }
 
+  /** Resolves the tenant's app by id, an unparseable or foreign id as null. */
   @QueryMapping
   @Nullable App app(
       @Argument String id,
@@ -39,6 +40,7 @@ class AppController {
     return reader.find(tenantId, appId).orElse(null);
   }
 
+  /** Turns the module's client-safe exception into its GraphQL error. */
   @GraphQlExceptionHandler
   GraphQLError handle(AppQueryException exception, DataFetchingEnvironment env) {
     return GraphqlErrorBuilder.newError(env)

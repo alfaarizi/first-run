@@ -27,6 +27,7 @@ class MilestoneProgressTracker {
   private final JdbcClient jdbc;
   private final TenantContext tenantContext;
 
+  /** Runs against the milestone tables under the envelope tenant's RLS scope. */
   MilestoneProgressTracker(JdbcClient jdbc, TenantContext tenantContext) {
     this.jdbc = jdbc;
     this.tenantContext = tenantContext;
@@ -73,6 +74,7 @@ class MilestoneProgressTracker {
     return new Progress(currentStep, stale);
   }
 
+  /** Finds the milestone the event's name completes, only when the milestone predates it. */
   private Optional<UUID> completedMilestone(EventEnvelope envelope, OffsetDateTime eventAt) {
     return jdbc.sql(
             """
@@ -147,6 +149,7 @@ class MilestoneProgressTracker {
         .orElseGet(() -> findEndUser(envelope).orElseThrow());
   }
 
+  /** Finds the end user the envelope's hash names within its app. */
   private Optional<UUID> findEndUser(EventEnvelope envelope) {
     return jdbc.sql(
             "SELECT id FROM end_user WHERE app_id = :app_id AND external_hash = :external_hash")

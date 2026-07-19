@@ -23,6 +23,7 @@ class FunnelReader {
   private final JdbcClient jdbc;
   private final TenantContext tenantContext;
 
+  /** Reads the progress projection under the requesting tenant's RLS scope. */
   FunnelReader(JdbcClient jdbc, TenantContext tenantContext) {
     this.jdbc = jdbc;
     this.tenantContext = tenantContext;
@@ -54,6 +55,7 @@ class FunnelReader {
         .list();
   }
 
+  /** Maps one aggregated row to its funnel step. */
   private static FunnelStep toStep(ResultSet row, int rowNumber) throws SQLException {
     Milestone milestone =
         new Milestone(

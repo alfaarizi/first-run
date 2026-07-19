@@ -37,6 +37,7 @@ class StuckGate {
   private final MeterRegistry meterRegistry;
   private final Timer events;
 
+  /** Wires the thresholds, the candidate producer, and the gate's two metrics. */
   StuckGate(
       StuckGateProperties properties,
       SessionFeatureStore sessionFeatures,
@@ -120,6 +121,7 @@ class StuckGate {
     return null;
   }
 
+  /** Copies the session hash into the envelope's typed feature record. */
   private static CandidateEnvelope.SessionFeatures snapshot(Map<String, String> features) {
     return new CandidateEnvelope.SessionFeatures(
         signal(features, SessionFeatureStore.DWELL_SECONDS),
@@ -129,6 +131,7 @@ class StuckGate {
         features.get(SessionFeatureStore.LAST_PATH));
   }
 
+  /** Reads one counter off the session hash, absent as zero. */
   private static long signal(Map<String, String> features, String field) {
     return Long.parseLong(features.getOrDefault(field, "0"));
   }

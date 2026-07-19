@@ -22,6 +22,7 @@ class MilestoneController {
     this.catalog = catalog;
   }
 
+  /** Defines one activation milestone for the input's app. */
   @MutationMapping
   CreateMilestonePayload createMilestone(
       @Argument CreateMilestoneInput input,
@@ -32,6 +33,7 @@ class MilestoneController {
     return new CreateMilestonePayload(catalog.create(tenantId, input));
   }
 
+  /** Turns the module's client-safe exception into its GraphQL error. */
   @GraphQlExceptionHandler
   GraphQLError handle(MilestoneDefinitionException exception, DataFetchingEnvironment env) {
     return GraphqlErrorBuilder.newError(env)

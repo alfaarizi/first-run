@@ -46,6 +46,7 @@ class DocSourceRepository {
         .single();
   }
 
+  /** Returns the tenant's doc source by id, a foreign or unknown id as empty. */
   @Transactional(readOnly = true)
   Optional<DocSource> find(UUID tenantId, UUID id) {
     tenantContext.scopeTo(tenantId);
@@ -55,6 +56,7 @@ class DocSourceRepository {
         .optional();
   }
 
+  /** Returns the app's doc sources in registration order. */
   @Transactional(readOnly = true)
   List<DocSource> findByApp(UUID tenantId, UUID appId) {
     tenantContext.scopeTo(tenantId);
@@ -65,6 +67,7 @@ class DocSourceRepository {
         .list();
   }
 
+  /** Counts the source's live indexed chunks. */
   @Transactional(readOnly = true)
   int chunkCount(UUID tenantId, UUID sourceId) {
     tenantContext.scopeTo(tenantId);

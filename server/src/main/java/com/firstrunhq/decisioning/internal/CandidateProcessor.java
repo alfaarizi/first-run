@@ -46,6 +46,7 @@ class CandidateProcessor {
     this.contexts = contexts;
   }
 
+  /** Turns one candidate into a nudge, unless the holdout or the dedupe mutes it. */
   @KafkaListener(topics = CandidateTopics.INTERVENTION_CANDIDATES, groupId = GROUP)
   void onCandidate(ConsumerRecord<String, String> record) throws JsonProcessingException {
     CandidateEnvelope candidate = objectMapper.readValue(record.value(), CandidateEnvelope.class);
@@ -86,6 +87,7 @@ class CandidateProcessor {
         .orElse("Need a hand? Ask a question and we can help.");
   }
 
+  /** Rejects an envelope missing a required field, before any push. */
   private static void requireComplete(CandidateEnvelope candidate) {
     if (candidate.id() == null
         || candidate.tenantId() == null

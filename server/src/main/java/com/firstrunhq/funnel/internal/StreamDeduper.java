@@ -20,6 +20,7 @@ class StreamDeduper {
     this.redis = redis;
   }
 
+  /** Reports whether the event was already applied inside the claim window. */
   boolean isClaimed(UUID appId, UUID eventId) {
     return Boolean.TRUE.equals(redis.hasKey(key(appId, eventId)));
   }
@@ -29,6 +30,7 @@ class StreamDeduper {
     redis.opsForValue().set(key(appId, eventId), "", CLAIM_TTL);
   }
 
+  /** Builds the claim key, qualified by the consumer group so claims never collide. */
   private static String key(UUID appId, UUID eventId) {
     return "dedupe:%s:%s:%s".formatted(EventStreamProcessor.GROUP, appId, eventId);
   }

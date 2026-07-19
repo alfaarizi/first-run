@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+/** Claims event UUIDs at the gateway so a client retry is accepted once and produced once. */
 @Component
 class EventDeduper {
 
@@ -31,6 +32,7 @@ class EventDeduper {
     redis.delete(eventIds.stream().map(eventId -> key(appId, eventId)).toList());
   }
 
+  /** Builds the app-scoped claim key for one event. */
   private static String key(UUID appId, UUID eventId) {
     return "dedupe:%s:%s".formatted(appId, eventId);
   }

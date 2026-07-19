@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/** Opens the widget's server-push stream, the channel nudges and answers ride to the browser. */
 @RestController
 class StreamController {
 

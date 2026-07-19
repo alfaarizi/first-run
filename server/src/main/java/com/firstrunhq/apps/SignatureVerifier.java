@@ -40,6 +40,7 @@ public class SignatureVerifier {
     return MessageDigest.isEqual(claimed, hmac(hmacKey, timestamp, body));
   }
 
+  /** Computes the expected HMAC over {@code {timestamp}.{body}}. */
   private static byte[] hmac(String key, String timestamp, byte[] body) {
     try {
       Mac mac = Mac.getInstance(HMAC_ALGORITHM);

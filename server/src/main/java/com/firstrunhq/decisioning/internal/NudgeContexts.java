@@ -19,6 +19,7 @@ class NudgeContexts {
   private final Map<String, NudgeContext> latestByUser = boundedLru();
   private final Map<String, NudgeContext> byNudge = boundedLru();
 
+  /** Remembers the nudge as the user's latest and by its id. */
   synchronized void record(UUID appId, String endUserHash, NudgeContext context) {
     latestByUser.put(userKey(appId, endUserHash), context);
     byNudge.put(nudgeKey(appId, endUserHash, context.nudgeId()), context);
@@ -34,6 +35,7 @@ class NudgeContexts {
     return Optional.ofNullable(byNudge.get(nudgeKey(appId, endUserHash, nudgeId)));
   }
 
+  /** Builds an access-ordered map that evicts its eldest entry past the cap. */
   private static Map<String, NudgeContext> boundedLru() {
     return new LinkedHashMap<>(16, 0.75f, true) {
       @Override
@@ -43,10 +45,12 @@ class NudgeContexts {
     };
   }
 
+  /** Builds the key holding one user's latest nudge. */
   private static String userKey(UUID appId, String endUserHash) {
     return appId + ":" + endUserHash;
   }
 
+  /** Builds the key holding one specific nudge, scoped to its user. */
   private static String nudgeKey(UUID appId, String endUserHash, UUID nudgeId) {
     return appId + ":" + endUserHash + ":" + nudgeId;
   }

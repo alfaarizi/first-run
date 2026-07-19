@@ -33,6 +33,7 @@ class NudgeStreams {
   private final Map<UUID, AtomicInteger> appStreamCounts = new ConcurrentHashMap<>();
   private final NudgeReplayBuffer buffer;
 
+  /** Fans out over open streams, replaying missed nudges from the buffer. */
   NudgeStreams(NudgeReplayBuffer buffer) {
     this.buffer = buffer;
   }
@@ -51,7 +52,8 @@ class NudgeStreams {
     Stream stream = new Stream(new SseEmitter(STREAM_TIMEOUT.toMillis()), lastEventId != null);
     String key = key(appId, endUserHash);
 
-    // compute serializes with removal per key, so a concurrent removal never strands a live stream
+    // compute serializes with removal per key, so a concurrent removal never
+    // strands a live stream.
     List<Stream> evicted = new ArrayList<>();
     streams.compute(
         key,
@@ -64,7 +66,7 @@ class NudgeStreams {
           return live;
         });
 
-    // completing inside compute would re-enter the map through the removal callback
+    // Completing inside compute would re-enter the map through the removal callback.
     for (Stream retired : evicted) {
       appCount.decrementAndGet();
       retired.retire();
@@ -117,8 +119,10 @@ class NudgeStreams {
     }
   }
 
-  // One stream can fire onError and then onCompletion, so only the call that wins the list
-  // removal pays back the app budget.
+  /**
+   * Drops the stream from the registry. One stream can fire onError and then onCompletion, so only
+   * the call that wins the list removal pays back the app budget.
+   */
   private void remove(AtomicInteger appCount, String key, Stream stream) {
     streams.computeIfPresent(
         key,
@@ -130,6 +134,7 @@ class NudgeStreams {
         });
   }
 
+  /** Builds the registry key holding one user's open streams for one app. */
   private static String key(UUID appId, String endUserHash) {
     return appId + ":" + endUserHash;
   }
@@ -145,6 +150,7 @@ class NudgeStreams {
     private final List<NudgeFrame> heldByReplay = new ArrayList<>();
     private boolean replaying;
 
+    /** Gates a reconnecting stream on its replay; a fresh stream starts open. */
     Stream(SseEmitter emitter, boolean replaying) {
       this.emitter = emitter;
       this.replaying = replaying;
@@ -188,6 +194,7 @@ class NudgeStreams {
       emitter.complete();
     }
 
+    /** Sends one unbuffered frame, closing the stream when the tab is gone. */
     synchronized void sendLive(String name, Object data) {
       try {
         emitter.send(SseEmitter.event().name(name).data(data, MediaType.APPLICATION_JSON));
@@ -196,6 +203,7 @@ class NudgeStreams {
       }
     }
 
+    /** Sends one nudge frame with its replay-cursor id, reporting whether it left. */
     private boolean send(NudgeFrame frame) {
       try {
         emitter.send(

@@ -23,6 +23,7 @@ class ReindexClient {
   private final KnowledgeServiceGrpc.KnowledgeServiceBlockingStub stub;
   private final Retry retry;
 
+  /** Opens the agent channel and builds the retry policy for transient unavailability. */
   ReindexClient(GrpcChannelFactory channels) {
     this.stub = KnowledgeServiceGrpc.newBlockingStub(channels.createChannel("agent"));
     // Reindex is idempotent (a repeat answers ALREADY_RUNNING), so retrying
