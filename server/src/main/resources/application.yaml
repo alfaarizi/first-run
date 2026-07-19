@@ -26,6 +26,11 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  grpc:
+    client:
+      channels:
+        agent:
+          address: ${AGENT_GRPC_ADDRESS:localhost:50051}
 
 management:
   endpoints:
