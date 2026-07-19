@@ -183,6 +183,10 @@ services:
     build:
       context: ./server
       target: local
+      # The Dockerfile regenerates gRPC stubs from the proto contract at build
+      # time. Image needs no host-side prebuild.
+      additional_contexts:
+        proto: ./api/proto
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/firstrun
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_APP_USER}
@@ -190,6 +194,7 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      AGENT_GRPC_ADDRESS: agent:50051
       # Local-only trust: resolves the dashboard tenant from a plain header
       # until we have login.
       FIRSTRUN_IDENTITY_TRUSTED_TENANT_HEADER: "true"
@@ -222,8 +227,19 @@ services:
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
       DATABASE_URL: postgresql://${POSTGRES_APP_USER}:${POSTGRES_APP_PASSWORD}@postgres:5432/firstrun
       VOYAGE_API_KEY: ${VOYAGE_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # Local only: lets the crawler reach Tasklet's http docs on the compose
+      # network. Production deployments never set this.
+      CRAWL_ALLOW_LOCAL: "true"
+      # A payment-methodless Voyage key allows 3 requests a minute, so the
+      # local crawl embeds serially and leans on the client's backoff.
+      CRAWL_MAX_CONCURRENT: "1"
     ports:
       - "8000:8000"
+      # gRPC, so the offline eval harness can replay the golden set from the
+      # host (AGENT_GRPC_ADDRESS=localhost:50052). 50052 because host 50051
+      # is a popular default for other local gRPC servers.
+      - "50052:50051"
     depends_on:
       postgres:
         condition: service_healthy
