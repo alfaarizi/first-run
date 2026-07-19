@@ -106,6 +106,17 @@ class NudgeStreams {
     return accepted;
   }
 
+  /**
+   * Sends one live answer frame to every stream the user has open. Answer frames are never
+   * buffered: a reconnect reopens live only (api/openapi/stream.yaml), because a replayed
+   * half-answer would render as a fresh one.
+   */
+  void pushAnswerFrame(UUID appId, String endUserHash, String name, Object data) {
+    for (Stream stream : streams.getOrDefault(key(appId, endUserHash), List.of())) {
+      stream.sendLive(name, data);
+    }
+  }
+
   // One stream can fire onError and then onCompletion, so only the call that wins the list
   // removal pays back the app budget.
   private void remove(AtomicInteger appCount, String key, Stream stream) {
@@ -175,6 +186,14 @@ class NudgeStreams {
         // the tab is already gone, so there is no client left to reconnect
       }
       emitter.complete();
+    }
+
+    synchronized void sendLive(String name, Object data) {
+      try {
+        emitter.send(SseEmitter.event().name(name).data(data, MediaType.APPLICATION_JSON));
+      } catch (IOException | IllegalStateException gone) {
+        emitter.completeWithError(gone);
+      }
     }
 
     private boolean send(NudgeFrame frame) {

@@ -3,6 +3,7 @@ package com.firstrunhq.decisioning.internal;
 import com.firstrunhq.apps.AppDirectory;
 import com.firstrunhq.apps.SdkApp;
 import com.firstrunhq.apps.SignatureVerifier;
+import com.firstrunhq.apps.WidgetContract;
 import java.nio.charset.StandardCharsets;
 import java.util.regex.Pattern;
 import org.jspecify.annotations.Nullable;
@@ -21,8 +22,6 @@ class StreamController {
 
   // Endpoint contract from api/openapi/stream.yaml, read here and mirrored by the CORS policy.
   static final String PATH = "/v1/stream";
-
-  private static final int MAX_END_USER_HASH_LENGTH = 128;
 
   // Frame ids are server-minted UUIDs or the reserved earliest, and the connected frame echoes
   // the cursor into an SSE id field, so anything outside this alphabet must never reach it.
@@ -67,7 +66,7 @@ class StreamController {
 
     // The length cap from the ingest contract also bounds the stream registry's keys.
     if (endUserHash == null
-        || endUserHash.length() > MAX_END_USER_HASH_LENGTH
+        || endUserHash.length() > WidgetContract.END_USER_HASH_MAX_CHARS
         || timestamp == null
         || signature == null
         || !signatureVerifier.verify(

@@ -1,0 +1,202 @@
+package com.firstrunhq.decisioning.internal;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.firstrunhq.apps.SdkApp;
+import com.firstrunhq.v1.AnswerChunk;
+import com.firstrunhq.v1.AnswerDone;
+import com.firstrunhq.v1.Citation;
+import com.firstrunhq.v1.ConversationServiceGrpc;
+import com.firstrunhq.v1.ConverseRequest;
+import com.firstrunhq.v1.ConverseResponse;
+import io.grpc.inprocess.InProcessChannelBuilder;
+import io.grpc.inprocess.InProcessServerBuilder;
+import io.grpc.stub.StreamObserver;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.grpc.client.GrpcChannelFactory;
+
+/** Relays agent Converse frames into the widget's answer frames over an in-process agent. */
+class ConversationRelayTests {
+
+  private static final UUID TENANT = UUID.randomUUID();
+  private static final UUID APP = UUID.randomUUID();
+  private static final UUID SESSION = UUID.randomUUID();
+  private static final String END_USER = "9f86d081884c7d65";
+  private static final SdkApp SDK_APP = new SdkApp(APP, TENANT, "hmac", Set.of(), Set.of());
+
+  private final ScriptedAgent agent = new ScriptedAgent();
+  private final NudgeStreams streams = mock(NudgeStreams.class);
+  private final NudgeContexts contexts = new NudgeContexts();
+  private io.grpc.Server server;
+  private io.grpc.ManagedChannel channel;
+  private ConversationRelay relay;
+
+  @BeforeEach
+  void startInProcessAgent() throws Exception {
+    String name = InProcessServerBuilder.generateName();
+    server =
+        InProcessServerBuilder.forName(name).directExecutor().addService(agent).build().start();
+    channel = InProcessChannelBuilder.forName(name).directExecutor().build();
+    GrpcChannelFactory channels = mock(GrpcChannelFactory.class);
+    when(channels.createChannel("agent")).thenReturn(channel);
+    relay = new ConversationRelay(channels, streams, contexts);
+  }
+
+  @AfterEach
+  void stopInProcessAgent() {
+    channel.shutdownNow();
+    server.shutdownNow();
+  }
+
+  @Test
+  void relaysTokensThenClosesTheAnswerWithItsCitations() {
+    boolean accepted = relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer");
+
+    assertThat(accepted).isTrue();
+    ArgumentCaptor<Object> frames = ArgumentCaptor.forClass(Object.class);
+    verify(streams).pushAnswerFrame(eq(APP), eq(END_USER), eq("token"), frames.capture());
+    verify(streams).pushAnswerFrame(eq(APP), eq(END_USER), eq("done"), frames.capture());
+    assertThat(frames.getAllValues().get(0)).isEqualTo(new TokenFrame("Use Settings."));
+    assertThat(frames.getAllValues().get(1))
+        .isEqualTo(
+            new DoneFrame(
+                List.of(new DoneFrame.Citation("Setup", "https://docs.example.com/setup"))));
+  }
+
+  @Test
+  void opensTheConversationWithTheLatestNudgeContext() {
+    UUID nudgeId = UUID.randomUUID();
+    UUID milestoneId = UUID.randomUUID();
+    contexts.record(
+        APP,
+        END_USER,
+        new NudgeContexts.NudgeContext(nudgeId, milestoneId, "data_source_connected"));
+
+    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer");
+
+    var context = agent.context;
+    assertThat(context).isNotNull();
+    assertThat(context.getTenantId()).isEqualTo(TENANT.toString());
+    assertThat(context.getAppId()).isEqualTo(APP.toString());
+    assertThat(context.getSessionId()).isEqualTo(SESSION.toString());
+    assertThat(context.getInterventionId()).isEqualTo(nudgeId.toString());
+    assertThat(context.getMilestoneName()).isEqualTo("data_source_connected");
+    assertThat(context.getConversationId()).isNotEmpty();
+  }
+
+  @Test
+  void reusesOneAgentStreamAcrossASessionsMessages() {
+    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer");
+    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer");
+
+    assertThat(agent.conversations).isEqualTo(1);
+    assertThat(agent.messages).hasSize(2);
+  }
+
+  @Test
+  void anAnswerWithoutTokensDegradesToTheRetryLine() {
+    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "fail-silently");
+
+    verify(streams)
+        .pushAnswerFrame(
+            eq(APP), eq(END_USER), eq("token"), eq(new TokenFrame(ConversationRelay.FAILURE_TEXT)));
+    verify(streams)
+        .pushAnswerFrame(eq(APP), eq(END_USER), eq("done"), eq(new DoneFrame(List.of())));
+  }
+
+  @Test
+  void aTokenForAnUnknownMessageNeverReachesTheStream() {
+    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "stray-token");
+
+    verify(streams, never())
+        .pushAnswerFrame(eq(APP), eq(END_USER), eq("token"), eq(new TokenFrame("stray")));
+    // The real message streamed nothing, so it degrades to the retry line.
+    verify(streams)
+        .pushAnswerFrame(
+            eq(APP), eq(END_USER), eq("token"), eq(new TokenFrame(ConversationRelay.FAILURE_TEXT)));
+  }
+
+  /** Answers each user message inline, scripted by the message text. */
+  private static final class ScriptedAgent
+      extends ConversationServiceGrpc.ConversationServiceImplBase {
+
+    volatile com.firstrunhq.v1.@org.jspecify.annotations.Nullable ConversationContext context;
+    volatile int conversations;
+    final List<String> messages = new ArrayList<>();
+
+    @Override
+    public StreamObserver<ConverseRequest> converse(StreamObserver<ConverseResponse> responses) {
+      conversations++;
+      return new StreamObserver<>() {
+        @Override
+        public void onNext(ConverseRequest request) {
+          if (request.hasContext()) {
+            context = request.getContext();
+            return;
+          }
+          String messageId = request.getUserMessage().getMessageId();
+          messages.add(request.getUserMessage().getText());
+          switch (request.getUserMessage().getText()) {
+            case "answer" -> {
+              responses.onNext(
+                  ConverseResponse.newBuilder()
+                      .setAnswerChunk(
+                          AnswerChunk.newBuilder().setMessageId(messageId).setText("Use Settings."))
+                      .build());
+              responses.onNext(
+                  ConverseResponse.newBuilder()
+                      .setCitation(
+                          Citation.newBuilder()
+                              .setMessageId(messageId)
+                              .setSourceUrl("https://docs.example.com/setup")
+                              .setTitle("Setup")
+                              .setSnippet("Use Settings."))
+                      .build());
+              responses.onNext(
+                  ConverseResponse.newBuilder()
+                      .setAnswerDone(AnswerDone.newBuilder().setMessageId(messageId))
+                      .build());
+            }
+            case "stray-token" -> {
+              responses.onNext(
+                  ConverseResponse.newBuilder()
+                      .setAnswerChunk(
+                          AnswerChunk.newBuilder().setMessageId("unknown").setText("stray"))
+                      .build());
+              responses.onNext(
+                  ConverseResponse.newBuilder()
+                      .setAnswerDone(AnswerDone.newBuilder().setMessageId(messageId))
+                      .build());
+            }
+            // fail-silently: a done frame with no tokens, the agent-side failure shape
+            default ->
+                responses.onNext(
+                    ConverseResponse.newBuilder()
+                        .setAnswerDone(AnswerDone.newBuilder().setMessageId(messageId))
+                        .build());
+          }
+        }
+
+        @Override
+        public void onError(Throwable failure) {}
+
+        @Override
+        public void onCompleted() {
+          responses.onCompleted();
+        }
+      };
+    }
+  }
+}

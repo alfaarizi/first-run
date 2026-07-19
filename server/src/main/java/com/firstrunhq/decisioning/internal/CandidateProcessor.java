@@ -29,18 +29,21 @@ class CandidateProcessor {
   private final CandidateDeduper deduper;
   private final MilestoneTitles milestoneTitles;
   private final NudgeStreams streams;
+  private final NudgeContexts contexts;
 
   CandidateProcessor(
       ObjectMapper objectMapper,
       Holdouts holdouts,
       CandidateDeduper deduper,
       MilestoneTitles milestoneTitles,
-      NudgeStreams streams) {
+      NudgeStreams streams,
+      NudgeContexts contexts) {
     this.objectMapper = objectMapper;
     this.holdouts = holdouts;
     this.deduper = deduper;
     this.milestoneTitles = milestoneTitles;
     this.streams = streams;
+    this.contexts = contexts;
   }
 
   @KafkaListener(topics = CandidateTopics.INTERVENTION_CANDIDATES, groupId = GROUP)
@@ -62,6 +65,11 @@ class CandidateProcessor {
     // A nudge neither delivered nor buffered stays unclaimed, so a candidate copy can retry it.
     if (streams.pushNudge(
         candidate.appId(), candidate.endUserHash(), candidate.id(), nudgeText(candidate))) {
+      contexts.record(
+          candidate.appId(),
+          candidate.endUserHash(),
+          new NudgeContexts.NudgeContext(
+              candidate.id(), candidate.milestoneId(), candidate.milestoneName()));
       try {
         deduper.claim(candidate.appId(), candidate.eventId());
       } catch (DataAccessException claimLost) {

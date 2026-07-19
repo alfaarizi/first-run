@@ -3,6 +3,7 @@ package com.firstrunhq;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -11,7 +12,12 @@ import org.springframework.modulith.core.ApplicationModules;
 
 class ModularityTests {
 
-  ApplicationModules modules = ApplicationModules.of(FirstRunApplication.class);
+  // The generated gRPC stubs share the com.firstrunhq root (their package
+  // mirrors the proto package), so module detection must not read them as a
+  // twelfth module.
+  ApplicationModules modules =
+      ApplicationModules.of(
+          FirstRunApplication.class, JavaClass.Predicates.resideInAPackage("com.firstrunhq.v1.."));
 
   @Test
   void verifiesModuleStructure() {

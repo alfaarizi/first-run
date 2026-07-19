@@ -32,8 +32,9 @@ class CandidateProcessorTests {
   private final CandidateDeduper deduper = mock(CandidateDeduper.class);
   private final MilestoneTitles milestoneTitles = mock(MilestoneTitles.class);
   private final NudgeStreams streams = mock(NudgeStreams.class);
+  private final NudgeContexts contexts = new NudgeContexts();
   private final CandidateProcessor processor =
-      new CandidateProcessor(objectMapper, holdouts, deduper, milestoneTitles, streams);
+      new CandidateProcessor(objectMapper, holdouts, deduper, milestoneTitles, streams, contexts);
 
   @Test
   void acksTheRecordWhenTheClaimWriteFailsAfterADeliveredPush() throws Exception {
