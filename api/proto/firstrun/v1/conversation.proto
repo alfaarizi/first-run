@@ -82,4 +82,8 @@ message ActionProposal {
 
 message AnswerDone {
   string message_id = 1;
+
+  // True when the answer died mid-stream, so tokens already streamed are a
+  // truncated answer, never a complete one.
+  bool failed = 2;
 }

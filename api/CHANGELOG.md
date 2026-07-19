@@ -29,8 +29,14 @@ Additive. The stream contract keeps its shape, and its `token`, `done`, and
   `messages.yaml` promises on `id` explicit on the wire. The widget uses it
   to render only the answer to the question it sent, since frames fan out to
   every tab the user has open.
+- `proto/firstrun/v1/conversation.proto` `AnswerDone` gains `failed`, set
+  when an answer died mid-stream. The gateway degrades already-streamed
+  tokens to the retry line instead of closing them as a complete cited
+  answer, and the agent keeps the truncated turn out of conversation
+  history.
 
-Additive. The frames gain a field no client read before.
+Additive. The frames and the done message gain fields no client read
+before.
 
 ### Added
 
