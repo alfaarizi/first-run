@@ -22,6 +22,16 @@ additive or breaking.
 Additive. The stream contract keeps its shape, and its `token`, `done`, and
 `action` frames gain their producer.
 
+### Changed
+
+- `openapi/stream.yaml` documents that `token` and `done` frame data carries
+  the `message_id` of the message it answers, making the binding
+  `messages.yaml` promises on `id` explicit on the wire. The widget uses it
+  to render only the answer to the question it sent, since frames fan out to
+  every tab the user has open.
+
+Additive. The frames gain a field no client read before.
+
 ### Added
 
 - `proto/firstrun/v1/knowledge.proto` `Reindex` semantics the proto cannot
