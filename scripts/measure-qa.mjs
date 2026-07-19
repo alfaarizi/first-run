@@ -15,7 +15,9 @@ import protoLoader from '@grpc/proto-loader'
 import { BASELINES, resolveDatasetUrl } from './lib/baselines.mjs'
 
 const AGENT_ADDRESS = process.env.AGENT_GRPC_ADDRESS ?? 'localhost:50051'
-const JUDGE_MODEL = process.env.QA_JUDGE_MODEL ?? 'claude-opus-4-8'
+// The default must match the judge_model pinned in evals/baselines.json, or
+// a rerun's numbers stop being comparable to the recorded baseline.
+const JUDGE_MODEL = process.env.QA_JUDGE_MODEL ?? 'claude-sonnet-5'
 // Caps a run for smoke tests and the per-run budget; the full set by default.
 const SAMPLE = Number(process.env.QA_SAMPLE ?? Infinity)
 
@@ -165,6 +167,7 @@ function report(results) {
     .map((r) => r.answer.firstTokenMs)
     .filter((ms) => ms !== null)
     .sort((a, b) => a - b)
+  // Empty when every answer failed to stream, which must still report, not crash.
   const p95 = latencies[Math.min(latencies.length - 1, Math.ceil(latencies.length * 0.95) - 1)]
 
   for (const r of judged.filter((r) => r.verdict === 'ungrounded')) {
@@ -173,7 +176,7 @@ function report(results) {
   console.log(`questions ${results.length}, judged ${judged.length}, judge errors ${results.length - judged.length}`)
   console.log(`groundedness ${(grounded.length / judged.length).toFixed(3)} (floor 0.90 once the judge is calibrated)`)
   console.log(`unanswerable honesty ${honest.length}/${unanswerable.length}`)
-  console.log(`first token p95 ${(p95 / 1000).toFixed(2)}s (target 1.5s)`)
+  console.log(`first token p95 ${p95 === undefined ? 'n/a, nothing streamed' : (p95 / 1000).toFixed(2) + 's'} (target 1.5s)`)
   console.log('all numbers are SYNTHETIC because the set is drawn from demo docs')
 
   // Judge failures over 5% mean the numbers cannot be trusted at all.
