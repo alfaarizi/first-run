@@ -18,13 +18,23 @@ from dataclasses import dataclass, field
 from urllib.parse import SplitResult, urldefrag, urljoin, urlsplit, urlunsplit
 
 import httpx
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from protego import Protego
 
 logger = logging.getLogger(__name__)
 
 _USER_AGENT = "firstrun-crawler"
 _ROBOTS_REDIRECT_HOPS = 5
+_HTTPS_PORT = 443
+
+Origin = tuple[str, int]
+
+
+def _origin(split: SplitResult) -> Origin | None:
+    # https only, default to folded port.
+    if split.scheme != "https" or not split.hostname:
+        return None
+    return split.hostname, split.port or _HTTPS_PORT
 
 
 class CrawlError(Exception):
@@ -41,17 +51,15 @@ class Page:
 
 @dataclass
 class _Frontier:
-    """Deduplicated queue of same-site URLs still to fetch."""
+    """Deduplicated queue of same-origin URLs still to fetch."""
 
-    root_netloc: str
+    root_origin: Origin
     queue: deque[str] = field(default_factory=deque)
     seen: set[str] = field(default_factory=set)
 
     def add(self, url: str) -> None:
         url = urldefrag(url).url
-        split = urlsplit(url)
-        on_site = split.scheme == "https" and split.netloc == self.root_netloc
-        if on_site and url not in self.seen:
+        if _origin(urlsplit(url)) == self.root_origin and url not in self.seen:
             self.seen.add(url)
             self.queue.append(url)
 
@@ -120,7 +128,8 @@ class Crawler:
     async def crawl(self, root_url: str) -> AsyncIterator[Page]:
         """Yield pages reachable from ``root_url``, at most ``max_pages`` fetches."""
         root = urlsplit(root_url)
-        if root.scheme != "https" or not root.netloc:
+        root_origin = _origin(root)
+        if root_origin is None:
             raise CrawlError(f"not a public https URL: {root_url}")
         addresses = await self._resolve(root.hostname or "")
         for address in addresses:
@@ -141,7 +150,7 @@ class Crawler:
             trust_env=False,
         ) as client:
             robots, pin = await self._connect(client, root_url, root, addresses)
-            frontier = _Frontier(root_netloc=root.netloc)
+            frontier = _Frontier(root_origin=root_origin)
             frontier.add(root_url)
             attempts = 0
             while frontier.queue and attempts < self._max_pages:
@@ -161,12 +170,13 @@ class Crawler:
         addresses: list[str],
     ) -> tuple[Protego, _Pin]:
         """Pin the first vetted address that connects, keeping its robots.txt."""
+        root_origin = _origin(root)
         for address in addresses:
             pin = _Pin(
                 netloc=root.netloc, hostname=root.hostname or "", address=address
             )
             try:
-                return await self._fetch_robots(client, root_url, pin), pin
+                return await self._fetch_robots(client, root_url, pin, root_origin), pin
             except (httpx.ConnectError, httpx.ConnectTimeout):
                 logger.warning("address %s unreachable, trying the next", address)
         raise CrawlError(f"no address of {root.netloc} accepts connections")
@@ -201,7 +211,11 @@ class Crawler:
         return bytes(body)
 
     async def _fetch_robots(
-        self, client: httpx.AsyncClient, root_url: str, pin: _Pin
+        self,
+        client: httpx.AsyncClient,
+        root_url: str,
+        pin: _Pin,
+        root_origin: Origin | None,
     ) -> Protego:
         """Fetch robots.txt with RFC 9309 semantics.
 
@@ -219,8 +233,7 @@ class Crawler:
                     async with self._stream(client, url, pin) as response:
                         if response.is_redirect:
                             target = urljoin(url, response.headers.get("location", ""))
-                            split = urlsplit(target)
-                            if split.scheme != "https" or split.netloc != pin.netloc:
+                            if _origin(urlsplit(target)) != root_origin:
                                 raise CrawlError("robots.txt redirects off-site")
                             url = target
                             continue
@@ -276,9 +289,13 @@ class Crawler:
 
 def _links(page_url: str, html: str) -> list[str]:
     soup = BeautifulSoup(html, "html.parser")
+    # A <base href> retargets all relative links. Resolve anchors against it.
+    base = soup.find("base")
+    base_href = base.get("href") if isinstance(base, Tag) else None
+    base_url = urljoin(page_url, base_href) if isinstance(base_href, str) else page_url
     links = []
     for element in soup.find_all("a"):
         href = element.get("href")
         if isinstance(href, str):
-            links.append(urljoin(page_url, href))
+            links.append(urljoin(base_url, href))
     return links

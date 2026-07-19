@@ -91,6 +91,32 @@ async def test_redirects_are_enqueued_not_followed() -> None:
     assert f"{_ROOT}/moved" in urls
 
 
+async def test_explicit_default_port_is_same_origin() -> None:
+    def with_port(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/":
+            return _html(f'<a href="{_ROOT}/guide">Guide</a>')
+        return _site(request)
+
+    crawler = _crawler(transport=httpx.MockTransport(with_port))
+    urls = [page.url async for page in crawler.crawl(f"{_ROOT}:443/")]
+
+    assert f"{_ROOT}/guide" in urls
+
+
+async def test_links_resolve_against_the_base_href() -> None:
+    def based(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/":
+            return _html('<base href="/docs/"><a href="guide">Guide</a>')
+        if request.url.path == "/docs/guide":
+            return _html("<p>Guide</p>")
+        return httpx.Response(404)
+
+    crawler = _crawler(transport=httpx.MockTransport(based))
+    urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
+
+    assert f"{_ROOT}/docs/guide" in urls
+
+
 async def test_robots_disallow_is_honored() -> None:
     urls = [page.url async for page in _crawler().crawl(f"{_ROOT}/")]
 

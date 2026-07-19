@@ -40,7 +40,7 @@ def chunk_page(url: str, html: str, *, max_chars: int) -> list[Chunk]:
     if not isinstance(root, Tag):
         return []
 
-    title = soup.title.get_text(strip=True) if soup.title else ""
+    title = (soup.title.get_text(strip=True) if soup.title else "")[:max_chars]
     headings: list[str] = [title] if title else []
     anchor = ""
     lines: list[str] = []
@@ -66,7 +66,9 @@ def chunk_page(url: str, html: str, *, max_chars: int) -> list[Chunk]:
         if level is not None:
             flush()
             del headings[level:]
-            headings.append(text)
+            # Bound the heading like content. Giant title must not push an
+            # embedding input past the model's token limit.
+            headings.append(text[:max_chars])
             heading_id = element.get("id")
             anchor = heading_id if isinstance(heading_id, str) else ""
         else:

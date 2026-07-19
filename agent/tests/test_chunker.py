@@ -70,5 +70,14 @@ def test_single_giant_text_node_is_split() -> None:
     assert all(len(chunk.content) <= 400 for chunk in chunks)
 
 
+def test_giant_heading_is_bounded() -> None:
+    html = f"<title>T</title><body><h2>{'H' * 5_000}</h2><p>Body.</p></body>"
+
+    chunks = chunk_page(_URL, html, max_chars=200)
+
+    assert chunks
+    assert all(len(heading) <= 200 for heading in chunks[0].heading_path)
+
+
 def test_empty_page_yields_no_chunks() -> None:
     assert chunk_page(_URL, "<html><body></body></html>", max_chars=200) == []
