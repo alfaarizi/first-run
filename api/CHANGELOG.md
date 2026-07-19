@@ -3,7 +3,24 @@
 Each entry records the date, the change, the rationale, and whether it is
 additive or breaking.
 
-## 2026-07-18
+## 2026-07-19
+
+### Added
+
+- `openapi/messages.yaml`: `POST /v1/messages` accepts one end-user chat
+  message from the widget, signed with the ingest headers over
+  `{timestamp}.{raw body}`. The body carries a client-generated UUIDv7 `id`
+  (the Segment `messageId` pattern the ingest events already follow) that
+  ties the answer's stream frames to the message, and an optional `ref`
+  naming the nudge whose expansion opened the conversation, mirroring the
+  `ref` on intervention events. The answer never rides the response: it
+  streams over `/v1/stream` as `token` frames, then one `done` frame with
+  citations, at most one `action` frame per answer, all frame names the
+  stream contract already reserved. A holdout user's question is answered
+  like any other: the holdout suppresses proactive nudges, not a question the user asks first.
+
+Additive. The stream contract keeps its shape, and its `token`, `done`, and
+`action` frames gain their producer.
 
 ### Added
 

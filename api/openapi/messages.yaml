@@ -1,0 +1,165 @@
+openapi: 3.1.0
+info:
+  title: FirstRun Messages API
+  version: 1.0.0
+  description: |
+    Accepts end-user chat messages from the widget SDK. The gateway
+    authenticates the request signature, resolves the conversation the
+    message belongs to, and forwards it to the agent. The answer does not
+    ride the response body. It streams back over the user's push channel
+    (`/v1/stream`) as `token` frames followed by one `done` frame carrying
+    the citations, and at most one `action` frame per answer.
+  contact:
+    name: FirstRun
+    url: https://github.com/alfaarizi/first-run
+  license:
+    name: AGPL-3.0-only
+    identifier: AGPL-3.0-only
+servers:
+  - url: /
+    description: The gateway serves this API at the deployment root.
+tags:
+  - name: messages
+    description: Carries end-user questions into the agent conversation.
+paths:
+  /v1/messages:
+    post:
+      operationId: sendMessage
+      tags: [messages]
+      summary: Send one end-user chat message
+      description: |
+        Accepts one message typed into the nudge's chat panel. Delivery is
+        acknowledged with 202 once the message reaches the agent, and the
+        streamed answer resolves out of band. A failed request frees the
+        widget's composer, so the user retries by sending again.
+      security:
+        - hmacSignature: []
+      parameters:
+        - name: X-FirstRun-Key
+          in: header
+          required: true
+          description: The app's SDK public key. An identifier, not a secret.
+          schema:
+            type: string
+            maxLength: 64
+        - name: X-FirstRun-Timestamp
+          in: header
+          required: true
+          description: >
+            Client time in RFC 3339 UTC. The gateway rejects requests outside
+            a 5-minute window.
+          schema:
+            type: string
+            format: date-time
+        - name: X-FirstRun-Signature
+          in: header
+          required: true
+          description: >
+            Hex-encoded HMAC-SHA256 over `{timestamp}.{raw body}` with the
+            app's HMAC key.
+          schema:
+            type: string
+            pattern: ^[0-9a-f]{64}$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Message'
+            example:
+              id: 019813f2-8a01-7bbb-9c39-1a2b3c4d5e6f
+              session_id: 019813f2-0000-7000-8000-000000000000
+              end_user_hash: 9f86d081884c7d65
+              text: How do I connect a data source?
+              ref: 019813f2-7f4a-7bbb-9c39-1a2b3c4d5e6f
+      responses:
+        '202':
+          description: >
+            Message accepted. The answer streams over `/v1/stream` as `token`
+            frames and a final `done` frame with the citations.
+        '400':
+          description: Malformed body or a field failed schema validation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: >
+            Unknown SDK key, missing or invalid signature, or timestamp
+            outside the window.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Origin sent and not on the app's allowed origins.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: Rate limit exceeded for the tenant.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+components:
+  securitySchemes:
+    hmacSignature:
+      type: apiKey
+      in: header
+      name: X-FirstRun-Signature
+      description: HMAC-SHA256 request signing. See the header parameters on each operation.
+  schemas:
+    Message:
+      type: object
+      required: [id, session_id, end_user_hash, text]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: >
+            Client-generated UUIDv7. Ties the answer's `token`, `done`, and
+            `action` frames to this message, and lets the gateway drop a
+            message that repeats an `id`.
+        session_id:
+          type: string
+          format: uuid
+          description: Widget-generated session ID. The widget rotates it after 30 idle minutes.
+        end_user_hash:
+          type: string
+          maxLength: 128
+          description: The customer-supplied hash of their user ID. Never personal data.
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: >
+            The question as typed. Carried to the agent only, never captured
+            as an event, because event properties admit no free text.
+        ref:
+          type: string
+          format: uuid
+          description: >
+            The nudge whose expansion opened this conversation. Binds the
+            conversation to its intervention, mirroring the `ref` field on
+            intervention events in the ingest contract.
+      additionalProperties: false
+    Problem:
+      type: object
+      description: An RFC 9457 problem details object.
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
