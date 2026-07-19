@@ -184,7 +184,68 @@ async def test_drip_fed_pages_hit_the_wall_clock_deadline() -> None:
         resolve=_public,
     )
 
-    assert [page.url async for page in crawler.crawl(f"{_ROOT}/")] == []
+    with pytest.raises(CrawlError):
+        async for _ in crawler.crawl(f"{_ROOT}/"):
+            pass
+
+
+async def test_transient_page_failure_fails_the_crawl() -> None:
+    def flaky(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/guide":
+            return httpx.Response(503)
+        return _site(request)
+
+    crawler = _crawler(transport=httpx.MockTransport(flaky))
+    pages = []
+    with pytest.raises(CrawlError):
+        async for page in crawler.crawl(f"{_ROOT}/"):
+            pages.append(page.url)
+
+    assert f"{_ROOT}/" in pages
+
+
+async def test_malformed_links_are_ignored_not_fatal() -> None:
+    def with_bad_links(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/":
+            return _html(
+                '<a href="https://[">Broken</a>'
+                f'<a href="{_ROOT}:99999/big-port">Bad port</a>'
+                '<a href="/guide">Guide</a>'
+            )
+        return _site(request)
+
+    crawler = _crawler(transport=httpx.MockTransport(with_bad_links))
+    urls = [page.url async for page in crawler.crawl(f"{_ROOT}/")]
+
+    assert f"{_ROOT}/" in urls
+    assert f"{_ROOT}/guide" in urls
+
+
+async def test_unknown_charset_falls_back_to_utf8() -> None:
+    def bogus_charset(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html; charset=bogus"},
+            content=b"<p>Text</p>",
+        )
+
+    crawler = _crawler(transport=httpx.MockTransport(bogus_charset))
+    pages = [page async for page in crawler.crawl(f"{_ROOT}/")]
+
+    assert pages and "Text" in pages[0].html
+
+
+async def test_frontier_is_bounded() -> None:
+    from agent.indexing.crawler import _Frontier
+
+    frontier = _Frontier(root_origin=("docs.example.com", 443), max_size=5)
+    for i in range(50):
+        frontier.add(f"{_ROOT}/page-{i}")
+
+    assert len(frontier.seen) == 5
+    assert len(frontier.queue) == 5
 
 
 async def test_connect_timeout_pin_falls_back_to_the_next_address() -> None:

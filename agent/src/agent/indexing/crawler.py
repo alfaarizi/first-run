@@ -26,19 +26,33 @@ logger = logging.getLogger(__name__)
 _USER_AGENT = "firstrun-crawler"
 _ROBOTS_REDIRECT_HOPS = 5
 _HTTPS_PORT = 443
+_FRONTIER_SCALE = 10
 
 Origin = tuple[str, int]
 
 
 def _origin(split: SplitResult) -> Origin | None:
-    # https only, default to folded port.
+    # https only, with the default port folded in. A malformed authority,
+    # such as an out-of-range port, reads as no origin.
     if split.scheme != "https" or not split.hostname:
         return None
-    return split.hostname, split.port or _HTTPS_PORT
+    try:
+        port = split.port
+    except ValueError:
+        return None
+    return split.hostname, port or _HTTPS_PORT
+
+
+def _join(base: str, url: str) -> str | None:
+    """Resolve a link, reading a malformed URL as absent."""
+    try:
+        return urljoin(base, url)
+    except ValueError:
+        return None
 
 
 class CrawlError(Exception):
-    """The root URL is unusable, so the crawl cannot start."""
+    """The crawl cannot start or cannot finish completely."""
 
 
 @dataclass(frozen=True)
@@ -51,15 +65,22 @@ class Page:
 
 @dataclass
 class _Frontier:
-    """Deduplicated queue of same-origin URLs still to fetch."""
+    """Bounded, deduplicated queue of same-origin URLs still to fetch."""
 
     root_origin: Origin
+    max_size: int
     queue: deque[str] = field(default_factory=deque)
     seen: set[str] = field(default_factory=set)
 
     def add(self, url: str) -> None:
+        if len(self.seen) >= self.max_size:
+            return
         url = urldefrag(url).url
-        if _origin(urlsplit(url)) == self.root_origin and url not in self.seen:
+        try:
+            on_site = _origin(urlsplit(url)) == self.root_origin
+        except ValueError:
+            return
+        if on_site and url not in self.seen:
             self.seen.add(url)
             self.queue.append(url)
 
@@ -102,7 +123,11 @@ def _is_identity(response: httpx.Response) -> bool:
 
 
 def _decode(response: httpx.Response, body: bytes) -> str:
-    return body.decode(response.charset_encoding or "utf-8", "replace")
+    try:
+        return body.decode(response.charset_encoding or "utf-8", "replace")
+    except LookupError:
+        # The server declared a charset Python does not know.
+        return body.decode("utf-8", "replace")
 
 
 class Crawler:
@@ -150,7 +175,10 @@ class Crawler:
             trust_env=False,
         ) as client:
             robots, pin = await self._connect(client, root_url, root, addresses)
-            frontier = _Frontier(root_origin=root_origin)
+            frontier = _Frontier(
+                root_origin=root_origin,
+                max_size=self._max_pages * _FRONTIER_SCALE,
+            )
             frontier.add(root_url)
             attempts = 0
             while frontier.queue and attempts < self._max_pages:
@@ -232,8 +260,11 @@ class Crawler:
                 for _ in range(_ROBOTS_REDIRECT_HOPS + 1):
                     async with self._stream(client, url, pin) as response:
                         if response.is_redirect:
-                            target = urljoin(url, response.headers.get("location", ""))
-                            if _origin(urlsplit(target)) != root_origin:
+                            target = _join(url, response.headers.get("location", ""))
+                            if (
+                                target is None
+                                or _origin(urlsplit(target)) != root_origin
+                            ):
                                 raise CrawlError("robots.txt redirects off-site")
                             url = target
                             continue
@@ -263,8 +294,12 @@ class Crawler:
             async with asyncio.timeout(self._deadline_seconds):
                 async with self._stream(client, url, pin) as response:
                     if response.is_redirect:
-                        frontier.add(urljoin(url, response.headers.get("location", "")))
+                        target = _join(url, response.headers.get("location", ""))
+                        if target is not None:
+                            frontier.add(target)
                         return None
+                    if response.status_code >= 500 or response.status_code == 429:
+                        raise CrawlError(f"{url} answered {response.status_code}")
                     content_type = response.headers.get("content-type", "")
                     if response.status_code != 200 or not content_type.startswith(
                         "text/html"
@@ -277,9 +312,9 @@ class Crawler:
                     if body is None:
                         logger.warning("skipping %s, response over size cap", url)
                         return None
-        except (TimeoutError, httpx.HTTPError):
-            logger.warning("skipping %s, request failed", url)
-            return None
+        except (TimeoutError, httpx.HTTPError) as error:
+            # A transient failure fails the whole crawl.
+            raise CrawlError(f"fetch of {url} failed: {error!r}") from error
 
         html = _decode(response, body)
         for link in _links(url, html):
@@ -292,10 +327,14 @@ def _links(page_url: str, html: str) -> list[str]:
     # A <base href> retargets all relative links. Resolve anchors against it.
     base = soup.find("base")
     base_href = base.get("href") if isinstance(base, Tag) else None
-    base_url = urljoin(page_url, base_href) if isinstance(base_href, str) else page_url
+    base_url = page_url
+    if isinstance(base_href, str):
+        base_url = _join(page_url, base_href) or page_url
     links = []
     for element in soup.find_all("a"):
         href = element.get("href")
         if isinstance(href, str):
-            links.append(urljoin(base_url, href))
+            link = _join(base_url, href)
+            if link is not None:
+                links.append(link)
     return links
