@@ -100,11 +100,13 @@ test-widget:
 test-web: generate-web
 	cd web && npm run test && npm run typecheck
 
-# Verifies the pinned data, tests the eval tooling, and enforces the gate floors.
+# Verifies the pinned data, tests the eval tooling, enforces the gate floors,
+# and replays the golden set when the agent and judge key are available.
 eval:
 	node scripts/verify-datasets.mjs
 	node --test "scripts/*.test.mjs"
 	node scripts/measure-gate.mjs
+	node scripts/measure-qa.mjs
 
 # Needs the compose stack up and Playwright browsers installed once:
 # (cd tasklet && npx playwright install chromium)

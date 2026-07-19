@@ -11,6 +11,27 @@
       "version": 1,
       "sessions": 150,
       "sha256": "3a0081ff3af3a9053eb5f5d1939c6e5b91d6aabc50fc956dbc79cec18581d77b"
+    },
+    "qa": {
+      "path": "datasets/qa/golden.jsonl",
+      "version": 1,
+      "questions": 153,
+      "unanswerable": 20,
+      "sha256": "e1c8a85c4e3545516a7fa03570bb0b32ffc396c86917b98956aeb32e3076d8a7"
+    }
+  },
+  "baselines": {
+    "qa": {
+      "measured": "2026-07-19",
+      "basis": "SYNTHETIC, golden set v1 replayed through Converse",
+      "answer_model": "claude-haiku-4-5",
+      "judge_model": "claude-sonnet-5",
+      "judge_calibrated": false,
+      "groundedness": 1.0,
+      "unanswerable_honesty": 1.0,
+      "first_token_p95_seconds": 52.37,
+      "first_token_unthrottled_seconds": 1.69,
+      "note": "p95 rides the payment-methodless Voyage window of 3 requests a minute; the unthrottled sample is the architecture's own first token"
     }
   }
 }

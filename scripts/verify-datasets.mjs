@@ -25,7 +25,7 @@ const PROPERTIES_LIMIT = 20
 
 // Validator factories by dataset name. A pin without one fails, so every
 // dataset that gates CI is schema-checked, never only hashed.
-const VALIDATORS = { sessions: createSessionValidator }
+const VALIDATORS = { sessions: createSessionValidator, qa: createGoldenQuestionValidator }
 
 const failures = Object.entries(BASELINES.datasets ?? {}).flatMap(verifyDataset)
 
@@ -45,7 +45,8 @@ function verifyDataset([name, pin]) {
   if (sha256 !== pin.sha256) failures.push(`${name}: sha256 ${sha256} does not match the pin ${pin.sha256}`)
 
   const rows = raw.split('\n').filter((line) => line.length > 0)
-  if (rows.length !== pin.sessions) failures.push(`${name}: ${rows.length} rows, pin says ${pin.sessions}`)
+  const pinnedRows = pin.sessions ?? pin.questions
+  if (rows.length !== pinnedRows) failures.push(`${name}: ${rows.length} rows, pin says ${pinnedRows}`)
 
   const createValidator = VALIDATORS[name]
   if (!createValidator) {
@@ -161,4 +162,45 @@ function isScalarMap(value) {
     entries.length <= PROPERTIES_LIMIT &&
     entries.every((entry) => ['string', 'number', 'boolean'].includes(typeof entry))
   )
+}
+
+/** Returns a validator that checks one golden-question row per call. */
+function createGoldenQuestionValidator() {
+  const pin = BASELINES.datasets.qa
+  let at = 0
+  let unanswerable = 0
+  return (line) => {
+    at += 1
+    let row
+    try {
+      row = JSON.parse(line)
+    } catch {
+      return ['not valid JSON']
+    }
+
+    const problems = []
+    const keys = Object.keys(row).sort().join(',')
+
+    if (keys !== 'answerable,id,question,reference_answer,source_urls') {
+      return [`keys are [${keys}], not the golden-question shape`]
+    }
+    // Dense ordered ids, so growth appends and diffs stay reviewable.
+    if (row.id !== `qa-${String(at).padStart(3, '0')}`) problems.push(`id ${row.id} breaks the qa-NNN order`)
+    if (typeof row.question !== 'string' || row.question.length === 0) problems.push('question is empty')
+    if (typeof row.reference_answer !== 'string' || row.reference_answer.length === 0) {
+      problems.push('reference_answer is empty')
+    }
+    if (typeof row.answerable !== 'boolean') problems.push('answerable is not a boolean')
+    if (!Array.isArray(row.source_urls) || !row.source_urls.every((url) => /^https?:\/\//.test(url))) {
+      problems.push('source_urls is not a list of http(s) URLs')
+    } else if (row.answerable !== row.source_urls.length > 0) {
+      problems.push('answerable must match whether source_urls is non-empty')
+    }
+
+    if (!row.answerable) unanswerable += 1
+    if (at === pin.questions && unanswerable !== pin.unanswerable) {
+      problems.push(`${unanswerable} unanswerable rows, pin says ${pin.unanswerable}`)
+    }
+    return problems
+  }
 }
