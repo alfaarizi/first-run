@@ -32,6 +32,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Fail fast on missing configuration, then serve gRPC beside HTTP."""
     settings = get_settings()
     store = ChunkStore(settings.database_url)
+    embedder = EmbeddingClient()
     indexer = Indexer(
         crawler=Crawler(
             max_pages=settings.crawl_max_pages,
@@ -40,7 +41,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             max_response_bytes=settings.crawl_max_response_bytes,
             allow_local=settings.crawl_allow_local,
         ),
-        embedder=EmbeddingClient(),
+        embedder=embedder,
         store=store,
         chunk_max_chars=settings.chunk_max_chars,
         crawl_max_concurrent=settings.crawl_max_concurrent,
@@ -52,7 +53,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     searcher = ChunkSearcher(settings.database_url)
     graph = build_graph(
-        embedder=EmbeddingClient(),
+        embedder=embedder,
         searcher=searcher,
         chat=ChatClient(),
         langfuse=langfuse,

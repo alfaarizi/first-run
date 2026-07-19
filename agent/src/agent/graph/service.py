@@ -1,7 +1,6 @@
 """Serves ConversationService over grpc.aio."""
 
 import logging
-import uuid
 from collections.abc import AsyncIterator
 
 import grpc
@@ -9,6 +8,7 @@ from langfuse import Langfuse
 from langgraph.graph.state import CompiledStateGraph
 
 from agent.graph.build import ConversationState
+from agent.grpc_validation import abort_unless_uuids
 from agent.llm.client import Turn
 from agent.schemas.answer import AnswerToken, Citation
 from firstrun.v1 import conversation_pb2
@@ -26,6 +26,7 @@ class ConversationService(ConversationServiceServicer):  # type: ignore[misc]
         langfuse: Langfuse,
         max_turns: int,
     ) -> None:
+        """Serve the compiled graph, keeping at most ``max_turns`` of history."""
         self._graph = graph
         self._langfuse = langfuse
         self._max_turns = max_turns
@@ -71,20 +72,9 @@ class ConversationService(ConversationServiceServicer):  # type: ignore[misc]
                     async for event in self._graph.astream(state, stream_mode="custom"):
                         if isinstance(event, AnswerToken):
                             answer_text.append(event.text)
-                            yield conversation_pb2.ConverseResponse(
-                                answer_chunk=conversation_pb2.AnswerChunk(
-                                    message_id=message.message_id, text=event.text
-                                )
-                            )
-                        elif isinstance(event, Citation):
-                            yield conversation_pb2.ConverseResponse(
-                                citation=conversation_pb2.Citation(
-                                    message_id=message.message_id,
-                                    source_url=event.source_url,
-                                    title=event.title,
-                                    snippet=event.snippet,
-                                )
-                            )
+                        response = _to_response(message.message_id, event)
+                        if response is not None:
+                            yield response
                 except Exception:
                     # The stream outlives one bad answer. The failed flag tells
                     # the server that any tokens already streamed are truncated.
@@ -99,8 +89,8 @@ class ConversationService(ConversationServiceServicer):  # type: ignore[misc]
                 )
             )
 
-            # A truncated answer stays out of history: grounding later turns
-            # in text the failure cut short would corrupt them too.
+            # A truncated answer stays out of history. Grounding later turns
+            # in cut-short text would corrupt them too.
             if answer_text and not failed:
                 history.append(Turn(role="user", text=message.text))
                 history.append(Turn(role="assistant", text="".join(answer_text)))
@@ -124,11 +114,27 @@ async def _read_context(
             "the first frame must be a ConversationContext",
         )
     conversation = first.context
-    for name in ("tenant_id", "app_id"):
-        try:
-            uuid.UUID(getattr(conversation, name))
-        except ValueError:
-            await context.abort(
-                grpc.StatusCode.INVALID_ARGUMENT, f"{name} is not a UUID"
-            )
+    await abort_unless_uuids(conversation, context, "tenant_id", "app_id")
     return conversation
+
+
+def _to_response(
+    message_id: str, event: object
+) -> conversation_pb2.ConverseResponse | None:
+    """Map one graph event to its wire frame, or None for internal events."""
+    if isinstance(event, AnswerToken):
+        return conversation_pb2.ConverseResponse(
+            answer_chunk=conversation_pb2.AnswerChunk(
+                message_id=message_id, text=event.text
+            )
+        )
+    if isinstance(event, Citation):
+        return conversation_pb2.ConverseResponse(
+            citation=conversation_pb2.Citation(
+                message_id=message_id,
+                source_url=event.source_url,
+                title=event.title,
+                snippet=event.snippet,
+            )
+        )
+    return None

@@ -1,17 +1,11 @@
-"""Writes doc sources and chunks under the tenant's row-level security context.
+"""Writes doc sources and chunks under the tenant's row-level security context."""
 
-Every statement runs in a transaction that first sets ``app.tenant_id``, so
-the policies that guard the server guard the agent, and the connecting role
-is never a superuser.
-"""
-
-import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-import asyncpg
 from pgvector import Vector
-from pgvector.asyncpg import register_vector
+
+from agent.db import TenantPool
 
 
 @dataclass(frozen=True)
@@ -29,26 +23,12 @@ class ChunkStore:
     """asyncpg-backed writer for ``doc_source`` and ``doc_chunk``."""
 
     def __init__(self, database_url: str) -> None:
-        self._database_url = database_url
-        self._pool: asyncpg.Pool | None = None
-        self._pool_lock = asyncio.Lock()
-
-    async def _get_pool(self) -> asyncpg.Pool:
-        # Lazy so the service starts, and stays honest on /health, before the
-        # database is reachable.
-        async with self._pool_lock:
-            if self._pool is None:
-                # min_size 1: two agent pools share this database, so the
-                # idle floor stays one connection each.
-                self._pool = await asyncpg.create_pool(
-                    self._database_url, init=register_vector, min_size=1
-                )
-            return self._pool
+        """Open a lazy tenant-scoped pool against the database."""
+        self._db = TenantPool(database_url)
 
     async def close(self) -> None:
         """Release the pool at shutdown."""
-        if self._pool is not None:
-            await self._pool.close()
+        await self._db.close()
 
     async def mark_indexing(
         self, *, tenant_id: str, app_id: str, source_id: str, url: str
@@ -57,9 +37,7 @@ class ChunkStore:
 
         This is the recovery point for rows a killed agent left behind.
         """
-        pool = await self._get_pool()
-        async with pool.acquire() as connection, connection.transaction():
-            await _set_tenant(connection, tenant_id)
+        async with self._db.tenant_transaction(tenant_id) as connection:
             await connection.execute(
                 """
                 INSERT INTO doc_source (id, tenant_id, app_id, url, status)
@@ -90,9 +68,7 @@ class ChunkStore:
         rows: Sequence[ChunkRow],
     ) -> None:
         """Insert one page's chunks, searchable as soon as they commit."""
-        pool = await self._get_pool()
-        async with pool.acquire() as connection, connection.transaction():
-            await _set_tenant(connection, tenant_id)
+        async with self._db.tenant_transaction(tenant_id) as connection:
             await connection.executemany(
                 """
                 INSERT INTO doc_chunk
@@ -117,9 +93,7 @@ class ChunkStore:
 
     async def complete(self, *, tenant_id: str, source_id: str, crawl_id: str) -> None:
         """Sweep every older crawl's chunks and mark the source READY."""
-        pool = await self._get_pool()
-        async with pool.acquire() as connection, connection.transaction():
-            await _set_tenant(connection, tenant_id)
+        async with self._db.tenant_transaction(tenant_id) as connection:
             await connection.execute(
                 "DELETE FROM doc_chunk WHERE source_id = $1 AND crawl_id <> $2",
                 source_id,
@@ -137,9 +111,7 @@ class ChunkStore:
 
     async def fail(self, *, tenant_id: str, source_id: str, crawl_id: str) -> None:
         """Sweep the failed crawl's own chunks and mark the source FAILED."""
-        pool = await self._get_pool()
-        async with pool.acquire() as connection, connection.transaction():
-            await _set_tenant(connection, tenant_id)
+        async with self._db.tenant_transaction(tenant_id) as connection:
             await connection.execute(
                 "DELETE FROM doc_chunk WHERE source_id = $1 AND crawl_id = $2",
                 source_id,
@@ -149,7 +121,3 @@ class ChunkStore:
                 "UPDATE doc_source SET status = 'FAILED' WHERE id = $1",
                 source_id,
             )
-
-
-async def _set_tenant(connection: asyncpg.Connection, tenant_id: str) -> None:
-    await connection.execute("SELECT set_config('app.tenant_id', $1, true)", tenant_id)

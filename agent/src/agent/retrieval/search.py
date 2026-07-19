@@ -1,15 +1,10 @@
-"""Searches doc chunks under the tenant's row-level security context.
+"""Searches doc chunks under the tenant's row-level security context."""
 
-Every query runs in a transaction that first sets ``app.tenant_id``, the same
-guard the writer side uses, and the connecting role is never a superuser.
-"""
-
-import asyncio
 from dataclasses import dataclass
 
-import asyncpg
 from pgvector import Vector
-from pgvector.asyncpg import register_vector
+
+from agent.db import TenantPool
 
 
 @dataclass(frozen=True)
@@ -25,36 +20,18 @@ class ChunkSearcher:
     """asyncpg-backed nearest-neighbor reader for ``doc_chunk``."""
 
     def __init__(self, database_url: str) -> None:
-        self._database_url = database_url
-        self._pool: asyncpg.Pool | None = None
-        self._pool_lock = asyncio.Lock()
-
-    async def _get_pool(self) -> asyncpg.Pool:
-        # Lazy so the service starts, and stays honest on /health, before the
-        # database is reachable.
-        async with self._pool_lock:
-            if self._pool is None:
-                # min_size 1: two agent pools share this database, so the
-                # idle floor stays one connection each.
-                self._pool = await asyncpg.create_pool(
-                    self._database_url, init=register_vector, min_size=1
-                )
-            return self._pool
+        """Open a lazy tenant-scoped pool against the database."""
+        self._db = TenantPool(database_url)
 
     async def close(self) -> None:
         """Release the pool at shutdown."""
-        if self._pool is not None:
-            await self._pool.close()
+        await self._db.close()
 
     async def search(
         self, *, tenant_id: str, app_id: str, embedding: list[float], limit: int
     ) -> list[RetrievedChunk]:
         """Return the chunks nearest the query embedding for one app."""
-        pool = await self._get_pool()
-        async with pool.acquire() as connection, connection.transaction():
-            await connection.execute(
-                "SELECT set_config('app.tenant_id', $1, true)", tenant_id
-            )
+        async with self._db.tenant_transaction(tenant_id) as connection:
             # Row-level security and the app join filter after the index
             # scan, so iterative scans keep recall for small tenants.
             await connection.execute("SET LOCAL hnsw.iterative_scan = relaxed_order")
