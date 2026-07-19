@@ -18,8 +18,8 @@ export function createComposer(onSubmit: () => void): Composer {
   input.setAttribute("aria-label", "Ask about this product");
   input.oninput = sync;
   input.onkeydown = (e) => {
-    // an Enter that commits IME composition keeps composing, and Safari fires
-    // it after compositionend with isComposing already false, so 229 gates it
+    // An Enter that commits IME composition keeps composing. Safari fires it
+    // after compositionend with isComposing already false, so 229 gates it.
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
       e.preventDefault();
       onSubmit();
@@ -37,6 +37,7 @@ export function createComposer(onSubmit: () => void): Composer {
   const root = el("div", "fr-composer");
   root.append(input, send);
 
+  /** Caps caret-driven scroll jumps at one line, so arrow keys pan smoothly. */
   function clampScroll(): void {
     const before = input.scrollTop;
     requestAnimationFrame(() => {
@@ -47,8 +48,10 @@ export function createComposer(onSubmit: () => void): Composer {
     });
   }
 
-  // grows the composer with its content, hands overflow to a scrollbar at the
-  // cap, and arms the send button only for a draft submit would accept
+  /**
+   * Grows the composer with its content, handing overflow to a scrollbar at
+   * the cap, and arms the send button only for a draft submit would accept.
+   */
   function sync(): void {
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
@@ -64,7 +67,7 @@ export function createComposer(onSubmit: () => void): Composer {
       sync();
     },
     focus() {
-      // scroll-on-focus would drag the shell's content while it is mid-morph
+      // Scroll-on-focus would drag the shell's content while it is mid-morph.
       input.focus({ preventScroll: true });
     },
   };

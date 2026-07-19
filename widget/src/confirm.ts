@@ -2,6 +2,7 @@ import { TRY_AGAIN_TEXT } from "./constants";
 import { el } from "./dom";
 import type { ActionPayload } from "./types";
 
+/** What the card reports: the explicit confirm click, or the cancel. */
 export interface ConfirmCallbacks {
   onConfirm(executionId: string): Promise<boolean>;
   onCancel(executionId: string): void;
@@ -16,7 +17,7 @@ export function showConfirmation(
   action: ActionPayload,
   callbacks: ConfirmCallbacks,
 ): void {
-  // one pending confirmation at a time, so a hostile stream cannot flood cards
+  // One pending confirmation at a time, so a hostile stream cannot flood cards.
   container.querySelector(".fr-confirm")?.remove();
 
   const card = el("div", "fr-card fr-confirm");

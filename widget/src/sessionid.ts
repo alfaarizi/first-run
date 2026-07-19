@@ -22,10 +22,10 @@ export function sessionId(now = Date.now()): string {
       id = raw.slice(splitAt + 1);
     }
   } catch {
-    // storage is blocked, use the in-memory copy
+    // Storage is blocked; the in-memory copy stands in.
   }
 
-  // a corrupt store rotates instead of poisoning every batch
+  // A corrupt store rotates instead of poisoning every batch.
   if (!isUuidv7(id) || !Number.isFinite(touchedAt) || now - touchedAt > IDLE_MS) id = uuidv7();
   storeSession(now, id);
   return id;
@@ -43,6 +43,6 @@ function storeSession(now: number, sessionId: string): void {
   try {
     sessionStorage.setItem(STORAGE_KEY, `${now}:${sessionId}`);
   } catch {
-    // best effort
+    // Best effort; the in-memory copy already advanced.
   }
 }

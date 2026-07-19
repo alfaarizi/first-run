@@ -1,10 +1,10 @@
-// the input's line grid, which the composer's caret scroll steps by
+// The input's line grid, which the composer's caret scroll steps by.
 export const COMPOSER_LINE_HEIGHT_PX = 20;
 
-// where the growing composer stops and scrolls instead, about five lines
+// Where the growing composer stops and scrolls instead, about five lines.
 export const COMPOSER_MAX_HEIGHT_PX = 120;
 
-// how long the expand morph runs, matched by the timer that unhooks the transition after it
+// How long the expand morph runs, matched by the timer that unhooks the transition after it.
 export const MORPH_MS = 300;
 
 export const NUDGE_CSS = `

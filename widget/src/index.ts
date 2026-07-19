@@ -10,7 +10,7 @@ import { connectStream } from "./stream";
 import type { Config, Properties } from "./types";
 import { uuidv7 } from "./uuidv7";
 
-// the ingest grammar for custom names, which also excludes the reserved fr. prefix
+// The ingest grammar for custom names. It also excludes the reserved fr. prefix.
 const EVENT_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 const MAX_END_USER_HASH_LENGTH = 128;
 const MAX_PENDING = 100;
@@ -33,7 +33,7 @@ function safe<A extends unknown[]>(fn: (...args: A) => void): (...args: A) => vo
     try {
       fn(...args);
     } catch {
-      // fail silent
+      // Fail silent.
     }
   };
 }
@@ -52,11 +52,13 @@ function readConfig(): Config | undefined {
   };
 }
 
+/** Wires the whole widget: capture queue, surface, push stream, and window.fr. */
 function start(config: Config): void {
   const queue = new RequestQueue(config);
   let endUserHash = "";
   let pendingEvents: PendingEvent[] = [];
 
+  /** Queues one event under the current identity and session. */
   const enqueueEvent = (
     event: string,
     properties: Properties | undefined,
@@ -74,7 +76,10 @@ function start(config: Config): void {
     });
   };
 
-  // every captured property passes the allowlist client-side, autocapture included
+  /**
+   * Captures one event, held until identify supplies the hash. Every
+   * property passes the allowlist client-side, autocapture included.
+   */
   const capture = (event: string, properties?: Properties) => {
     const timestamp = new Date().toISOString();
     const allowedProperties = properties && filterProperties(properties, config.allowlist);
@@ -84,7 +89,7 @@ function start(config: Config): void {
     }
   };
 
-  // an intervention event answers a nudge or action the stream rendered, so identity is already set
+  /** Queues an outcome event. It answers a rendered frame, so identity is already set. */
   const enqueueInterventionEvent = (event: string, ref: string) =>
     enqueueEvent(event, undefined, new Date().toISOString(), ref);
 
@@ -107,12 +112,13 @@ function start(config: Config): void {
 
   let disconnect: (() => void) | undefined;
 
+  /** Adopts the end user's hash, releasing held events and (re)opening their stream. */
   const identify = safe((hash: string) => {
-    // one bad hash would poison every later batch, so the contract's cap gates here
+    // One bad hash would poison every later batch, so the contract's cap gates here.
     if (typeof hash !== "string" || !hash.trim() || hash.length > MAX_END_USER_HASH_LENGTH) return;
     if (hash === endUserHash) return;
 
-    // an account switch gets a fresh session, and the old surface never leaks
+    // An account switch gets a fresh session, and the old surface never leaks.
     if (endUserHash) {
       rotateSession();
       ui.reset();
@@ -150,8 +156,9 @@ function start(config: Config): void {
     });
   });
 
+  /** Captures one founder-named event, dropping names outside the grammar. */
   const track = safe((event: string, properties?: Properties) => {
-    // one rejected name never poisons a batch the gateway validates as a whole
+    // One rejected name never poisons a batch the gateway validates as a whole.
     if (typeof event !== "string" || !EVENT_NAME.test(event)) return;
     capture(event, properties);
   });
@@ -160,6 +167,7 @@ function start(config: Config): void {
   window.fr = { identify, track };
 }
 
+// Boots once per page; a second snippet is a no-op.
 safe(() => {
   if (window.fr) return;
   const config = readConfig();

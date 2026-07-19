@@ -2,6 +2,8 @@ import { toHex } from "./hex";
 import type { Config } from "./types";
 
 const encoder = new TextEncoder();
+
+// Imported once; the raw secret never touches the crypto API twice.
 let signingKey: Promise<CryptoKey> | undefined;
 
 /** Signs `{timestamp}.{body}` with HMAC-SHA256 and returns lowercase hex. */
@@ -18,6 +20,7 @@ export async function sign(
   return toHex(new Uint8Array(mac));
 }
 
+/** Whether the request landed, and whether resending it could help. */
 export interface PostResult {
   ok: boolean;
   retryable: boolean;
@@ -55,6 +58,7 @@ export async function post(
   }
 }
 
+/** Imports the signing key once and caches the promise. */
 function importKey(secret: string): Promise<CryptoKey> {
   signingKey ??= crypto.subtle.importKey(
     "raw",

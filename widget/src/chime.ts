@@ -1,8 +1,8 @@
-// A5 to D6, a rising fourth, short and quiet enough to read as a tap
+// A5 to D6, a rising fourth: short and quiet enough to read as a tap.
 const NOTES_HZ = [880, 1174.7] as const;
 const DURATION_S = 0.18;
 const PEAK_GAIN = 0.08;
-// an exponential ramp never reaches zero, so the tail decays to inaudible
+// An exponential ramp never reaches zero, so the tail decays to inaudible.
 const FLOOR_GAIN = 0.001;
 
 /**
@@ -17,7 +17,7 @@ export function createChime(): () => void {
     try {
       context = new AudioContext();
     } catch {
-      // no Web Audio, so the chime stays silent
+      // No Web Audio, so the chime stays silent.
     }
     removeEventListener("pointerdown", prime);
     removeEventListener("keydown", prime);

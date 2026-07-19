@@ -7,8 +7,10 @@ const CURSOR_EARLIEST = "earliest";
 const RETRY_MS = 5000;
 const MAX_BACKOFF_STEPS = 6;
 
+// Fallback cursors for pages where sessionStorage is blocked.
 const memoryCursors = new Map<string, string>();
 
+/** What the stream dispatches: one handler per server frame type. */
 export interface StreamHandlers {
   nudge(payload: NudgePayload): void;
   token(messageId: string, text: string): void;
@@ -36,9 +38,10 @@ export function connectStream(
   let lastEventId = loadCursor(config.key, endUserHash) || CURSOR_EARLIEST;
   const seenNudges = new Set<string>();
 
+  /** Opens one EventSource behind a fresh signed URL. */
   const open = async () => {
-    // the signature binds the hash, so one signed url cannot subscribe another
-    // user, and an empty sig means signing is unavailable so the stream stays shut
+    // The signature binds the hash, so one signed URL cannot subscribe another
+    // user. An empty signature means signing is unavailable, so the stream stays shut.
     const timestamp = new Date().toISOString();
     const signature = await sign(config.secret, timestamp, endUserHash).catch(() => "");
     if (closed || !signature) return;
@@ -50,6 +53,7 @@ export function connectStream(
         `&last_event_id=${encodeURIComponent(lastEventId)}`,
     );
 
+    /** Subscribes one frame handler, advancing the stored cursor first. */
     const on = (name: string, handle: (data: string) => void) => {
       source?.addEventListener(name, (e) => {
         const message = e as MessageEvent<string>;
@@ -60,7 +64,7 @@ export function connectStream(
         try {
           handle(message.data);
         } catch {
-          // a malformed frame never breaks the host app
+          // A malformed frame never breaks the host app.
         }
       });
     };
@@ -85,7 +89,7 @@ export function connectStream(
       retries = 0;
     });
     source.addEventListener("error", () => {
-      // CONNECTING means the browser is already retrying on its own
+      // CONNECTING means the browser is already retrying on its own.
       if (closed || source?.readyState !== EventSource.CLOSED) return;
       retryTimer = setTimeout(open, RETRY_MS * Math.min(++retries, MAX_BACKOFF_STEPS));
     });
@@ -121,7 +125,7 @@ function loadCursor(key: string, endUserHash: string): string {
   try {
     cursor = sessionStorage.getItem(storageKey) ?? cursor;
   } catch {
-    // storage is blocked, use the in-memory copy
+    // Storage is blocked; the in-memory copy stands in.
   }
   return cursor;
 }
@@ -133,6 +137,6 @@ function storeCursor(key: string, endUserHash: string, lastEventId: string): voi
   try {
     sessionStorage.setItem(storageKey, lastEventId);
   } catch {
-    // best effort
+    // Best effort; the in-memory copy already advanced.
   }
 }
