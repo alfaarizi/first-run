@@ -11,8 +11,8 @@ const memoryCursors = new Map<string, string>();
 
 export interface StreamHandlers {
   nudge(payload: NudgePayload): void;
-  token(text: string): void;
-  done(citations: Citation[]): void;
+  token(messageId: string, text: string): void;
+  done(messageId: string, citations: Citation[]): void;
   action(payload: ActionPayload): void;
 }
 
@@ -71,8 +71,14 @@ export function connectStream(
       seenNudges.add(payload.id);
       handlers.nudge(payload);
     });
-    on("token", (data) => handlers.token((JSON.parse(data) as { text: string }).text));
-    on("done", (data) => handlers.done((JSON.parse(data) as { citations?: Citation[] }).citations ?? []));
+    on("token", (data) => {
+      const frame = JSON.parse(data) as { message_id: string; text: string };
+      handlers.token(frame.message_id, frame.text);
+    });
+    on("done", (data) => {
+      const frame = JSON.parse(data) as { message_id: string; citations?: Citation[] };
+      handlers.done(frame.message_id, frame.citations ?? []);
+    });
     on("action", (data) => handlers.action(JSON.parse(data) as ActionPayload));
 
     source.addEventListener("open", () => {

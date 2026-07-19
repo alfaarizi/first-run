@@ -6,9 +6,11 @@ import { createFace } from "./face";
 import { FACE_CSS } from "./face.css";
 import { MORPH_MS, NUDGE_CSS } from "./nudge.css";
 import type { Citation, NudgePayload } from "./types";
+import { uuidv7 } from "./uuidv7";
 
-// a stream silent this long is treated as dead, so its answer never blocks the next question
-const ANSWER_IDLE_MS = 20_000;
+// past the server's 30s per-answer watchdog: a live stream always closes the answer
+// first, so this fires only when the stream itself is dead
+const ANSWER_IDLE_MS = 35_000;
 
 // within this distance of the newest message the view still follows the stream
 const NEAR_BOTTOM_PX = 40;
@@ -19,8 +21,11 @@ const TIME_FORMAT = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute
 export interface NudgeCallbacks {
   onDismiss(nudgeId: string): void;
   onEngage(nudgeId: string): void;
-  /** `ref` names the nudge this message answers, when the panel opened from one. */
-  onSend(text: string, ref?: string): Promise<boolean>;
+  /**
+   * `id` ties the answer's stream frames back to this message, and `ref`
+   * names the nudge this message answers, when the panel opened from one.
+   */
+  onSend(id: string, text: string, ref?: string): Promise<boolean>;
 }
 
 /**
@@ -42,6 +47,7 @@ export class NudgeUi {
   private readonly nudgesAwaitingReply = new Set<string>();
   private lastEngagedNudge: string | undefined;
   private answer: HTMLElement | undefined;
+  private answerMessageId: string | undefined;
   private answerTimer: number | undefined;
   private morphTimer: number | undefined;
   private expanded = false;
@@ -166,15 +172,18 @@ export class NudgeUi {
     this.notify();
   }
 
-  appendToken(text: string): void {
-    if (!this.answer) return;
+  appendToken(messageId: string, text: string): void {
+    // another tab's answer rides the same user stream, so only frames for the
+    // question this panel sent reach its slot
+    if (!this.answer || messageId !== this.answerMessageId) return;
     const follow = this.isAtBottom();
     this.answer.append(text);
     if (follow) this.scrollToBottom();
     this.keepAnswerAlive();
   }
 
-  finishAnswer(citations: Citation[]): void {
+  finishAnswer(messageId: string, citations: Citation[]): void {
+    if (messageId !== this.answerMessageId) return;
     if (this.answer) {
       const follow = this.isAtBottom();
       const list = el("ul", "fr-citations");
@@ -256,12 +265,14 @@ export class NudgeUi {
     const ref = this.lastEngagedNudge;
     for (const id of this.nudgesAwaitingReply) this.callbacks.onEngage(id);
     this.nudgesAwaitingReply.clear();
+    const id = uuidv7();
     const answer = this.appendMessage("agent");
     this.answer = answer;
+    this.answerMessageId = id;
     this.keepAnswerAlive();
 
     void this.callbacks
-      .onSend(text, ref)
+      .onSend(id, text, ref)
       .catch(() => false)
       .then((delivered) => {
         // a failed send frees the slot, so the user can try again
@@ -305,7 +316,7 @@ export class NudgeUi {
   // stops the idle countdown and frees the slot
   private dropAnswer(): void {
     clearTimeout(this.answerTimer);
-    this.answer = undefined;
+    this.answer = this.answerMessageId = undefined;
   }
 }
 

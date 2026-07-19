@@ -31,7 +31,9 @@ function createUi() {
   const callbacks = {
     onDismiss: vi.fn(),
     onEngage: vi.fn(),
-    onSend: vi.fn<(text: string) => Promise<boolean>>().mockResolvedValue(true),
+    onSend: vi
+      .fn<(id: string, text: string, ref?: string) => Promise<boolean>>()
+      .mockResolvedValue(true),
   };
   const ui = new NudgeUi(callbacks);
   const query = <T extends HTMLElement>(selector: string) =>
@@ -246,7 +248,7 @@ test("a send renders the user text and a failed send frees the slot", async () =
   input!.value = "how do I connect?";
   input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
 
-  expect(callbacks.onSend).toHaveBeenCalledWith("how do I connect?", undefined);
+  expect(callbacks.onSend).toHaveBeenCalledWith(expect.any(String), "how do I connect?", undefined);
   expect(query(".fr-message-user .fr-body")?.textContent).toBe("how do I connect?");
   expect(query(".fr-message-user .fr-time")?.textContent).toMatch(/^\d{1,2}:\d{2}/);
 
@@ -321,8 +323,9 @@ test("citations render http links only", async () => {
   input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   await callbacks.onSend.mock.results[0]?.value;
 
-  ui.appendToken("Answer.");
-  ui.finishAnswer([
+  const messageId = callbacks.onSend.mock.calls[0]![0];
+  ui.appendToken(messageId, "Answer.");
+  ui.finishAnswer(messageId, [
     { title: "bad", url: "javascript:alert(1)" },
     { title: "docs", url: "https://docs.example.com/setup" },
   ]);
@@ -342,9 +345,28 @@ test("an answer that ends without tokens or citations reads as a failure", async
   input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   await callbacks.onSend.mock.results[0]?.value;
 
-  ui.finishAnswer([]);
+  ui.finishAnswer(callbacks.onSend.mock.calls[0]![0], []);
 
   expect(query(".fr-message-agent .fr-body")?.textContent).toBe(TRY_AGAIN_TEXT);
+});
+
+test("frames for another conversation's message never reach the slot", async () => {
+  const { ui, callbacks, query } = createUi();
+  query<HTMLButtonElement>(".fr-launcher")?.click();
+
+  const input = query<HTMLTextAreaElement>(".fr-input");
+  input!.value = "help";
+  input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  await callbacks.onSend.mock.results[0]?.value;
+
+  // another tab's answer, riding the same per-user stream
+  ui.appendToken("other-message", "Their answer.");
+  ui.finishAnswer("other-message", []);
+
+  const messageId = callbacks.onSend.mock.calls[0]![0];
+  ui.appendToken(messageId, "Mine.");
+
+  expect(query(".fr-message-agent .fr-body")?.textContent).toBe("Mine.");
 });
 
 test("the header close button collapses the panel without the morph", () => {

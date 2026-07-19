@@ -91,12 +91,12 @@ function start(config: Config): void {
   const ui = new NudgeUi({
     onDismiss: safe((nudgeId) => enqueueInterventionEvent("fr.nudge_dismissed", nudgeId)),
     onEngage: safe((nudgeId) => enqueueInterventionEvent("fr.nudge_engaged", nudgeId)),
-    onSend: (text, ref) =>
+    onSend: (id, text, ref) =>
       post(
         config,
         MESSAGES_PATH,
         JSON.stringify({
-          id: uuidv7(),
+          id,
           session_id: sessionId(),
           end_user_hash: endUserHash,
           text,
@@ -125,8 +125,8 @@ function start(config: Config): void {
     disconnect?.();
     disconnect = connectStream(config, hash, {
       nudge: safe((payload) => ui.showNudge(payload)),
-      token: safe((text) => ui.appendToken(text)),
-      done: safe((citations) => ui.finishAnswer(citations)),
+      token: safe((messageId, text) => ui.appendToken(messageId, text)),
+      done: safe((messageId, citations) => ui.finishAnswer(messageId, citations)),
       action: safe((payload) => {
         ui.notify();
         showConfirmation(ui.container, payload, {
