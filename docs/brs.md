@@ -65,7 +65,7 @@ v1 rests on four assumptions:
 
 FirstRun depends on five external services and integrations:
 
-- An LLM provider (OpenAI or Bedrock).
+- An LLM provider (Anthropic for chat, Voyage AI for embeddings).
 - Stripe for metered billing.
 - AWS (ECS Fargate and RDS Postgres).
 - Langfuse for tracing, without which the agent will not start.
