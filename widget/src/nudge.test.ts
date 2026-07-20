@@ -449,6 +449,7 @@ test("a send persists the settled transcript and the pending answer's id", async
   let snapshot: ChatSnapshot | undefined;
   const ui = createUi((s) => (snapshot = structuredClone(s)));
   const messageId = await send(ui, "how do I connect?");
+  dispatchEvent(new Event("pagehide"));
 
   expect(snapshot?.open).toBe(true);
   expect(snapshot?.pendingId).toBe(messageId);
@@ -463,7 +464,8 @@ test("restore rebuilds the conversation and re-arms a pending answer", async () 
   const messageId = await send(first, "how do I connect?");
   first.ui.appendToken(messageId, "Half");
 
-  // a reload: a fresh surface restores the prior page's stored snapshot
+  // a reload: the surface persists on pagehide, a fresh one restores the snapshot
+  dispatchEvent(new Event("pagehide"));
   const second = createUi();
   second.ui.restore(snapshot);
 
@@ -485,6 +487,7 @@ test("a completed answer restores as plain text without a typing indicator", asy
   first.ui.appendToken(messageId, "Done.");
   first.ui.finishAnswer(messageId, "Done.", []);
 
+  dispatchEvent(new Event("pagehide"));
   const second = createUi();
   second.ui.restore(snapshot);
 
@@ -500,6 +503,7 @@ test("a nudge arriving mid-answer survives a reload without corrupting the answe
   // a nudge lands in the open panel while the answer is still streaming
   first.ui.showNudge({ id: "n1", text: "Need a hand?" });
 
+  dispatchEvent(new Event("pagehide"));
   const second = createUi();
   second.ui.restore(snapshot);
 
@@ -524,6 +528,45 @@ test("the header close button collapses the panel without the morph", () => {
   expect(query(".fr-shell")?.classList.contains("fr-expanded")).toBe(false);
   expect(query(".fr-shell")?.classList.contains("fr-morph")).toBe(false);
   expect(shadow.activeElement).toBe(query(".fr-launcher"));
+});
+
+test("a half-typed draft is captured on refresh and restored", () => {
+  let snapshot: ChatSnapshot | undefined;
+  const first = createUi((s) => (snapshot = structuredClone(s)));
+  first.query<HTMLButtonElement>(".fr-launcher")?.click();
+  first.query<HTMLTextAreaElement>(".fr-input")!.value = "half a question";
+
+  // typing alone never saves; the refresh's pagehide is what captures the draft
+  dispatchEvent(new Event("pagehide"));
+  expect(snapshot?.composerDraft).toBe("half a question");
+
+  const second = createUi();
+  second.ui.restore(snapshot);
+  expect(second.query<HTMLTextAreaElement>(".fr-input")?.value).toBe("half a question");
+});
+
+test("the scroll offset persists only while open, and restore returns to it", () => {
+  let snapshot: ChatSnapshot | undefined;
+  const first = createUi((s) => (snapshot = structuredClone(s)));
+  first.query<HTMLButtonElement>(".fr-launcher")?.click();
+  dispatchEvent(new Event("pagehide"));
+  expect(typeof snapshot?.scrollTop).toBe("number");
+
+  first.query<HTMLButtonElement>(".fr-header .fr-close")?.click();
+  dispatchEvent(new Event("pagehide"));
+  expect(snapshot?.scrollTop).toBeUndefined();
+
+  // restore lands the message log back on the saved offset
+  const second = createUi();
+  const log = second.query(".fr-messages")!;
+  let scrollTop = 0;
+  Object.defineProperty(log, "scrollTop", {
+    get: () => scrollTop,
+    set: (value: number) => (scrollTop = value),
+    configurable: true,
+  });
+  second.ui.restore({ open: true, messages: [{ who: "user", text: "hi", at: 1 }], scrollTop: 200 });
+  expect(scrollTop).toBe(200);
 });
 
 test("reset returns the surface to a fresh collapsed launcher", () => {

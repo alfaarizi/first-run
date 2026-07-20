@@ -20,10 +20,21 @@ export function saveChat(key: string, endUserHash: string, snapshot: ChatSnapsho
         open: snapshot.open,
         messages: snapshot.messages.slice(-MAX_STORED_MESSAGES),
         pendingId: snapshot.pendingId,
+        composerDraft: snapshot.composerDraft,
+        scrollTop: snapshot.scrollTop,
       }),
     );
   } catch {
     // Storage is blocked or full. The next reload starts fresh.
+  }
+}
+
+/** Clears one app and end user's stored chat, so a prior identity leaves nothing behind. */
+export function clearChat(key: string, endUserHash: string): void {
+  try {
+    sessionStorage.removeItem(storageKey(key, endUserHash));
+  } catch {
+    // Storage is blocked; there is nothing to clear.
   }
 }
 
@@ -37,9 +48,9 @@ export function loadChat(key: string, endUserHash: string): ChatSnapshot | undef
     if (!isSnapshot(parsed)) return undefined;
 
     // Drop the storage-only version marker, so callers get a clean snapshot.
-    const { open, messages, pendingId } = parsed;
+    const { open, messages, pendingId, composerDraft, scrollTop } = parsed;
 
-    return { open, messages, pendingId };
+    return { open, messages, pendingId, composerDraft, scrollTop };
   } catch {
     // Storage is blocked or the entry is corrupt. Starting fresh beats throwing.
     return undefined;
@@ -55,7 +66,9 @@ function isSnapshot(value: unknown): value is ChatSnapshot & { v: number } {
     typeof snapshot.open === "boolean" &&
     Array.isArray(snapshot.messages) &&
     snapshot.messages.every(isMessage) &&
-    (snapshot.pendingId === undefined || typeof snapshot.pendingId === "string")
+    (snapshot.pendingId === undefined || typeof snapshot.pendingId === "string") &&
+    (snapshot.composerDraft === undefined || typeof snapshot.composerDraft === "string") &&
+    (snapshot.scrollTop === undefined || typeof snapshot.scrollTop === "number")
   );
 }
 

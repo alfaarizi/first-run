@@ -76,6 +76,9 @@ export class NudgeUi {
     this.shell = this.buildShell();
     this.root = this.buildRoot();
     this.mount();
+    // Persist once, as the page hides — the only state a reload ever reads back.
+    // A refresh fires pagehide with the surface's final state intact.
+    addEventListener("pagehide", () => this.save());
   }
 
   /** Where the confirmation card mounts, slotted between the messages and the input. */
@@ -113,13 +116,15 @@ export class NudgeUi {
     // A prior page left mid-answer: open a fresh slot; the buffered done frame
     // fills it when the stream reopens.
     if (snapshot.pendingId) this.openAnswerSlot(snapshot.pendingId);
+    this.composer.fill(snapshot.composerDraft ?? "");
 
     if (snapshot.open) {
       this.expanded = true;
       this.shell.classList.add("fr-expanded");
       this.launcher.setAttribute("aria-expanded", "true");
+      // Keep the exact scroll offset, or land on the newest message.
+      this.messages.scrollTop = snapshot.scrollTop ?? this.messages.scrollHeight;
     }
-    this.scrollToBottom();
   }
 
   /** Announces a frame the collapsed shell would otherwise hide, with the dot and chime. */
@@ -136,7 +141,6 @@ export class NudgeUi {
       // reports it engaged.
       this.appendMessage("agent", nudge.text);
       this.nudgesAwaitingReply.add(nudge.id);
-      this.save();
       return;
     }
 
@@ -146,7 +150,6 @@ export class NudgeUi {
     if (displaced && displaced.id !== nudge.id) {
       this.appendMessage("agent", displaced.text);
       this.nudgesAwaitingReply.add(displaced.id);
-      this.save();
     }
     this.removeBubble();
     this.pendingNudge = nudge;
@@ -193,7 +196,6 @@ export class NudgeUi {
       if (follow) this.scrollToBottom();
     }
     this.dropAnswer();
-    this.save();
   }
 
   /** Builds the launcher button that toggles between the two shell states. */
@@ -305,7 +307,7 @@ export class NudgeUi {
     this.shell.classList.remove("fr-unread");
     this.launcher.setAttribute("aria-expanded", "true");
     this.composer.focus();
-    this.save();
+    this.scrollToBottom();
   }
 
   /** Collapses to the launcher. The conversation keeps its DOM, so reopening restores it. */
@@ -319,11 +321,8 @@ export class NudgeUi {
     this.expanded = false;
     this.shell.classList.remove("fr-expanded");
     this.launcher.setAttribute("aria-expanded", "false");
-
     // Closing without a reply leaves the nudges to the ignored outcome.
     this.nudgesAwaitingReply.clear();
-
-    this.save();
   }
 
   /**
@@ -355,7 +354,6 @@ export class NudgeUi {
 
     const id = uuidv7();
     const slot = this.openAnswerSlot(id);
-    this.save();
 
     void this.callbacks
       .onSend(id, text, ref)
@@ -367,7 +365,6 @@ export class NudgeUi {
           slot.textContent = TRY_AGAIN_TEXT;
           if (this.answerModel) this.answerModel.text = TRY_AGAIN_TEXT;
           this.dropAnswer();
-          this.save();
         }
       });
   }
@@ -460,7 +457,6 @@ export class NudgeUi {
         if (this.answerModel) this.answerModel.text = text;
       }
       this.dropAnswer();
-      this.save();
     }, ANSWER_IDLE_MS);
   }
 
@@ -473,13 +469,20 @@ export class NudgeUi {
 
   /**
    * Persists the surface so a reload restores it. The in-flight answer is left
-   * out; restore reopens it as a typing slot the buffered done frame fills.
+   * out; restore reopens it as a typing slot the buffered done frame fills. The
+   * scroll offset only carries meaning while open.
    */
   private save(): void {
     const settled = this.answerModel
       ? this.transcript.filter((message) => message !== this.answerModel)
       : this.transcript;
-    this.persist({ open: this.expanded, messages: settled, pendingId: this.answerMessageId });
+    this.persist({
+      open: this.expanded,
+      messages: settled,
+      pendingId: this.answerMessageId,
+      composerDraft: this.composer.draft(),
+      scrollTop: this.expanded ? this.messages.scrollTop : undefined,
+    });
   }
 }
 

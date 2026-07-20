@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test } from "vitest";
 
-import { loadChat, saveChat } from "./chat-store";
+import { clearChat, loadChat, saveChat } from "./chat-store";
 import type { ChatSnapshot } from "./types";
 
 afterEach(() => sessionStorage.clear());
@@ -18,6 +18,18 @@ const snapshot: ChatSnapshot = {
 test("round-trips a snapshot for one app and end user", () => {
   saveChat("key_1", "user-1", snapshot);
   expect(loadChat("key_1", "user-1")).toEqual(snapshot);
+});
+
+test("round-trips the composer draft and scroll offset", () => {
+  const withView: ChatSnapshot = { ...snapshot, composerDraft: "half a question", scrollTop: 240 };
+  saveChat("key_1", "user-1", withView);
+  expect(loadChat("key_1", "user-1")).toEqual(withView);
+});
+
+test("clearChat drops a stored chat", () => {
+  saveChat("key_1", "user-1", snapshot);
+  clearChat("key_1", "user-1");
+  expect(loadChat("key_1", "user-1")).toBeUndefined();
 });
 
 test("keeps one app and user's chat out of another's", () => {

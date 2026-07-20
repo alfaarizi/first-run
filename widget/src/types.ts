@@ -72,6 +72,10 @@ export interface ChatSnapshot {
   messages: ChatMessage[];
   /** The in-flight answer's id, so a reload restores its typing indicator. */
   pendingId?: string;
+  /** The unsent composer text, so a reload keeps a half-typed question. */
+  composerDraft?: string;
+  /** The message log's scroll offset while open, so a reload keeps the view. */
+  scrollTop?: number;
 }
 
 /** A proposed action awaiting the user's explicit click, with the registry's copy. */

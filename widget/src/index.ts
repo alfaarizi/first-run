@@ -1,6 +1,6 @@
 import { filterProperties } from "./allowlist";
 import { startAutocapture } from "./autocapture";
-import { loadChat, saveChat } from "./chat-store";
+import { clearChat, loadChat, saveChat } from "./chat-store";
 import { CONFIRMATIONS_PATH, MESSAGES_PATH } from "./constants";
 import { showConfirmation } from "./confirm";
 import { NudgeUi } from "./nudge";
@@ -131,10 +131,12 @@ function start(config: Config): void {
     if (typeof hash !== "string" || !hash.trim() || hash.length > MAX_END_USER_HASH_LENGTH) return;
     if (hash === endUserHash) return;
 
-    // An account switch gets a fresh session, and the old surface never leaks.
+    // An account switch gets a fresh session, and neither the old surface nor
+    // its stored chat leaks into the new identity.
     if (endUserHash) {
       rotateSession();
       ui.reset();
+      clearChat(config.key, endUserHash);
     }
     endUserHash = hash;
 

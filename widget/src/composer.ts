@@ -8,8 +8,12 @@ const MESSAGE_MAX_CHARS = 2000;
 /** The message input row, an autogrowing textarea beside a send button. */
 export interface Composer {
   root: HTMLElement;
-  /** The trimmed draft. */
+  /** The trimmed draft, ready to send. */
   text(): string;
+  /** The raw draft, kept verbatim so a reload restores it exactly. */
+  draft(): string;
+  /** Seeds the draft, growing the input to fit, used when a reload restores it. */
+  fill(value: string): void;
   clear(): void;
   focus(): void;
 }
@@ -66,13 +70,18 @@ export function createComposer(onSubmit: () => void): Composer {
     send.classList.toggle("fr-send-ready", /\S/.test(input.value));
   }
 
+  /** Sets the draft and grows the input to fit it. */
+  function setValue(value: string): void {
+    input.value = value;
+    sync();
+  }
+
   return {
     root,
     text: () => input.value.trim(),
-    clear() {
-      input.value = "";
-      sync();
-    },
+    draft: () => input.value,
+    fill: setValue,
+    clear: () => setValue(""),
     focus() {
       // Scroll-on-focus would drag the shell's content while it is mid-morph.
       input.focus({ preventScroll: true });
