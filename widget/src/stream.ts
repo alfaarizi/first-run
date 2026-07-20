@@ -21,7 +21,7 @@ export interface StreamHandlers {
 /** The caller's grip on one stream: close it, or ask whether it can deliver. */
 export interface StreamHandle {
   close(): void;
-  /** True only while the socket is open, so a sent question's answer can arrive. */
+  /** True when the socket is open, so a sent question's answer can arrive. */
   isOpen(): boolean;
 }
 
@@ -46,7 +46,7 @@ export function connectStream(
   const seenNudges = new Set<string>();
 
   /** Opens one EventSource behind a fresh signed URL. */
-  const open = async () => {
+  const openSource = async () => {
     // The signature binds the hash, so one signed URL cannot subscribe another
     // user. An empty signature means signing is unavailable, so the stream stays shut.
     const timestamp = new Date().toISOString();
@@ -98,7 +98,7 @@ export function connectStream(
     source.addEventListener("error", () => {
       // CONNECTING means the browser is already retrying on its own.
       if (closed || source?.readyState !== EventSource.CLOSED) return;
-      retryTimer = setTimeout(open, RETRY_MS * Math.min(++retries, MAX_BACKOFF_STEPS));
+      retryTimer = setTimeout(openSource, RETRY_MS * Math.min(++retries, MAX_BACKOFF_STEPS));
     });
     source.addEventListener("retired", () => {
       closed = true;
@@ -107,7 +107,7 @@ export function connectStream(
     });
   };
 
-  void open();
+  void openSource();
 
   return {
     close() {
@@ -120,13 +120,15 @@ export function connectStream(
   };
 }
 
-/**
- * Names the slot for one app and end user's cursor: apps on one origin
- * share storage, and an account switch in one tab must not displace the
- * previous user's position.
- */
-function cursorKey(key: string, endUserHash: string): string {
-  return `${CURSOR_KEY_PREFIX}${key}:${endUserHash}`;
+/** Records the cursor, so the next page's stream resumes where this one stopped. */
+function storeCursor(key: string, endUserHash: string, lastEventId: string): void {
+  const storageKey = cursorKey(key, endUserHash);
+  memoryCursors.set(storageKey, lastEventId);
+  try {
+    sessionStorage.setItem(storageKey, lastEventId);
+  } catch {
+    // Best effort. The in-memory copy already advanced.
+  }
 }
 
 /** Reads the cursor stored for this app and end user. */
@@ -141,13 +143,11 @@ function loadCursor(key: string, endUserHash: string): string {
   return cursor;
 }
 
-/** Records the cursor, so the next page's stream resumes where this one stopped. */
-function storeCursor(key: string, endUserHash: string, lastEventId: string): void {
-  const storageKey = cursorKey(key, endUserHash);
-  memoryCursors.set(storageKey, lastEventId);
-  try {
-    sessionStorage.setItem(storageKey, lastEventId);
-  } catch {
-    // Best effort. The in-memory copy already advanced.
-  }
+/**
+ * Names the slot for one app and end user's cursor: apps on one origin
+ * share storage, and an account switch in one tab must not displace the
+ * previous user's position.
+ */
+function cursorKey(key: string, endUserHash: string): string {
+  return `${CURSOR_KEY_PREFIX}${key}:${endUserHash}`;
 }
