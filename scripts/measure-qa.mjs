@@ -59,7 +59,7 @@ async function main() {
     // partial that never completed cannot inflate the groundedness rate.
     const verdict =
       answer.failed || answer.text.length === 0
-        ? { verdict: 'ungrounded', reason: answer.failed ? 'the answer failed mid-stream' : 'the answer failed to stream' }
+        ? { verdict: 'ungrounded', reason: answer.text.length === 0 ? 'the answer failed to stream' : 'the answer failed mid-stream' }
         : await judgeAnswer(judge, rubric, row, answer)
     results.push({ row, answer, ...verdict })
   }
@@ -93,6 +93,9 @@ function converse(client, question) {
     const started = performance.now()
     const answer = { text: '', citations: [], firstTokenMs: null, failed: false }
     const timeout = setTimeout(() => {
+      // Text the deadline cut off is not a complete answer, so it reaches the
+      // judge as a failure, never as an ordinary answer.
+      answer.failed = true
       call.cancel()
       resolve(answer)
     }, ANSWER_TIMEOUT_MS)
