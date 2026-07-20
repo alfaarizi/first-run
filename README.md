@@ -14,8 +14,7 @@ the milestones that count as activation. It runs the loop below, and every numbe
 reports is measured, not asserted.
 
 FirstRun is a Java modular monolith for the product core and a Python agent for the
-model loop (ADR-001). The project is building toward v1, with the dashboard live on
-2026-09-10 (BRS).
+model loop. The project is building toward v1, with the dashboard live on 2026-09-10 (BRS).
 
 ## How it works
 
@@ -64,8 +63,10 @@ agent, web, and Tasklet.
 
 ## To start developing FirstRun
 
-FirstRun's design is settled in the records below, which the code executes. Read them
-before any structural change:
+Start with the [contributing guide](CONTRIBUTING.md), which covers setup, the
+commit conventions, and the rules CI enforces. FirstRun's design is settled in
+the records below, which the code executes. Read them before any structural
+change:
 
 - [Business requirements](docs/brs.md) records the problem, stakeholders, and v1 success criteria.
 - [Architecture](docs/architecture.md) maps the system context, containers, components, and event stream.
@@ -78,4 +79,4 @@ before any structural change:
 
 The platform is [AGPL-3.0-only](LICENSE). The embeddable widget is the exception,
 [MIT](widget/LICENSE) so customers can audit and embed the code that runs in their
-product without copyleft obligations (ADR-011).
+product without copyleft obligations.
