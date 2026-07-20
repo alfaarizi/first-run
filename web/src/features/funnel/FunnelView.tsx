@@ -2,6 +2,7 @@ import { useQuery } from '@apollo/client/react'
 import { useEffect, useState } from 'react'
 
 import { graphql } from '@/gql'
+import type { GetFunnelQuery } from '@/gql/graphql'
 
 const GET_FUNNEL = graphql(`
   query GetFunnel($appId: ID!, $from: DateTime, $to: DateTime) {
@@ -119,32 +120,7 @@ export function FunnelView({ appId }: { appId: string }) {
         </thead>
         <tbody>
           {steps.map((step) => (
-            <tr key={step.milestone.id} className="border-b border-(--line)">
-              <th scope="row" className="py-2 pr-4 text-left font-normal">
-                {step.milestone.title}
-              </th>
-              <td className="numeric py-2 pr-4">{step.entered}</td>
-              <td className="numeric py-2 pr-4">{step.completed}</td>
-              <td className="numeric py-2 pr-4">{conversion(step.completed, step.entered)}</td>
-              <td className="numeric py-2 pr-4">
-                {step.medianSecondsToComplete == null
-                  ? '—'
-                  : formatSeconds(step.medianSecondsToComplete)}
-              </td>
-              <td aria-hidden="true" className="min-w-32 py-2">
-                <div
-                  className="funnel-track"
-                  style={{ width: `${(step.entered / maxEntered) * 100}%` }}
-                >
-                  <div
-                    className="funnel-fill"
-                    style={{
-                      width: `${step.entered === 0 ? 0 : (step.completed / step.entered) * 100}%`,
-                    }}
-                  />
-                </div>
-              </td>
-            </tr>
+            <FunnelRow key={step.milestone.id} step={step} maxEntered={maxEntered} />
           ))}
           {steps.length === 0 && (
             <tr>
@@ -170,6 +146,35 @@ export function FunnelView({ appId }: { appId: string }) {
 }
 
 /** Formats step conversion as a whole percentage, an empty cohort as a dash. */
+type FunnelStep = NonNullable<GetFunnelQuery['app']>['funnel']['steps'][number]
+
+/** One step's counts, conversion, median time, and completion bar. */
+function FunnelRow({ step, maxEntered }: { step: FunnelStep; maxEntered: number }) {
+  return (
+    <tr className="border-b border-(--line)">
+      <th scope="row" className="py-2 pr-4 text-left font-normal">
+        {step.milestone.title}
+      </th>
+      <td className="numeric py-2 pr-4">{step.entered}</td>
+      <td className="numeric py-2 pr-4">{step.completed}</td>
+      <td className="numeric py-2 pr-4">{conversion(step.completed, step.entered)}</td>
+      <td className="numeric py-2 pr-4">
+        {step.medianSecondsToComplete == null ? '—' : formatSeconds(step.medianSecondsToComplete)}
+      </td>
+      <td aria-hidden="true" className="min-w-32 py-2">
+        <div className="funnel-track" style={{ width: `${(step.entered / maxEntered) * 100}%` }}>
+          <div
+            className="funnel-fill"
+            style={{
+              width: `${step.entered === 0 ? 0 : (step.completed / step.entered) * 100}%`,
+            }}
+          />
+        </div>
+      </td>
+    </tr>
+  )
+}
+
 function conversion(completed: number, entered: number): string {
   return entered === 0 ? '—' : `${Math.round((completed / entered) * 100)}%`
 }
