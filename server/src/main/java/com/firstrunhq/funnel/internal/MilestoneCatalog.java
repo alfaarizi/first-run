@@ -18,7 +18,7 @@ class MilestoneCatalog {
 
   /**
    * Mirrors the custom-event grammar in api/openapi/ingest.yaml, since a milestone name doubles as
-   * its completion event name. Dotless, so it already excludes {@code fr.}-prefixed names; the
+   * its completion event name. Dotless, so it already excludes {@code fr.}-prefixed names. The
    * prefix check ahead of it only buys a clearer error.
    */
   private static final Pattern NAME_GRAMMAR = Pattern.compile("[a-z][a-z0-9_]*");
@@ -68,9 +68,9 @@ class MilestoneCatalog {
               .query(OffsetDateTime.class)
               .single();
       return new Milestone(id, input.name(), input.title(), input.position(), createdAt);
-    } catch (DuplicateKeyException e) {
-      throw duplicate(input, e);
-    } catch (DataIntegrityViolationException e) {
+    } catch (DuplicateKeyException collision) {
+      throw duplicate(input, collision);
+    } catch (DataIntegrityViolationException unknownApp) {
       // The composite foreign key rejects an app that is absent or another tenant's, and both
       // read as not found so the error never confirms a foreign app exists.
       throw MilestoneDefinitionException.appNotFound(input.appId());
@@ -110,8 +110,8 @@ class MilestoneCatalog {
 
   /** Names which unique constraint the insert hit, the milestone name or its position. */
   private static MilestoneDefinitionException duplicate(
-      CreateMilestoneInput input, DuplicateKeyException e) {
-    String detail = String.valueOf(e.getMessage());
+      CreateMilestoneInput input, DuplicateKeyException collision) {
+    String detail = String.valueOf(collision.getMessage());
     if (detail.contains("milestone_app_id_name_key")) {
       return MilestoneDefinitionException.invalidInput(
           "A milestone named '%s' already exists for this app.".formatted(input.name()));

@@ -3,7 +3,7 @@ import type { Config } from "./types";
 
 const encoder = new TextEncoder();
 
-// Imported once; the raw secret never touches the crypto API twice.
+// Imported once. The raw secret never touches the crypto API twice.
 let signingKey: Promise<CryptoKey> | undefined;
 
 /** Signs `{timestamp}.{body}` with HMAC-SHA256 and returns lowercase hex. */

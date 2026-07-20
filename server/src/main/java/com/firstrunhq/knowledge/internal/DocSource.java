@@ -6,7 +6,7 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * The dashboard's view of a doc source, mirroring {@code DocSource} in knowledge.graphqls. The
- * schema never reads {@code appId}; the reindex trigger does.
+ * schema never reads {@code appId}. The reindex trigger does.
  */
 record DocSource(
     UUID id,

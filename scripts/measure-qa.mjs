@@ -3,7 +3,7 @@
 // answer against evals/rubrics/groundedness.md, and prints groundedness, the
 // unanswerable-subset honesty, and first-token latency. The replay needs the
 // compose stack up with Tasklet's docs indexed and ANTHROPIC_API_KEY set for
-// the judge; without either it reports itself skipped and exits 0, because
+// the judge. Without either it reports itself skipped and exits 0, because
 // the CI gate over these numbers arrives with the eval job wiring.
 
 import { readFileSync } from 'node:fs'
@@ -18,7 +18,7 @@ const AGENT_ADDRESS = process.env.AGENT_GRPC_ADDRESS ?? 'localhost:50051'
 // The default must match the judge_model pinned in evals/baselines.json, or
 // a rerun's numbers stop being comparable to the recorded baseline.
 const JUDGE_MODEL = process.env.QA_JUDGE_MODEL ?? 'claude-sonnet-5'
-// Caps a run for smoke tests and the per-run budget; the full set by default.
+// Caps a run for smoke tests and the per-run budget. The full set runs by default.
 const SAMPLE = Number(process.env.QA_SAMPLE ?? Infinity)
 
 // The seeded demo tenant and app (scripts/seed.sql), whose index holds

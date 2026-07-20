@@ -105,10 +105,10 @@ class NudgeStreamTests {
 
     assertThat(awaitLine(lines, line -> line.startsWith("event:") && line.contains("nudge")))
         .isNotNull();
-    String data = awaitLine(lines, line -> line.startsWith("data:"));
-    assertThat(data).isNotNull();
+    String dataLine = awaitLine(lines, line -> line.startsWith("data:"));
+    assertThat(dataLine).isNotNull();
 
-    JsonNode frame = objectMapper.readTree(data.substring("data:".length()).trim());
+    JsonNode frame = objectMapper.readTree(dataLine.substring("data:".length()).trim());
     assertThat(frame.get("id").asText()).isEqualTo(candidate.id().toString());
     assertThat(frame.get("text").asText()).contains("Create your first task");
   }
@@ -154,8 +154,8 @@ class NudgeStreamTests {
 
     // The reserved cursor replays the whole buffer for a reconnect that never saw a frame id.
     BlockingQueue<String> lines = openStream(endUserHash, "earliest", null);
-    String data = awaitLine(lines, line -> line.startsWith("data:"));
-    assertThat(data).isNotNull().contains(candidate.id().toString());
+    String dataLine = awaitLine(lines, line -> line.startsWith("data:"));
+    assertThat(dataLine).isNotNull().contains(candidate.id().toString());
 
     // The claim landed at buffering, so a candidate copy never duplicates the nudge.
     kafkaTemplate.send(
@@ -186,8 +186,8 @@ class NudgeStreamTests {
 
     // A reconnect that saw the first frame replays only the second.
     BlockingQueue<String> reconnect = openStream(endUserHash, first.id().toString(), null);
-    String data = awaitLine(reconnect, line -> line.startsWith("data:"));
-    assertThat(data).isNotNull().contains(second.id().toString());
+    String dataLine = awaitLine(reconnect, line -> line.startsWith("data:"));
+    assertThat(dataLine).isNotNull().contains(second.id().toString());
     assertThat(awaitLine(reconnect, line -> line.startsWith("data:"), Duration.ofSeconds(2)))
         .isNull();
   }

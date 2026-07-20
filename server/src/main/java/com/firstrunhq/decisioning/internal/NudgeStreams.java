@@ -150,7 +150,7 @@ class NudgeStreams {
     private final List<NudgeFrame> heldByReplay = new ArrayList<>();
     private boolean replaying;
 
-    /** Gates a reconnecting stream on its replay; a fresh stream starts open. */
+    /** Gates a reconnecting stream on its replay. A fresh stream starts open. */
     Stream(SseEmitter emitter, boolean replaying) {
       this.emitter = emitter;
       this.replaying = replaying;
@@ -195,9 +195,9 @@ class NudgeStreams {
     }
 
     /** Sends one unbuffered frame, closing the stream when the tab is gone. */
-    synchronized void sendLive(String name, Object data) {
+    synchronized void sendLive(String eventName, Object frame) {
       try {
-        emitter.send(SseEmitter.event().name(name).data(data, MediaType.APPLICATION_JSON));
+        emitter.send(SseEmitter.event().name(eventName).data(frame, MediaType.APPLICATION_JSON));
       } catch (IOException | IllegalStateException gone) {
         emitter.completeWithError(gone);
       }

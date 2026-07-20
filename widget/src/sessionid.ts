@@ -22,7 +22,7 @@ export function sessionId(now = Date.now()): string {
       id = raw.slice(splitAt + 1);
     }
   } catch {
-    // Storage is blocked; the in-memory copy stands in.
+    // Storage is blocked. The in-memory copy stands in.
   }
 
   // A corrupt store rotates instead of poisoning every batch.
@@ -43,6 +43,6 @@ function storeSession(now: number, sessionId: string): void {
   try {
     sessionStorage.setItem(STORAGE_KEY, `${now}:${sessionId}`);
   } catch {
-    // Best effort; the in-memory copy already advanced.
+    // Best effort. The in-memory copy already advanced.
   }
 }

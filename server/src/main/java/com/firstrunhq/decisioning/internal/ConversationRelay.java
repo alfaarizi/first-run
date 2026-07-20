@@ -237,7 +237,7 @@ class ConversationRelay {
                 .setUserMessage(UserMessage.newBuilder().setMessageId(id).setText(text))
                 .build());
       } catch (IllegalStateException dead) {
-        // The stream died between open and send; the user still gets the retry line.
+        // The stream died between open and send. The user still gets the retry line.
         finish(id, true);
         remove(this);
       }
@@ -270,7 +270,7 @@ class ConversationRelay {
           var done = response.getAnswerDone();
           finish(done.getMessageId(), done.getFailed());
         }
-        // Proposals wait for the action registry; nothing renders them yet.
+        // Proposals wait for the action registry. Nothing renders them yet.
         case ACTION_PROPOSAL, FRAME_NOT_SET -> {}
       }
     }

@@ -125,7 +125,7 @@ function loadCursor(key: string, endUserHash: string): string {
   try {
     cursor = sessionStorage.getItem(storageKey) ?? cursor;
   } catch {
-    // Storage is blocked; the in-memory copy stands in.
+    // Storage is blocked. The in-memory copy stands in.
   }
   return cursor;
 }
@@ -137,6 +137,6 @@ function storeCursor(key: string, endUserHash: string, lastEventId: string): voi
   try {
     sessionStorage.setItem(storageKey, lastEventId);
   } catch {
-    // Best effort; the in-memory copy already advanced.
+    // Best effort. The in-memory copy already advanced.
   }
 }

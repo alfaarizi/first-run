@@ -17,7 +17,7 @@ class TenantPool:
     """Lazy connection pool whose transactions are scoped to one tenant."""
 
     def __init__(self, database_url: str) -> None:
-        """Remember the URL; nothing connects until the first transaction."""
+        """Remember the URL. Nothing connects until the first transaction."""
         self._database_url = database_url
         self._pool: asyncpg.Pool | None = None
         self._pool_lock = asyncio.Lock()

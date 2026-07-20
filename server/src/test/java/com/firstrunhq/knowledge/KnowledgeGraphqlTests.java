@@ -148,7 +148,7 @@ class KnowledgeGraphqlTests {
 
   @Test
   void rejectsAnIdThatIsNotAUuid() {
-    // A malformed id is a client bug and answers as one; the null payload is
+    // A malformed id is a client bug and answers as one. The null payload is
     // reserved for rows genuinely absent from the tenant.
     asTenant(TENANT_A)
         .document(REINDEX_DOC_SOURCE)

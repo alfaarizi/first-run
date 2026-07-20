@@ -159,7 +159,7 @@ class Crawler:
         resolve: Callable[[str], Awaitable[list[str]]] = _resolve,
         allow_local: bool = False,
     ) -> None:
-        """Configure the crawl bounds; nothing connects until ``crawl``."""
+        """Configure the crawl bounds. Nothing connects until ``crawl``."""
         self._max_pages = max_pages
         self._timeout = httpx.Timeout(timeout_seconds)
         self._deadline_seconds = deadline_seconds

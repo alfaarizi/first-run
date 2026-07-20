@@ -28,7 +28,7 @@ class MessagesController {
   // Endpoint contract from api/openapi/messages.yaml, read here and mirrored by the CORS policy.
   static final String PATH = "/v1/messages";
 
-  // The contract caps text at 2000 characters; this bounds the whole body.
+  // The contract caps text at 2000 characters. This bounds the whole body.
   private static final int MAX_BODY_BYTES = 16 * 1024;
   private static final int MAX_TEXT_CHARS = 2_000;
 

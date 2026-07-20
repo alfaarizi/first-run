@@ -85,7 +85,7 @@ def chunk_page(url: str, html: str, *, max_chars: int) -> list[Chunk]:
     sections = _Sections(url, title, max_chars)
     for element in root.find_all([*_HEADING_LEVELS, *_CONTENT_TAGS]):
         # A nested content tag, such as a <p> inside an <li>, would repeat
-        # its text; only the outermost carrier counts.
+        # its text. Only the outermost carrier counts.
         if element.find_parent(_CONTENT_TAGS) is not None:
             continue
         text = element.get_text(" ", strip=True)

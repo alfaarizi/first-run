@@ -99,7 +99,7 @@ class KnowledgeController {
     }
   }
 
-  /** Rejects a request that carries no tenant; every field here is tenant-scoped. */
+  /** Rejects a request that carries no tenant. Every field here is tenant-scoped. */
   private static UUID requireTenant(@Nullable UUID tenantId) {
     if (tenantId == null) {
       throw KnowledgeMutationException.unauthorized();
@@ -108,7 +108,7 @@ class KnowledgeController {
   }
 
   /**
-   * A malformed id is a client bug and answers as one; only a row absent from this tenant resolves
+   * A malformed id is a client bug and answers as one. Only a row absent from this tenant resolves
    * to the not-found null payload.
    */
   private static UUID requireUuid(String id, String field) {

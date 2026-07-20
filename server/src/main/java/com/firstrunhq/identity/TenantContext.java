@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Scopes the current transaction to one tenant for row-level security. Tenant-scoped repositories
- * call {@link #scopeTo} first inside their transaction; the transaction-local {@code app.tenant_id}
+ * call {@link #scopeTo} first inside their transaction. The transaction-local {@code app.tenant_id}
  * it sets is what each isolation policy matches on, so it never leaks across pooled connections.
  */
 @Component

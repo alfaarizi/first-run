@@ -167,7 +167,7 @@ function start(config: Config): void {
   window.fr = { identify, track };
 }
 
-// Boots once per page; a second snippet is a no-op.
+// Boots once per page. A second snippet is a no-op.
 safe(() => {
   if (window.fr) return;
   const config = readConfig();
