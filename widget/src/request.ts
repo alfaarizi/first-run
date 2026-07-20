@@ -14,7 +14,7 @@ export async function sign(
 ): Promise<string> {
   const mac = await crypto.subtle.sign(
     "HMAC",
-    await importKey(secret),
+    await importSigningKey(secret),
     encoder.encode(`${timestamp}.${body}`),
   );
   return toHex(new Uint8Array(mac));
@@ -59,7 +59,7 @@ export async function post(
 }
 
 /** Imports the signing key once and caches the promise. */
-function importKey(secret: string): Promise<CryptoKey> {
+function importSigningKey(secret: string): Promise<CryptoKey> {
   signingKey ??= crypto.subtle.importKey(
     "raw",
     encoder.encode(secret),

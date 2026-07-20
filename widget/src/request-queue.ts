@@ -10,7 +10,7 @@ const BACKOFF_MS = 2000;
 
 // Margin under the ingest contract's 64 KB body cap.
 const MAX_BODY_BYTES = 60 * 1024;
-// The Segment per-message cap. An event past it can never be delivered.
+// Matches Segment's per-message cap. An event past it can never be delivered.
 const MAX_EVENT_BYTES = 32 * 1024;
 
 const encoder = new TextEncoder();
@@ -59,10 +59,10 @@ export class RequestQueue {
     this.timer = undefined;
     if (this.inFlightCount > 0 || this.queue.length === 0) return;
 
-    const batch = this.nextBatch();
+    const batch = this.collectNextBatch();
     this.inFlightCount = batch.length;
 
-    const result = await post(this.config, INGEST_PATH, batchBody(batch));
+    const result = await post(this.config, INGEST_PATH, buildBatchBody(batch));
     this.inFlightCount = 0;
 
     if (result.ok || !result.retryable || ++this.attempts >= MAX_ATTEMPTS) {
@@ -77,7 +77,7 @@ export class RequestQueue {
   }
 
   /** Collects the next batch under the count and byte caps, from offset on. */
-  private nextBatch(offset = 0): CapturedEvent[] {
+  private collectNextBatch(offset = 0): CapturedEvent[] {
     const batch: CapturedEvent[] = [];
     let bytes = 0;
     for (let i = offset; i < this.queue.length; i++) {
@@ -98,12 +98,12 @@ export class RequestQueue {
     clearTimeout(this.timer);
     this.timer = undefined;
     for (let offset = this.inFlightCount; offset < this.queue.length; ) {
-      const batch = this.nextBatch(offset);
+      const batch = this.collectNextBatch(offset);
       if (batch.length === 0) break;
 
       const queuedBatch = this.queue.slice(offset, offset + batch.length);
 
-      void post(this.config, INGEST_PATH, batchBody(batch)).then((result) => {
+      void post(this.config, INGEST_PATH, buildBatchBody(batch)).then((result) => {
           // A batch the network refused returns to the queue, so a tab that survives retries it.
         if (!result.ok && result.retryable) {
           this.queue.push(...queuedBatch);
@@ -121,6 +121,6 @@ export class RequestQueue {
 }
 
 /** Wraps the events with sent_at, the gateway's clock-skew reference. */
-function batchBody(events: CapturedEvent[]): string {
+function buildBatchBody(events: CapturedEvent[]): string {
   return JSON.stringify({ sent_at: new Date().toISOString(), events });
 }
