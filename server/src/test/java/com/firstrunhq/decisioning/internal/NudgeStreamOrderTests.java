@@ -26,7 +26,8 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class NudgeStreamOrderTests {
 
   private final NudgeReplayBuffer buffer = mock(NudgeReplayBuffer.class);
-  private final NudgeStreams streams = new NudgeStreams(buffer);
+  private final AnswerReplayBuffer answers = mock(AnswerReplayBuffer.class);
+  private final NudgeStreams streams = new NudgeStreams(buffer, answers);
 
   @Test
   void holdsALivePushBehindTheReplayItArrivedDuring() throws Exception {

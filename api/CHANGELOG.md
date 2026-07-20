@@ -7,6 +7,16 @@ additive or breaking.
 
 ### Changed
 
+- `openapi/stream.yaml`: the `done` frame now carries the complete answer
+  text alongside its citations, and a completed `done` is briefly buffered so
+  a reconnecting stream (a browser reload included) replays it. `token`
+  frames stay live-only; a reconnect resumes live tokens and heals whatever
+  it missed from the replayed `done`. The widget reconciles its slot to the
+  `done` text and applies a replayed `done` only to the question awaiting it.
+
+Additive. Existing clients that ignore the new `text` field and see one live
+`done` behave as before; the buffering only adds a reconnect path.
+
 - `openapi/messages.yaml` documents `413` for a body over 16 KB, aligning
   the endpoint with the ingest contract and RFC 9110's Content Too Large.
   The gateway answers it before the signature check, because the HMAC

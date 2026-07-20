@@ -5,11 +5,13 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import java.util.List;
 
 /**
- * The data payload of the {@code done} stream frame closing an answer, with its citations. The
- * message id lets the widget bind the frame to the question it sent (api/openapi/messages.yaml).
+ * The data payload of the {@code done} stream frame closing an answer. It carries the complete
+ * answer text so a widget that missed tokens to a reconnect or a reload heals from it, and the
+ * citations the answer traces to. The message id binds the frame to the question the widget sent
+ * (api/openapi/messages.yaml).
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-record DoneFrame(String messageId, List<Citation> citations) implements AnswerFrame {
+record DoneFrame(String messageId, String text, List<Citation> citations) implements AnswerFrame {
 
   @Override
   public String event() {

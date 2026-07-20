@@ -257,8 +257,10 @@ class ConversationRelay {
           var chunk = response.getAnswerChunk();
           PendingAnswer answer = pending.get(chunk.getMessageId());
           if (answer != null) {
-            answer.streamedTokens = true;
-            streams.pushAnswerFrame(
+            // The full text accumulates so the closing done frame can carry it, healing any
+            // token a reconnecting or reloading widget dropped.
+            answer.text.append(chunk.getText());
+            streams.pushToken(
                 appId, endUserHash, new TokenFrame(chunk.getMessageId(), chunk.getText()));
           }
         }
@@ -329,13 +331,17 @@ class ConversationRelay {
       synchronized (completed) {
         completed.add(messageId);
       }
-      if (failed || !answer.streamedTokens) {
-        streams.pushAnswerFrame(appId, endUserHash, new TokenFrame(messageId, FAILURE_TEXT));
-        streams.pushAnswerFrame(appId, endUserHash, new DoneFrame(messageId, List.of()));
+      // The done frame carries the terminal text in every case, so the widget reconciles to one
+      // authoritative body: a truncated or token-less answer closes as the retry line with no
+      // citations, never as a complete cited answer.
+      if (failed || answer.text.isEmpty()) {
+        streams.pushDone(appId, endUserHash, new DoneFrame(messageId, FAILURE_TEXT, List.of()));
         return;
       }
-      streams.pushAnswerFrame(
-          appId, endUserHash, new DoneFrame(messageId, List.copyOf(answer.citations)));
+      streams.pushDone(
+          appId,
+          endUserHash,
+          new DoneFrame(messageId, answer.text.toString(), List.copyOf(answer.citations)));
     }
 
     /** Closes every in-flight answer as failed, each yielding the retry line. */
@@ -367,12 +373,14 @@ class ConversationRelay {
     }
   }
 
-  /** Collects one answer as it streams. */
+  /** Collects one answer as it streams: its text so far and the citations it traces to. */
   private static final class PendingAnswer {
 
+    // Appended only from the single-threaded gRPC observer, read once under finish's removal, so a
+    // plain builder needs no synchronization of its own.
+    final StringBuilder text = new StringBuilder();
     final List<DoneFrame.Citation> citations = new CopyOnWriteArrayList<>();
     final ScheduledFuture<?> watchdog;
-    volatile boolean streamedTokens;
 
     PendingAnswer(ScheduledFuture<?> watchdog) {
       this.watchdog = watchdog;

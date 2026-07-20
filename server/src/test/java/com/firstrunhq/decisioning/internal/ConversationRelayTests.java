@@ -1,11 +1,11 @@
 package com.firstrunhq.decisioning.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -28,7 +28,6 @@ import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.grpc.client.GrpcChannelFactory;
 
 /** Relays agent Converse frames into the widget's answer frames over an in-process agent. */
@@ -71,18 +70,21 @@ class ConversationRelayTests {
   }
 
   @Test
-  void relaysTokensThenClosesTheAnswerWithItsCitations() {
+  void relaysTokensThenClosesTheAnswerWithItsFullTextAndCitations() {
     UUID messageId = UUID.randomUUID();
     boolean accepted = relay.relay(SDK_APP, message(messageId, "answer", null));
 
     assertThat(accepted).isTrue();
-    ArgumentCaptor<AnswerFrame> frames = ArgumentCaptor.forClass(AnswerFrame.class);
-    verify(streams, times(2)).pushAnswerFrame(eq(APP), eq(END_USER), frames.capture());
-    assertThat(frames.getAllValues())
-        .containsExactly(
-            new TokenFrame(messageId.toString(), "Use Settings."),
+    // Tokens stream live; the done frame closes the answer carrying the full
+    // text, so a widget that dropped tokens to a reload heals from it.
+    verify(streams).pushToken(APP, END_USER, new TokenFrame(messageId.toString(), "Use Settings."));
+    verify(streams)
+        .pushDone(
+            APP,
+            END_USER,
             new DoneFrame(
                 messageId.toString(),
+                "Use Settings.",
                 List.of(new DoneFrame.Citation("Setup", "https://docs.example.com/setup"))));
   }
 
@@ -91,15 +93,14 @@ class ConversationRelayTests {
     UUID messageId = UUID.randomUUID();
     relay.relay(SDK_APP, message(messageId, "fail-mid-stream", null));
 
-    // The truncated tokens must close with the retry line and no citations,
-    // never as a complete cited answer.
-    ArgumentCaptor<AnswerFrame> frames = ArgumentCaptor.forClass(AnswerFrame.class);
-    verify(streams, times(3)).pushAnswerFrame(eq(APP), eq(END_USER), frames.capture());
-    assertThat(frames.getAllValues())
-        .containsExactly(
-            new TokenFrame(messageId.toString(), "Half an ans"),
-            new TokenFrame(messageId.toString(), ConversationRelay.FAILURE_TEXT),
-            new DoneFrame(messageId.toString(), List.of()));
+    // The streamed token is live; the done frame then reconciles to the retry
+    // line with no citations, so a truncated answer never reads as complete.
+    verify(streams).pushToken(APP, END_USER, new TokenFrame(messageId.toString(), "Half an ans"));
+    verify(streams)
+        .pushDone(
+            APP,
+            END_USER,
+            new DoneFrame(messageId.toString(), ConversationRelay.FAILURE_TEXT, List.of()));
   }
 
   @Test
@@ -191,13 +192,13 @@ class ConversationRelayTests {
     UUID messageId = UUID.randomUUID();
     relay.relay(SDK_APP, message(messageId, "fail-silently", null));
 
+    // No tokens streamed, so the answer closes as one retry-line done frame.
+    verify(streams, never()).pushToken(eq(APP), eq(END_USER), any());
     verify(streams)
-        .pushAnswerFrame(
-            eq(APP),
-            eq(END_USER),
-            eq(new TokenFrame(messageId.toString(), ConversationRelay.FAILURE_TEXT)));
-    verify(streams)
-        .pushAnswerFrame(eq(APP), eq(END_USER), eq(new DoneFrame(messageId.toString(), List.of())));
+        .pushDone(
+            APP,
+            END_USER,
+            new DoneFrame(messageId.toString(), ConversationRelay.FAILURE_TEXT, List.of()));
   }
 
   @Test
@@ -208,10 +209,10 @@ class ConversationRelayTests {
 
     // The watchdog degrades the held answer to the retry line.
     verify(streams, timeout(5_000))
-        .pushAnswerFrame(
-            eq(APP),
-            eq(END_USER),
-            eq(new TokenFrame(messageId.toString(), ConversationRelay.FAILURE_TEXT)));
+        .pushDone(
+            APP,
+            END_USER,
+            new DoneFrame(messageId.toString(), ConversationRelay.FAILURE_TEXT, List.of()));
 
     // The next message reopens a fresh agent stream instead of queueing
     // behind the hung run on the scrapped one.
@@ -225,13 +226,13 @@ class ConversationRelayTests {
     relay.relay(SDK_APP, message(messageId, "stray-token", null));
 
     verify(streams, never())
-        .pushAnswerFrame(eq(APP), eq(END_USER), eq(new TokenFrame("unknown", "stray")));
+        .pushToken(eq(APP), eq(END_USER), eq(new TokenFrame("unknown", "stray")));
     // The real message streamed nothing, so it degrades to the retry line.
     verify(streams)
-        .pushAnswerFrame(
-            eq(APP),
-            eq(END_USER),
-            eq(new TokenFrame(messageId.toString(), ConversationRelay.FAILURE_TEXT)));
+        .pushDone(
+            APP,
+            END_USER,
+            new DoneFrame(messageId.toString(), ConversationRelay.FAILURE_TEXT, List.of()));
   }
 
   /** Answers each user message inline, scripted by the message text. */

@@ -32,10 +32,12 @@ class NudgeStreams {
   private final Map<String, List<Stream>> streams = new ConcurrentHashMap<>();
   private final Map<UUID, AtomicInteger> appStreamCounts = new ConcurrentHashMap<>();
   private final NudgeReplayBuffer buffer;
+  private final AnswerReplayBuffer answers;
 
-  /** Fans out over open streams, replaying missed nudges from the buffer. */
-  NudgeStreams(NudgeReplayBuffer buffer) {
+  /** Fans out over open streams, replaying missed nudges and answers from the buffers. */
+  NudgeStreams(NudgeReplayBuffer buffer, AnswerReplayBuffer answers) {
     this.buffer = buffer;
+    this.answers = answers;
   }
 
   /**
@@ -69,6 +71,12 @@ class NudgeStreams {
       // The buffer is read after the map insert, so a nudge pushed between the two arrives as
       // both replay and live copy instead of falling between them. The widget drops the copy.
       stream.finishReplay(buffer.after(appId, endUserHash, lastEventId));
+    }
+
+    // Every reconnect drains the answer buffer, so a reload lands its completed answer. The widget
+    // applies only the done its pending question awaits; a first connect drains an empty buffer.
+    for (DoneFrame done : answers.replay(appId, endUserHash)) {
+      stream.sendLive(done.event(), done);
     }
     return stream.emitter;
   }
@@ -110,11 +118,26 @@ class NudgeStreams {
   }
 
   /**
-   * Sends one live answer frame to every stream the user has open. Answer frames are never
-   * buffered: a reconnect reopens live only (api/openapi/stream.yaml), because a replayed
-   * half-answer would render as a fresh one.
+   * Streams one token frame live to every stream the user has open. Tokens are never buffered: a
+   * replayed fragment would render as a fresh answer, so a reconnect only resumes live tokens and
+   * heals what it missed from the closing {@code done} frame (api/openapi/stream.yaml).
    */
-  void pushAnswerFrame(UUID appId, String endUserHash, AnswerFrame frame) {
+  void pushToken(UUID appId, String endUserHash, TokenFrame frame) {
+    pushLive(appId, endUserHash, frame);
+  }
+
+  /**
+   * Closes one answer: buffers the {@code done} frame for a brief reconnect window, then fans it
+   * out live. The done carries the full answer text, so a stream that dropped tokens to a reload
+   * heals from the replay rather than hanging until its idle timeout.
+   */
+  void pushDone(UUID appId, String endUserHash, DoneFrame frame) {
+    answers.append(appId, endUserHash, frame);
+    pushLive(appId, endUserHash, frame);
+  }
+
+  /** Fans one answer frame out over the user's open streams. */
+  private void pushLive(UUID appId, String endUserHash, AnswerFrame frame) {
     for (Stream stream : streams.getOrDefault(key(appId, endUserHash), List.of())) {
       stream.sendLive(frame.event(), frame);
     }
