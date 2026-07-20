@@ -10,10 +10,15 @@ export interface Composer {
   focus(): void;
 }
 
+// The messages contract caps text at 2000 characters. Capping entry keeps an
+// oversized paste editable instead of bounced by the server after send.
+const MESSAGE_MAX_CHARS = 2000;
+
 /** Builds the composer. Enter and the send button submit, Shift+Enter breaks the line. */
 export function createComposer(onSubmit: () => void): Composer {
   const input = el("textarea", "fr-input");
   input.rows = 1;
+  input.maxLength = MESSAGE_MAX_CHARS;
   input.placeholder = "Ask about this product...";
   input.setAttribute("aria-label", "Ask about this product");
   input.oninput = sync;
