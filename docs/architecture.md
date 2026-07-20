@@ -95,9 +95,9 @@ flowchart LR
   style FR fill:none,stroke:#444444,stroke-dasharray:5 5,color:#000000
 ```
 
-The split between the server and the agent follows runtime forces, not architectural
-layers. The server is a single deployable that owns every piece of stateful product
-logic, and the agent is separate only because its model work needs Python (ADR-001).
+The server and agent split on runtime forces, not architectural layers. The server
+is one deployable that owns all stateful product logic, and the agent is separate
+only because its model work needs Python (ADR-001).
 Each boundary then uses the cheapest protocol that fits its load (ADR-003):
 
 - REST carries high-volume ingest and outbound webhooks.
@@ -162,9 +162,9 @@ flowchart LR
   style AGT fill:none,stroke:#444444,stroke-dasharray:5 5,color:#000000
 ```
 
-Inside the server, modules see each other only through published interfaces or
-domain events, and ArchUnit with `ApplicationModules.verify()` enforces that in
-continuous integration, where a broken boundary is a design defect. Three
+Inside the server, modules interact only through published interfaces or domain
+events. ArchUnit and `ApplicationModules.verify()` enforce that in CI, where a
+broken boundary is a design defect. Three
 constraints carry the most weight:
 
 - The `ledger` is append-only, so no repository method may update or delete its
@@ -172,14 +172,13 @@ constraints carry the most weight:
 - Only `analytics` and the API layer may import `billing`.
 - `ingestion` stays allocation-light and never touches GraphQL types.
 
-The Agent group is the other deployable, where the policy node uses a small model
-and the answer node the stronger one, both at the external provider and swappable by
-configuration. Because the agent holds the only provider access point, it also owns
-the document index. On `Reindex` it crawls, chunks, and embeds a customer's docs
-into pgvector, and retrieval reads them back at answer time. It parses every output
-into a Pydantic model before returning it, so a malformed response or a provider
-outage becomes a hold, and the product degrades to silence rather than a wrong
-answer.
+The agent is the other deployable. Its policy node runs a small model and its answer
+node a stronger one, both at the external provider and swappable by config. As the
+only provider access point, the agent also owns the document index. On `Reindex` it
+crawls, chunks, and embeds a customer's docs into pgvector, and retrieval reads them
+back at answer time. Every model output parses into a Pydantic model first, so a
+malformed response or a provider outage becomes a hold, and the product degrades to
+silence rather than a wrong answer.
 
 ## Runtime
 

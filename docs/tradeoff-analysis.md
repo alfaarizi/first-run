@@ -2,12 +2,10 @@
 
 Date: 2026-07-06
 
-Each matrix below weighs the decision in one Architecture Decision Record (ADR)
-against the alternatives it rejected. The columns are the accepted option and those
-alternatives, the rows are the forces `architecture.md` and the ADR consider, and
-each score runs from 1 (worst) to 10 (best) against weights that sum to 1.0. A
-column total is the weighted sum of its scores. The ADR holds the full rationale,
-so the note under each matrix gives only the decisive tradeoff.
+Each matrix weighs one ADR's decision against the alternatives it rejected. Columns
+are the options, rows are the forces the ADR weighs, and scores run from 1 (worst)
+to 10 (best) against weights that sum to 1.0. A column total is its weighted sum.
+The ADR holds the full rationale, so each note gives only the decisive tradeoff.
 
 ## Server architecture (ADR-001)
 
