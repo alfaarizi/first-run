@@ -176,13 +176,7 @@ class Crawler:
         root_origin = _origin(root, self._allow_local)
         if root_origin is None:
             raise CrawlError(f"not a public https URL: {root_url}")
-        addresses = await self._resolve(root.hostname or "")
-        if not self._allow_local:
-            for address in addresses:
-                if not _is_public(ipaddress.ip_address(address)):
-                    raise CrawlError(
-                        f"host resolves to a non-public address: {address}"
-                    )
+        addresses = await self._resolve_public(root.hostname or "")
 
         async with httpx.AsyncClient(
             timeout=self._timeout,
@@ -213,6 +207,16 @@ class Crawler:
                 page = await self._fetch(client, url, frontier, pin)
                 if page is not None:
                     yield page
+
+    async def _resolve_public(self, host: str) -> list[str]:
+        """Resolve the host, rejecting any address unsafe for crawler egress."""
+        addresses = await self._resolve(host)
+        if self._allow_local:
+            return addresses
+        for address in addresses:
+            if not _is_public(ipaddress.ip_address(address)):
+                raise CrawlError(f"host resolves to a non-public address: {address}")
+        return addresses
 
     async def _connect(
         self,
