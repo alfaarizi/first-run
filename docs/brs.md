@@ -20,7 +20,6 @@ FirstRun is an embeddable browser widget backed by a hosted multi-tenant service
 
 ## Stakeholders
 
-- Muhammad Al Farizi, the developer.
 - Small-SaaS founders, the customers who install the widget and read the dashboard.
 - End users inside the customer's product, who receive the nudges.
 
