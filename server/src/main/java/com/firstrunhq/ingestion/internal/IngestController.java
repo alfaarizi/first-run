@@ -122,10 +122,8 @@ class IngestController {
           "The signature is invalid or the timestamp is outside the accepted window.");
     }
 
-    EventBatch batch;
-    try {
-      batch = objectMapper.readValue(body, EventBatch.class);
-    } catch (IOException malformed) {
+    EventBatch batch = readBatch(body);
+    if (batch == null) {
       return problem(HttpStatus.BAD_REQUEST, "The body is not a valid event batch.");
     }
     if (batch.events().size() > MAX_BATCH_EVENTS) {
@@ -143,6 +141,15 @@ class IngestController {
       return tooManyEvents(retryAfter);
     }
     return produce(app, batch, IpTruncator.truncate(clientAddress(request)));
+  }
+
+  /** Parses the body against the batch schema, a malformed body as null. */
+  private @Nullable EventBatch readBatch(byte[] body) {
+    try {
+      return objectMapper.readValue(body, EventBatch.class);
+    } catch (IOException malformed) {
+      return null;
+    }
   }
 
   /** Dedupes and produces the batch, answering 202 only for a broker-acknowledged batch. */
