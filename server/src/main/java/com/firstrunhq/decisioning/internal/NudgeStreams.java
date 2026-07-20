@@ -52,8 +52,33 @@ class NudgeStreams {
     Stream stream = new Stream(new SseEmitter(STREAM_TIMEOUT.toMillis()), lastEventId != null);
     String key = key(appId, endUserHash);
 
-    // compute serializes with removal per key, so a concurrent removal never
-    // strands a live stream.
+    // Completing inside compute would re-enter the map through the removal callback.
+    for (Stream retired : addCappingPerUser(key, stream)) {
+      appCount.decrementAndGet();
+      retired.retire();
+    }
+
+    Runnable remove = () -> remove(appCount, key, stream);
+    stream.emitter.onCompletion(remove);
+    stream.emitter.onTimeout(remove);
+    stream.emitter.onError(error -> remove.run());
+
+    stream.sendConnectedComment();
+
+    if (lastEventId != null) {
+      // The buffer is read after the map insert, so a nudge pushed between the two arrives as
+      // both replay and live copy instead of falling between them. The widget drops the copy.
+      stream.finishReplay(buffer.after(appId, endUserHash, lastEventId));
+    }
+    return stream.emitter;
+  }
+
+  /**
+   * Adds the stream under the user's registry key and returns the oldest streams the per-user cap
+   * pushed out. compute serializes with removal per key, so a concurrent removal never strands a
+   * live stream.
+   */
+  private List<Stream> addCappingPerUser(String key, Stream stream) {
     List<Stream> evicted = new ArrayList<>();
     streams.compute(
         key,
@@ -65,31 +90,7 @@ class NudgeStreams {
           live.add(stream);
           return live;
         });
-
-    // Completing inside compute would re-enter the map through the removal callback.
-    for (Stream retired : evicted) {
-      appCount.decrementAndGet();
-      retired.retire();
-    }
-
-    Runnable remove = () -> remove(appCount, key, stream);
-    stream.emitter.onCompletion(remove);
-    stream.emitter.onTimeout(remove);
-    stream.emitter.onError(error -> remove.run());
-
-    // A first frame commits the response headers, so EventSource opens now, not on the first nudge.
-    try {
-      stream.emitter.send(SseEmitter.event().comment("connected"));
-    } catch (IOException | IllegalStateException gone) {
-      stream.emitter.completeWithError(gone);
-    }
-
-    if (lastEventId != null) {
-      // The buffer is read after the map insert, so a nudge pushed between the two arrives as
-      // both replay and live copy instead of falling between them. The widget drops the copy.
-      stream.finishReplay(buffer.after(appId, endUserHash, lastEventId));
-    }
-    return stream.emitter;
+    return evicted;
   }
 
   /**
@@ -192,6 +193,15 @@ class NudgeStreams {
         // the tab is already gone, so there is no client left to reconnect
       }
       emitter.complete();
+    }
+
+    /** Commits the response headers, so EventSource opens now, not on the first nudge. */
+    synchronized void sendConnectedComment() {
+      try {
+        emitter.send(SseEmitter.event().comment("connected"));
+      } catch (IOException | IllegalStateException gone) {
+        emitter.completeWithError(gone);
+      }
     }
 
     /** Sends one unbuffered frame, closing the stream when the tab is gone. */

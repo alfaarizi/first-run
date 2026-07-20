@@ -2,7 +2,7 @@ package com.firstrunhq.decisioning.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -47,7 +47,7 @@ class MessagesControllerTests {
   @Test
   void acceptsASignedMessageAndHandsItToTheRelay() {
     when(appDirectory.findBySdkKey("pk_test")).thenReturn(Optional.of(SDK_APP));
-    when(relay.relay(any(), any(), any(), any(), any(), any())).thenReturn(true);
+    when(relay.relay(any(), any())).thenReturn(true);
 
     ResponseEntity<Object> response = post(body("How do I connect?"), true, null);
 
@@ -111,7 +111,7 @@ class MessagesControllerTests {
     // The holdout suppresses proactive nudges, not a question the user asks
     // first, so a holdout hash reaches the relay unblocked.
     when(appDirectory.findBySdkKey("pk_test")).thenReturn(Optional.of(SDK_APP));
-    when(relay.relay(any(), any(), any(), any(), any(), any())).thenReturn(true);
+    when(relay.relay(any(), any())).thenReturn(true);
 
     ResponseEntity<Object> response = post(body("hi"), true, null);
 
@@ -121,7 +121,7 @@ class MessagesControllerTests {
   @Test
   void forwardsTheRefThatOpenedTheConversation() {
     when(appDirectory.findBySdkKey("pk_test")).thenReturn(Optional.of(SDK_APP));
-    when(relay.relay(any(), any(), any(), any(), any(), any())).thenReturn(true);
+    when(relay.relay(any(), any())).thenReturn(true);
     UUID ref = UUID.randomUUID();
     String body =
         """
@@ -130,13 +130,14 @@ class MessagesControllerTests {
 
     post(body, true, null);
 
-    verify(relay).relay(any(), any(), any(), any(), eq("hi"), eq(ref));
+    verify(relay)
+        .relay(any(), argThat(message -> message.text().equals("hi") && ref.equals(message.ref())));
   }
 
   @Test
   void answersTooManyRequestsWhenTheConversationBudgetIsSpent() {
     when(appDirectory.findBySdkKey("pk_test")).thenReturn(Optional.of(SDK_APP));
-    when(relay.relay(any(), any(), any(), any(), any(), any())).thenReturn(false);
+    when(relay.relay(any(), any())).thenReturn(false);
 
     ResponseEntity<Object> response = post(body("hi"), true, null);
 

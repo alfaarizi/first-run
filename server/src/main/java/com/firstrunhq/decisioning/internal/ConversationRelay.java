@@ -84,22 +84,16 @@ class ConversationRelay {
   }
 
   /** Forwards one message, or reports false when the app's conversation budget is spent. */
-  boolean relay(
-      SdkApp app,
-      UUID messageId,
-      UUID sessionId,
-      String endUserHash,
-      String text,
-      @Nullable UUID ref) {
-    String key = app.id() + ":" + endUserHash + ":" + sessionId;
+  boolean relay(SdkApp app, EndUserMessage message) {
+    String key = app.id() + ":" + message.endUserHash() + ":" + message.sessionId();
     Conversation conversation = conversations.get(key);
     if (conversation == null) {
-      conversation = openWithinBudget(key, app, sessionId, endUserHash, ref);
+      conversation = openWithinBudget(key, app, message);
       if (conversation == null) {
         return false;
       }
     }
-    conversation.send(messageId, text);
+    conversation.send(message.messageId(), message.text());
     return true;
   }
 
@@ -108,8 +102,7 @@ class ConversationRelay {
    * The count is reserved before the open and paid back on failure or on losing the creation race,
    * so it always matches the conversations actually held.
    */
-  private @Nullable Conversation openWithinBudget(
-      String key, SdkApp app, UUID sessionId, String endUserHash, @Nullable UUID ref) {
+  private @Nullable Conversation openWithinBudget(String key, SdkApp app, EndUserMessage message) {
     AtomicInteger count = appCounts.computeIfAbsent(app.id(), id -> new AtomicInteger());
     if (count.incrementAndGet() > MAX_CONVERSATIONS_PER_APP) {
       count.decrementAndGet();
@@ -117,8 +110,7 @@ class ConversationRelay {
     }
     Conversation conversation;
     try {
-      conversation =
-          conversations.computeIfAbsent(key, unused -> open(key, app, sessionId, endUserHash, ref));
+      conversation = conversations.computeIfAbsent(key, unused -> open(key, app, message));
     } catch (RuntimeException openFailed) {
       // The reservation must not outlive a conversation that never opened,
       // or agent outages ratchet the app toward a permanent 429.
@@ -132,29 +124,29 @@ class ConversationRelay {
     return conversation;
   }
 
-  private Conversation open(
-      String key, SdkApp app, UUID sessionId, String endUserHash, @Nullable UUID ref) {
+  private Conversation open(String key, SdkApp app, EndUserMessage message) {
     // The ref names the nudge that opened the chat. An unknown ref yields no
     // context, because a guessed milestone hint corrupts attribution.
+    UUID ref = message.ref();
     NudgeContexts.NudgeContext nudge =
         (ref != null
-                ? contexts.find(app.id(), endUserHash, ref)
-                : contexts.latest(app.id(), endUserHash))
+                ? contexts.find(app.id(), message.endUserHash(), ref)
+                : contexts.latest(app.id(), message.endUserHash()))
             .orElse(null);
     ConversationContext.Builder context =
         ConversationContext.newBuilder()
             .setConversationId(UUID_V7.generate().toString())
             .setTenantId(app.tenantId().toString())
             .setAppId(app.id().toString())
-            .setEndUserHash(endUserHash)
-            .setSessionId(sessionId.toString());
+            .setEndUserHash(message.endUserHash())
+            .setSessionId(message.sessionId().toString());
     if (nudge != null) {
       context
           .setInterventionId(nudge.nudgeId().toString())
           .setMilestoneId(nudge.milestoneId().toString())
           .setMilestoneName(nudge.milestoneName());
     }
-    Conversation conversation = new Conversation(key, app.id(), endUserHash);
+    Conversation conversation = new Conversation(key, app.id(), message.endUserHash());
     conversation.start(context.build());
     return conversation;
   }
@@ -290,8 +282,12 @@ class ConversationRelay {
       remove(this);
     }
 
-    /** Half-closes toward the agent and retires the conversation. */
-    void close() {
+    /**
+     * Half-closes toward the agent and retires the conversation. Synchronized like send, because
+     * the gRPC observer is not thread-safe and the sweeper must never race onCompleted against a
+     * request thread's onNext.
+     */
+    synchronized void close() {
       try {
         requests.onCompleted();
       } catch (IllegalStateException alreadyClosed) {

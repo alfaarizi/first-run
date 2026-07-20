@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,6 +45,11 @@ class ConversationRelayTests {
   private io.grpc.ManagedChannel channel;
   private ConversationRelay relay;
 
+  /** Builds one message in the suite's single conversation. */
+  private static EndUserMessage message(UUID messageId, String text, @Nullable UUID ref) {
+    return new EndUserMessage(messageId, SESSION, END_USER, text, ref);
+  }
+
   @BeforeEach
   void startInProcessAgent() throws Exception {
     String name = InProcessServerBuilder.generateName();
@@ -64,7 +70,7 @@ class ConversationRelayTests {
   @Test
   void relaysTokensThenClosesTheAnswerWithItsCitations() {
     UUID messageId = UUID.randomUUID();
-    boolean accepted = relay.relay(SDK_APP, messageId, SESSION, END_USER, "answer", null);
+    boolean accepted = relay.relay(SDK_APP, message(messageId, "answer", null));
 
     assertThat(accepted).isTrue();
     ArgumentCaptor<AnswerFrame> frames = ArgumentCaptor.forClass(AnswerFrame.class);
@@ -80,7 +86,7 @@ class ConversationRelayTests {
   @Test
   void aMidStreamFailureDegradesToTheRetryLine() {
     UUID messageId = UUID.randomUUID();
-    relay.relay(SDK_APP, messageId, SESSION, END_USER, "fail-mid-stream", null);
+    relay.relay(SDK_APP, message(messageId, "fail-mid-stream", null));
 
     // The truncated tokens must close with the retry line and no citations,
     // never as a complete cited answer.
@@ -102,7 +108,7 @@ class ConversationRelayTests {
         END_USER,
         new NudgeContexts.NudgeContext(nudgeId, milestoneId, "data_source_connected"));
 
-    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer", null);
+    relay.relay(SDK_APP, message(UUID.randomUUID(), "answer", null));
 
     var context = agent.context;
     assertThat(context).isNotNull();
@@ -116,8 +122,8 @@ class ConversationRelayTests {
 
   @Test
   void reusesOneAgentStreamAcrossASessionsMessages() {
-    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer", null);
-    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer", null);
+    relay.relay(SDK_APP, message(UUID.randomUUID(), "answer", null));
+    relay.relay(SDK_APP, message(UUID.randomUUID(), "answer", null));
 
     assertThat(agent.conversations).isEqualTo(1);
     assertThat(agent.messages).hasSize(2);
@@ -136,7 +142,7 @@ class ConversationRelayTests {
         new NudgeContexts.NudgeContext(
             UUID.randomUUID(), UUID.randomUUID(), "data_source_connected"));
 
-    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer", referredNudge);
+    relay.relay(SDK_APP, message(UUID.randomUUID(), "answer", referredNudge));
 
     var context = agent.context;
     assertThat(context).isNotNull();
@@ -152,7 +158,7 @@ class ConversationRelayTests {
         new NudgeContexts.NudgeContext(
             UUID.randomUUID(), UUID.randomUUID(), "data_source_connected"));
 
-    relay.relay(SDK_APP, UUID.randomUUID(), SESSION, END_USER, "answer", UUID.randomUUID());
+    relay.relay(SDK_APP, message(UUID.randomUUID(), "answer", UUID.randomUUID()));
 
     var context = agent.context;
     assertThat(context).isNotNull();
@@ -162,8 +168,8 @@ class ConversationRelayTests {
   @Test
   void dropsAMessageThatRepeatsAPendingId() {
     UUID messageId = UUID.randomUUID();
-    relay.relay(SDK_APP, messageId, SESSION, END_USER, "hold", null);
-    relay.relay(SDK_APP, messageId, SESSION, END_USER, "hold", null);
+    relay.relay(SDK_APP, message(messageId, "hold", null));
+    relay.relay(SDK_APP, message(messageId, "hold", null));
 
     assertThat(agent.messages).hasSize(1);
   }
@@ -171,8 +177,8 @@ class ConversationRelayTests {
   @Test
   void dropsAMessageThatRepeatsACompletedId() {
     UUID messageId = UUID.randomUUID();
-    relay.relay(SDK_APP, messageId, SESSION, END_USER, "answer", null);
-    relay.relay(SDK_APP, messageId, SESSION, END_USER, "answer", null);
+    relay.relay(SDK_APP, message(messageId, "answer", null));
+    relay.relay(SDK_APP, message(messageId, "answer", null));
 
     assertThat(agent.messages).hasSize(1);
   }
@@ -180,7 +186,7 @@ class ConversationRelayTests {
   @Test
   void anAnswerWithoutTokensDegradesToTheRetryLine() {
     UUID messageId = UUID.randomUUID();
-    relay.relay(SDK_APP, messageId, SESSION, END_USER, "fail-silently", null);
+    relay.relay(SDK_APP, message(messageId, "fail-silently", null));
 
     verify(streams)
         .pushAnswerFrame(
@@ -194,7 +200,7 @@ class ConversationRelayTests {
   @Test
   void aTokenForAnUnknownMessageNeverReachesTheStream() {
     UUID messageId = UUID.randomUUID();
-    relay.relay(SDK_APP, messageId, SESSION, END_USER, "stray-token", null);
+    relay.relay(SDK_APP, message(messageId, "stray-token", null));
 
     verify(streams, never())
         .pushAnswerFrame(eq(APP), eq(END_USER), eq(new TokenFrame("unknown", "stray")));

@@ -85,10 +85,8 @@ class MessagesController {
       return problem(HttpStatus.UNAUTHORIZED, "The request signature does not verify.");
     }
 
-    MessageBody message;
-    try {
-      message = objectMapper.readValue(body, MessageBody.class);
-    } catch (IOException malformed) {
+    MessageBody message = readMessage(body);
+    if (message == null) {
       return problem(HttpStatus.BAD_REQUEST, "The body is not the message schema.");
     }
     UUID id = message.id();
@@ -114,10 +112,19 @@ class MessagesController {
     // nudges that carry the lift signal, and answering a question the user
     // asked first only makes measured lift more conservative. The leak to
     // gate is executing an action for a holdout, once actions land.
-    if (!relay.relay(app, id, sessionId, endUserHash, text, message.ref())) {
+    if (!relay.relay(app, new EndUserMessage(id, sessionId, endUserHash, text, message.ref()))) {
       return problem(HttpStatus.TOO_MANY_REQUESTS, "The app's conversation budget is spent.");
     }
     return ResponseEntity.accepted().build();
+  }
+
+  /** Parses the body against the message schema, a malformed body as null. */
+  private @Nullable MessageBody readMessage(byte[] body) {
+    try {
+      return objectMapper.readValue(body, MessageBody.class);
+    } catch (IOException malformed) {
+      return null;
+    }
   }
 
   /** Builds the RFC 9457 problem body every rejection answers with. */
