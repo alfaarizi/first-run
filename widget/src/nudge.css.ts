@@ -334,6 +334,10 @@ button:focus-visible {
   background: var(--muted-foreground);
   opacity: 0.4;
 }
+/* The timestamp waits until the answer has content, so the typing bubble is bare. */
+.fr-message:has(.fr-typing) .fr-time {
+  display: none;
+}
 .fr-citations {
   margin: 0;
   padding-left: 18px;
@@ -429,13 +433,13 @@ button:focus-visible {
     animation: none;
   }
   .fr-typing span {
-    animation: fr-blink 1.2s infinite both;
+    animation: fr-typing 1.4s ease-in-out infinite;
   }
   .fr-typing span:nth-child(2) {
-    animation-delay: 0.15s;
+    animation-delay: 0.2s;
   }
   .fr-typing span:nth-child(3) {
-    animation-delay: 0.3s;
+    animation-delay: 0.4s;
   }
   @keyframes fr-rise {
     from {
@@ -443,14 +447,14 @@ button:focus-visible {
       transform: translateY(4px);
     }
   }
-  @keyframes fr-blink {
+  @keyframes fr-typing {
     0%, 60%, 100% {
+      transform: translateY(0);
       opacity: 0.4;
-      transform: none;
     }
     30% {
-      opacity: 1;
-      transform: translateY(-3px);
+      transform: translateY(-5px);
+      opacity: 0.9;
     }
   }
 }
