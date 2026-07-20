@@ -18,6 +18,13 @@ export interface StreamHandlers {
   action(payload: ActionPayload): void;
 }
 
+/** The caller's grip on one stream: close it, or ask whether it can deliver. */
+export interface StreamHandle {
+  close(): void;
+  /** True only while the socket is open, so a sent question's answer can arrive. */
+  isOpen(): boolean;
+}
+
 /**
  * Opens the server-push channel, keyed by the end user. A fresh stream asks
  * for the whole buffer, so a nudge buffered before it opened still arrives,
@@ -30,7 +37,7 @@ export function connectStream(
   config: Config,
   endUserHash: string,
   handlers: StreamHandlers,
-): () => void {
+): StreamHandle {
   let source: EventSource | undefined;
   let retryTimer: number | undefined;
   let retries = 0;
@@ -102,10 +109,14 @@ export function connectStream(
 
   void open();
 
-  return () => {
-    closed = true;
-    clearTimeout(retryTimer);
-    source?.close();
+  return {
+    close() {
+      closed = true;
+      clearTimeout(retryTimer);
+      source?.close();
+    },
+    // Answer frames are live-only, so delivery needs the socket open right now.
+    isOpen: () => !closed && source?.readyState === EventSource.OPEN,
   };
 }
 

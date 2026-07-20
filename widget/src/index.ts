@@ -7,6 +7,7 @@ import { post } from "./request";
 import { RequestQueue } from "./request-queue";
 import { rotateSession, sessionId } from "./sessionid";
 import { connectStream } from "./stream";
+import type { StreamHandle } from "./stream";
 import type { Config, Properties } from "./types";
 import { uuidv7 } from "./uuidv7";
 
@@ -93,24 +94,29 @@ function start(config: Config): void {
   const enqueueInterventionEvent = (event: string, ref: string) =>
     enqueueEvent(event, undefined, new Date().toISOString(), ref);
 
+  let stream: StreamHandle | undefined;
+
   const ui = new NudgeUi({
     onDismiss: safe((nudgeId) => enqueueInterventionEvent("fr.nudge_dismissed", nudgeId)),
     onEngage: safe((nudgeId) => enqueueInterventionEvent("fr.nudge_engaged", nudgeId)),
     onSend: (id, text, ref) =>
-      post(
-        config,
-        MESSAGES_PATH,
-        JSON.stringify({
-          id,
-          session_id: sessionId(),
-          end_user_hash: endUserHash,
-          text,
-          ...(ref && { ref }),
-        }),
-      ).then((result) => result.ok),
+      // Answer frames are live-only, so a send without an open stream would
+      // spend an answer nobody can receive. Failing it renders the retry line
+      // now instead of after a silent idle window.
+      !stream?.isOpen()
+        ? Promise.resolve(false)
+        : post(
+            config,
+            MESSAGES_PATH,
+            JSON.stringify({
+              id,
+              session_id: sessionId(),
+              end_user_hash: endUserHash,
+              text,
+              ...(ref && { ref }),
+            }),
+          ).then((result) => result.ok),
   });
-
-  let disconnect: (() => void) | undefined;
 
   /** Adopts the end user's hash, releasing held events and (re)opening their stream. */
   const identify = safe((hash: string) => {
@@ -128,8 +134,8 @@ function start(config: Config): void {
     for (const args of pendingEvents) enqueueEvent(...args);
     pendingEvents = [];
 
-    disconnect?.();
-    disconnect = connectStream(config, hash, {
+    stream?.close();
+    stream = connectStream(config, hash, {
       nudge: safe((payload) => ui.showNudge(payload)),
       token: safe((messageId, text) => ui.appendToken(messageId, text)),
       done: safe((messageId, citations) => ui.finishAnswer(messageId, citations)),

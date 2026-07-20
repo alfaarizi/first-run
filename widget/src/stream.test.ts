@@ -10,6 +10,7 @@ vi.mock("./request", () => ({
 
 class FakeEventSource {
   static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
   static readonly CLOSED = 2;
   static instances: FakeEventSource[] = [];
 
@@ -118,10 +119,10 @@ test("a replayed frame that races its live copy shows once", async () => {
 });
 
 test("the cursor persists per end user across connections", async () => {
-  const close = connectStream(config, "user-pages", handlers());
+  const stream = connectStream(config, "user-pages", handlers());
   await vi.advanceTimersByTimeAsync(0);
   FakeEventSource.instances[0]!.emit("nudge", '{"id":"n2","text":"hi"}', "n2");
-  close();
+  stream.close();
 
   connectStream(config, "user-pages", handlers());
   await vi.advanceTimersByTimeAsync(0);
@@ -134,16 +135,16 @@ test("the cursor persists per end user across connections", async () => {
 });
 
 test("one app's cursor never resumes or displaces another app's", async () => {
-  const close = connectStream(config, "user-apps", handlers());
+  const stream = connectStream(config, "user-apps", handlers());
   await vi.advanceTimersByTimeAsync(0);
   FakeEventSource.instances[0]!.emit("nudge", '{"id":"n7","text":"hi"}', "n7");
-  close();
+  stream.close();
 
   // a second app on the same origin, same customer-supplied hash, starts from the buffer
-  const closeOther = connectStream({ ...config, key: "key_2" }, "user-apps", handlers());
+  const other = connectStream({ ...config, key: "key_2" }, "user-apps", handlers());
   await vi.advanceTimersByTimeAsync(0);
   expect(FakeEventSource.instances[1]!.url).toContain("last_event_id=earliest");
-  closeOther();
+  other.close();
 
   // and its whole-buffer request never displaces the first app's cursor
   connectStream(config, "user-apps", handlers());
@@ -152,20 +153,48 @@ test("one app's cursor never resumes or displaces another app's", async () => {
 });
 
 test("an account switch never displaces the previous user's cursor", async () => {
-  const closeA = connectStream(config, "user-a", handlers());
+  const streamA = connectStream(config, "user-a", handlers());
   await vi.advanceTimersByTimeAsync(0);
   FakeEventSource.instances[0]!.emit("nudge", '{"id":"n9","text":"hi"}', "n9");
-  closeA();
+  streamA.close();
 
   // the second account starts from the buffer without touching the first one's slot
-  const closeB = connectStream(config, "user-b", handlers());
+  const streamB = connectStream(config, "user-b", handlers());
   await vi.advanceTimersByTimeAsync(0);
   expect(FakeEventSource.instances[1]!.url).toContain("last_event_id=earliest");
-  closeB();
+  streamB.close();
 
   connectStream(config, "user-a", handlers());
   await vi.advanceTimersByTimeAsync(0);
   expect(FakeEventSource.instances[2]!.url).toContain("last_event_id=n9");
+});
+
+test("the stream reports open only while its socket is open", async () => {
+  const stream = connectStream(config, "user-open", handlers());
+  // the handshake has not finished, so an answer sent now would be lost
+  expect(stream.isOpen()).toBe(false);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(stream.isOpen()).toBe(false);
+
+  const source = FakeEventSource.instances[0]!;
+  source.readyState = FakeEventSource.OPEN;
+  source.emit("open");
+  expect(stream.isOpen()).toBe(true);
+
+  source.readyState = FakeEventSource.CLOSED;
+  source.emit("error");
+  expect(stream.isOpen()).toBe(false);
+});
+
+test("a closed stream never reports open again", async () => {
+  const stream = connectStream(config, "user-shut", handlers());
+  await vi.advanceTimersByTimeAsync(0);
+  const source = FakeEventSource.instances[0]!;
+  source.readyState = FakeEventSource.OPEN;
+  source.emit("open");
+
+  stream.close();
+  expect(stream.isOpen()).toBe(false);
 });
 
 test("a retired stream closes for good instead of reconnecting", async () => {
