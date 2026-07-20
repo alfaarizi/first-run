@@ -40,31 +40,44 @@ function stubAudioContext(context: ReturnType<typeof fakeContext>) {
 test("stays silent before the first user gesture", () => {
   const AudioContext = stubAudioContext(fakeContext("running"));
 
-  createChime()();
+  createChime().nudge();
 
   expect(AudioContext).not.toHaveBeenCalled();
 });
 
-test("primes on the first gesture and plays a rising two-tone chime", () => {
+test("primes on the first gesture and plays a rising two-tone nudge chime", () => {
   const context = fakeContext("running");
   stubAudioContext(context);
-  const play = createChime();
+  const chime = createChime();
 
   dispatchEvent(new Event("pointerdown"));
-  play();
+  chime.nudge();
 
   expect(context.oscillator.frequency.setValueAtTime).toHaveBeenCalledTimes(2);
   expect(context.oscillator.start).toHaveBeenCalled();
   expect(context.oscillator.stop).toHaveBeenCalled();
 });
 
+test("plays a send tick over the same primed context", () => {
+  const context = fakeContext("running");
+  stubAudioContext(context);
+  const chime = createChime();
+
+  dispatchEvent(new Event("pointerdown"));
+  chime.send();
+
+  expect(context.createOscillator).toHaveBeenCalledTimes(1);
+  expect(context.oscillator.start).toHaveBeenCalled();
+});
+
 test("skips playback while the autoplay policy keeps the context suspended", () => {
   const context = fakeContext("suspended");
   stubAudioContext(context);
-  const play = createChime();
+  const chime = createChime();
 
   dispatchEvent(new Event("pointerdown"));
-  play();
+  chime.nudge();
+  chime.send();
 
   expect(context.createOscillator).not.toHaveBeenCalled();
 });

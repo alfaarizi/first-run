@@ -1,11 +1,11 @@
-import { createChime } from "./chime";
+import { createChime, type Chime } from "./chime";
 import { createComposer, type Composer } from "./composer";
 import { TRY_AGAIN_TEXT } from "./constants";
 import { el } from "./dom";
 import { createFace } from "./face";
 import { FACE_CSS } from "./face.css";
 import { MORPH_MS, NUDGE_CSS } from "./nudge.css";
-import type { Citation, NudgePayload } from "./types";
+import type { ChatMessage, ChatSnapshot, Citation, NudgePayload } from "./types";
 import { uuidv7 } from "./uuidv7";
 
 // Past the server's 30s per-answer watchdog. A live stream always closes the
@@ -32,6 +32,9 @@ export interface NudgeCallbacks {
   onSend(id: string, text: string, ref?: string): Promise<boolean>;
 }
 
+/** Records the surface's state so a reload restores the conversation. */
+export type PersistChat = (snapshot: ChatSnapshot) => void;
+
 /**
  * The widget surface: a persistent launcher whose shell expands into the
  * message panel, with nudges previewed in a bubble above it. Dynamic strings
@@ -39,7 +42,8 @@ export interface NudgeCallbacks {
  */
 export class NudgeUi {
   private readonly callbacks: NudgeCallbacks;
-  private readonly playChime = createChime();
+  private readonly persist: PersistChat;
+  private readonly chime: Chime;
   private readonly root: HTMLElement;
   private readonly shell: HTMLElement;
   private readonly launcher: HTMLButtonElement;
@@ -50,15 +54,21 @@ export class NudgeUi {
   private pendingNudge: NudgePayload | undefined;
   private readonly nudgesAwaitingReply = new Set<string>();
   private lastEngagedNudge: string | undefined;
+  // The rendered transcript, mirrored so a reload can rebuild it from storage.
+  private transcript: ChatMessage[] = [];
   private answer: HTMLElement | undefined;
+  private answerModel: ChatMessage | undefined;
   private answerMessageId: string | undefined;
+  private typing: HTMLElement | undefined;
   private answerTimer: number | undefined;
   private morphTimer: number | undefined;
   private expanded = false;
 
   /** Builds the collapsed surface and mounts it in a closed shadow root. */
-  constructor(callbacks: NudgeCallbacks) {
+  constructor(callbacks: NudgeCallbacks, persist: PersistChat = () => {}) {
     this.callbacks = callbacks;
+    this.persist = persist;
+    this.chime = createChime();
     this.launcher = this.buildLauncher();
     this.messages = this.buildMessages();
     this.composer = createComposer(() => this.submit());
@@ -78,6 +88,7 @@ export class NudgeUi {
     this.dropAnswer();
     this.removeBubble();
     this.lastEngagedNudge = undefined;
+    this.transcript = [];
     this.messages.replaceChildren();
     this.panel.querySelector(".fr-confirm")?.remove();
     this.composer.clear();
@@ -85,29 +96,57 @@ export class NudgeUi {
     this.collapse(false);
   }
 
+  /**
+   * Rebuilds the conversation a prior page left in storage, so a reload keeps
+   * the transcript, the open panel, and any answer still being processed.
+   */
+  restore(snapshot: ChatSnapshot | undefined): void {
+    if (!snapshot) return;
+    this.transcript = snapshot.messages.map((message) => ({
+      ...message,
+      citations: message.citations && [...message.citations],
+    }));
+
+    // Restored messages arrive at once, so they skip the one-by-one entry rise.
+    for (const message of this.transcript) this.renderMessage(message, false);
+
+    // A prior page left mid-answer: open a fresh slot; the buffered done frame
+    // fills it when the stream reopens.
+    if (snapshot.pendingId) this.openAnswerSlot(snapshot.pendingId);
+
+    if (snapshot.open) {
+      this.expanded = true;
+      this.shell.classList.add("fr-expanded");
+      this.launcher.setAttribute("aria-expanded", "true");
+    }
+    this.scrollToBottom();
+  }
+
   /** Announces a frame the collapsed shell would otherwise hide, with the dot and chime. */
   notify(): void {
     if (this.expanded) return;
     this.shell.classList.add("fr-unread");
-    this.playChime();
+    this.chime.nudge();
   }
 
   /** Shows the nudge: into the conversation when expanded, else as the preview bubble. */
   showNudge(nudge: NudgePayload): void {
     if (this.expanded) {
-      // An open panel already shows the conversation, so the nudge joins it.
-      // The user's next reply reports it engaged.
+      // The open panel joins the nudge into the conversation; the next reply
+      // reports it engaged.
       this.appendMessage("agent", nudge.text);
       this.nudgesAwaitingReply.add(nudge.id);
+      this.save();
       return;
     }
 
-    // A nudge displaced from the preview joins the conversation instead.
-    // The server has claimed it and will never push it again.
+    // A nudge displaced from the preview joins the conversation instead. The
+    // server has claimed it and never pushes it again.
     const displaced = this.pendingNudge;
     if (displaced && displaced.id !== nudge.id) {
       this.appendMessage("agent", displaced.text);
       this.nudgesAwaitingReply.add(displaced.id);
+      this.save();
     }
     this.removeBubble();
     this.pendingNudge = nudge;
@@ -121,24 +160,40 @@ export class NudgeUi {
     // Another tab's answer rides the same user stream. Only frames for the
     // question this panel sent reach its slot.
     if (!this.answer || messageId !== this.answerMessageId) return;
+
     const follow = this.isAtBottom();
+    this.clearTyping();
+
+    // The model text is reconciled once from the done frame, not built per token.
     this.answer.append(text);
+
     if (follow) this.scrollToBottom();
     this.keepAnswerAlive();
   }
 
-  /** Closes the streamed answer, rendering its citations as links. */
-  finishAnswer(messageId: string, citations: Citation[]): void {
+  /** Closes the streamed answer, reconciling to the server's final text and citations. */
+  finishAnswer(messageId: string, text: string | undefined, citations: Citation[]): void {
     if (messageId !== this.answerMessageId) return;
-    if (this.answer) {
+    const body = this.answer;
+    if (body) {
       const follow = this.isAtBottom();
+      this.clearTyping();
+
+      // Reconcile to the authoritative done text, healing any dropped token.
+      const streamed = body.textContent;
+      const finalText = text || streamed || TRY_AGAIN_TEXT;
+      if (streamed !== finalText) body.textContent = finalText;
+      if (this.answerModel) {
+        this.answerModel.text = finalText;
+        this.answerModel.citations = citations;
+      }
+
       const list = buildCitations(citations);
-      if (list.childElementCount > 0) this.answer.append(list);
-      // A stream that ends having said nothing reads as a failure.
-      else if (!this.answer.textContent) this.answer.textContent = TRY_AGAIN_TEXT;
+      if (list.childElementCount > 0) body.append(list);
       if (follow) this.scrollToBottom();
     }
     this.dropAnswer();
+    this.save();
   }
 
   /** Builds the launcher button that toggles between the two shell states. */
@@ -250,6 +305,7 @@ export class NudgeUi {
     this.shell.classList.remove("fr-unread");
     this.launcher.setAttribute("aria-expanded", "true");
     this.composer.focus();
+    this.save();
   }
 
   /** Collapses to the launcher. The conversation keeps its DOM, so reopening restores it. */
@@ -263,8 +319,11 @@ export class NudgeUi {
     this.expanded = false;
     this.shell.classList.remove("fr-expanded");
     this.launcher.setAttribute("aria-expanded", "false");
+
     // Closing without a reply leaves the nudges to the ignored outcome.
     this.nudgesAwaitingReply.clear();
+
+    this.save();
   }
 
   /**
@@ -290,39 +349,76 @@ export class NudgeUi {
     if (!text || this.answer) return;
 
     this.composer.clear();
+    this.chime.send();
     this.appendMessage("user", text);
-    // Bind the message to the nudge that opened the conversation. Fall back to
-    // a nudge that arrived while it was open only when the launcher, not a
-    // nudge, opened it, so a later nudge never displaces the opener's ref.
-    const awaiting = this.nudgesAwaitingReply.values().next().value;
-    if (awaiting && !this.lastEngagedNudge) this.lastEngagedNudge = awaiting;
-    const ref = this.lastEngagedNudge;
-    for (const id of this.nudgesAwaitingReply) this.callbacks.onEngage(id);
-    this.nudgesAwaitingReply.clear();
+    const ref = this.claimReplyRef();
+
     const id = uuidv7();
-    const answer = this.appendMessage("agent");
-    this.answer = answer;
-    this.answerMessageId = id;
-    this.keepAnswerAlive();
+    const slot = this.openAnswerSlot(id);
+    this.save();
 
     void this.callbacks
       .onSend(id, text, ref)
       .catch(() => false)
       .then((delivered) => {
         // A failed send frees the slot, so the user can try again.
-        if (!delivered && this.answer === answer) {
-          answer.textContent = TRY_AGAIN_TEXT;
+        if (!delivered && this.answer === slot) {
+          this.clearTyping();
+          slot.textContent = TRY_AGAIN_TEXT;
+          if (this.answerModel) this.answerModel.text = TRY_AGAIN_TEXT;
           this.dropAnswer();
+          this.save();
         }
       });
   }
 
-  /** Appends a bubble and returns its body, the element streaming writes into. */
-  private appendMessage(kind: "user" | "agent", text = ""): HTMLElement {
-    const message = el("div", `fr-message fr-message-${kind}`);
-    const body = el("span", "fr-body", text);
-    message.append(body, el("span", "fr-time", TIME_FORMAT.format(Date.now())));
-    this.messages.append(message);
+  /**
+   * Resolves the nudge this reply answers and engages every awaiting nudge. A
+   * nudge that arrived meanwhile is the ref only when the launcher opened the
+   * panel, so a later nudge never displaces the opener's ref.
+   */
+  private claimReplyRef(): string | undefined {
+    const awaiting = this.nudgesAwaitingReply.values().next().value;
+    if (awaiting && !this.lastEngagedNudge) this.lastEngagedNudge = awaiting;
+    for (const id of this.nudgesAwaitingReply) this.callbacks.onEngage(id);
+    this.nudgesAwaitingReply.clear();
+    return this.lastEngagedNudge;
+  }
+
+  /** Opens the agent bubble one answer streams into, tracked by its message id. */
+  private openAnswerSlot(messageId: string): HTMLElement {
+    // It arrives showing the typing indicator, so it never takes the entry rise.
+    const { model, body } = this.appendMessage("agent", "", false);
+    this.answer = body;
+    this.answerModel = model;
+    this.answerMessageId = messageId;
+    this.showTyping();
+    this.keepAnswerAlive();
+    return body;
+  }
+
+  /** Appends one message to the transcript and the log, returning its model and body. */
+  private appendMessage(
+    who: "user" | "agent",
+    text = "",
+    animate = true,
+  ): { model: ChatMessage; body: HTMLElement } {
+    const model: ChatMessage = { who, text, at: Date.now() };
+    this.transcript.push(model);
+    return { model, body: this.renderMessage(model, animate) };
+  }
+
+  /** Renders one message into the log, returning the body streaming writes into. */
+  private renderMessage(message: ChatMessage, animate = true): HTMLElement {
+    const bubble = el("div", `fr-message fr-message-${message.who}`);
+    if (!animate) bubble.classList.add("fr-no-anim");
+    const body = el("span", "fr-body", message.text);
+    if (message.citations?.length) {
+      const list = buildCitations(message.citations);
+      if (list.childElementCount > 0) body.append(list);
+    }
+    bubble.append(body, el("span", "fr-time", TIME_FORMAT.format(message.at)));
+    this.messages.append(bubble);
     this.scrollToBottom();
     return body;
   }
@@ -338,23 +434,62 @@ export class NudgeUi {
     this.messages.scrollTo(0, this.messages.scrollHeight);
   }
 
+  /** Shows the typing indicator in the answer slot until text arrives. */
+  private showTyping(): void {
+    if (!this.answer || this.typing) return;
+    this.typing = buildTyping();
+    this.answer.append(this.typing);
+  }
+
+  /** Removes the typing indicator once the answer streams in or closes. */
+  private clearTyping(): void {
+    this.typing?.remove();
+    this.typing = undefined;
+  }
+
   /** Resets the idle countdown that degrades a stalled answer to the retry line. */
   private keepAnswerAlive(): void {
     clearTimeout(this.answerTimer);
     this.answerTimer = setTimeout(() => {
       if (this.answer?.isConnected) {
-        // The retry line joins any partial text, so a half answer never reads as done.
-        this.answer.append(this.answer.textContent ? ` ${TRY_AGAIN_TEXT}` : TRY_AGAIN_TEXT);
+        this.clearTyping();
+        // Append the retry line to any partial text, so a half answer never reads as done.
+        const partial = this.answer.textContent;
+        const text = partial ? `${partial} ${TRY_AGAIN_TEXT}` : TRY_AGAIN_TEXT;
+        this.answer.textContent = text;
+        if (this.answerModel) this.answerModel.text = text;
       }
       this.dropAnswer();
+      this.save();
     }, ANSWER_IDLE_MS);
   }
 
   /** Stops the idle countdown and frees the answer slot. */
   private dropAnswer(): void {
     clearTimeout(this.answerTimer);
-    this.answer = this.answerMessageId = undefined;
+    this.clearTyping();
+    this.answer = this.answerModel = this.answerMessageId = undefined;
   }
+
+  /**
+   * Persists the surface so a reload restores it. The in-flight answer is left
+   * out; restore reopens it as a typing slot the buffered done frame fills.
+   */
+  private save(): void {
+    const settled = this.answerModel
+      ? this.transcript.filter((message) => message !== this.answerModel)
+      : this.transcript;
+    this.persist({ open: this.expanded, messages: settled, pendingId: this.answerMessageId });
+  }
+}
+
+/** Builds the three-dot typing indicator, announced once to assistive tech. */
+function buildTyping(): HTMLElement {
+  const typing = el("span", "fr-typing");
+  typing.setAttribute("role", "status");
+  typing.setAttribute("aria-label", "Assistant is typing");
+  typing.append(el("span", ""), el("span", ""), el("span", ""));
+  return typing;
 }
 
 /** Builds the citation list, dropping any citation without a safe link. */

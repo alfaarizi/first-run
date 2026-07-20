@@ -1,5 +1,6 @@
 import { filterProperties } from "./allowlist";
 import { startAutocapture } from "./autocapture";
+import { loadChat, saveChat } from "./chat-store";
 import { CONFIRMATIONS_PATH, MESSAGES_PATH } from "./constants";
 import { showConfirmation } from "./confirm";
 import { NudgeUi } from "./nudge";
@@ -96,27 +97,33 @@ function start(config: Config): void {
 
   let stream: StreamHandle | undefined;
 
-  const ui = new NudgeUi({
-    onDismiss: safe((nudgeId) => enqueueInterventionEvent("fr.nudge_dismissed", nudgeId)),
-    onEngage: safe((nudgeId) => enqueueInterventionEvent("fr.nudge_engaged", nudgeId)),
-    onSend: (id, text, ref) =>
-      // Answer frames are live-only, so a send without an open stream would
-      // spend an answer nobody can receive. Failing it renders the retry line
-      // now instead of after a silent idle window.
-      !stream?.isOpen()
-        ? Promise.resolve(false)
-        : post(
-            config,
-            MESSAGES_PATH,
-            JSON.stringify({
-              id,
-              session_id: sessionId(),
-              end_user_hash: endUserHash,
-              text,
-              ...(ref && { ref }),
-            }),
-          ).then((result) => result.ok),
-  });
+  const ui = new NudgeUi(
+    {
+      onDismiss: safe((nudgeId) => enqueueInterventionEvent("fr.nudge_dismissed", nudgeId)),
+      onEngage: safe((nudgeId) => enqueueInterventionEvent("fr.nudge_engaged", nudgeId)),
+      onSend: (id, text, ref) =>
+        // Answer frames are live-only, so a send without an open stream spends
+        // an answer nobody receives. Fail it now instead of after an idle wait.
+        !stream?.isOpen()
+          ? Promise.resolve(false)
+          : post(
+              config,
+              MESSAGES_PATH,
+              JSON.stringify({
+                id,
+                session_id: sessionId(),
+                end_user_hash: endUserHash,
+                text,
+                ...(ref && { ref }),
+              }),
+            ).then((result) => result.ok),
+    },
+    // Persisted under the current identity, so a reload restores this user's
+    // conversation and never another's. A no-op until identify sets the hash.
+    (snapshot) => {
+      if (endUserHash) saveChat(config.key, endUserHash, snapshot);
+    },
+  );
 
   /** Adopts the end user's hash, releasing held events and (re)opening their stream. */
   const identify = safe((hash: string) => {
@@ -131,6 +138,10 @@ function start(config: Config): void {
     }
     endUserHash = hash;
 
+    // Rebuild before the stream reopens, so a buffered answer lands in the
+    // restored slot rather than a blank one.
+    ui.restore(loadChat(config.key, hash));
+
     for (const args of pendingEvents) enqueueEvent(...args);
     pendingEvents = [];
 
@@ -138,7 +149,7 @@ function start(config: Config): void {
     stream = connectStream(config, hash, {
       nudge: safe((payload) => ui.showNudge(payload)),
       token: safe((messageId, text) => ui.appendToken(messageId, text)),
-      done: safe((messageId, citations) => ui.finishAnswer(messageId, citations)),
+      done: safe((messageId, text, citations) => ui.finishAnswer(messageId, text, citations)),
       action: safe((payload) => {
         ui.notify();
         showConfirmation(ui.container, payload, {

@@ -30,6 +30,7 @@ export const NUDGE_CSS = `
   --box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
   --outline: 1px auto var(--accent-background);
   --easing: cubic-bezier(0.4, 0, 0.2, 1);
+  --spring: cubic-bezier(0.34, 1.3, 0.64, 1);
   --interactive-filter: brightness(95%);
   --font-family: system-ui, "Helvetica Neue", Arial, sans-serif;
   --font-size: 14px;
@@ -128,6 +129,7 @@ export const NUDGE_CSS = `
   padding: 16px 16px 12px;
   opacity: 0;
   visibility: hidden;
+  transform: translateY(12px);
 }
 .fr-header {
   display: flex;
@@ -156,6 +158,7 @@ export const NUDGE_CSS = `
 .fr-expanded .fr-panel {
   opacity: 1;
   visibility: visible;
+  transform: none;
 }
 .fr-bubble {
   box-sizing: border-box;
@@ -311,6 +314,18 @@ button:focus-visible {
   color: inherit;
   opacity: 0.8;
 }
+.fr-typing {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px 0;
+}
+.fr-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+  opacity: 0.4;
+}
 .fr-citations {
   margin: 0;
   padding-left: 18px;
@@ -387,10 +402,10 @@ button:focus-visible {
     transition-duration: ${MORPH_MS}ms;
   }
   .fr-morph .fr-panel {
-    transition: opacity 150ms, visibility 0s 150ms;
+    transition: opacity 150ms, visibility 0s 150ms, transform 150ms var(--easing);
   }
   .fr-morph.fr-expanded .fr-panel {
-    transition: opacity 200ms 100ms, visibility 0s;
+    transition: opacity 200ms 100ms, visibility 0s, transform ${MORPH_MS}ms 60ms var(--spring);
   }
   .fr-dot {
     transition: transform 150ms var(--easing);
@@ -398,13 +413,36 @@ button:focus-visible {
   .fr-send {
     transition: background 150ms;
   }
-  .fr-bubble {
+  .fr-bubble,
+  .fr-message {
     animation: fr-rise 200ms var(--easing);
+  }
+  .fr-message.fr-no-anim {
+    animation: none;
+  }
+  .fr-typing span {
+    animation: fr-blink 1.2s infinite both;
+  }
+  .fr-typing span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .fr-typing span:nth-child(3) {
+    animation-delay: 0.3s;
   }
   @keyframes fr-rise {
     from {
       opacity: 0;
       transform: translateY(4px);
+    }
+  }
+  @keyframes fr-blink {
+    0%, 60%, 100% {
+      opacity: 0.4;
+      transform: none;
+    }
+    30% {
+      opacity: 1;
+      transform: translateY(-3px);
     }
   }
 }

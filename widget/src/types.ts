@@ -52,7 +52,26 @@ export interface TokenFrame {
 /** The data of the `done` stream frame closing one message's answer. */
 export interface DoneFrame {
   message_id: string;
+  /** The complete answer, so tokens a reconnect or reload dropped heal here. */
+  text?: string;
   citations?: Citation[];
+}
+
+/** One rendered chat message, as the surface persists and restores it. */
+export interface ChatMessage {
+  who: "user" | "agent";
+  text: string;
+  /** Epoch milliseconds, so a restored message keeps its original time. */
+  at: number;
+  citations?: Citation[];
+}
+
+/** The chat surface's persistable state, restored across a page reload. */
+export interface ChatSnapshot {
+  open: boolean;
+  messages: ChatMessage[];
+  /** The in-flight answer's id, so a reload restores its typing indicator. */
+  pendingId?: string;
 }
 
 /** A proposed action awaiting the user's explicit click, with the registry's copy. */

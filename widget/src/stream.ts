@@ -14,7 +14,7 @@ const memoryCursors = new Map<string, string>();
 export interface StreamHandlers {
   nudge(payload: NudgePayload): void;
   token(messageId: string, text: string): void;
-  done(messageId: string, citations: Citation[]): void;
+  done(messageId: string, text: string | undefined, citations: Citation[]): void;
   action(payload: ActionPayload): void;
 }
 
@@ -88,7 +88,7 @@ export function connectStream(
     });
     on("done", (data) => {
       const frame = JSON.parse(data) as DoneFrame;
-      handlers.done(frame.message_id, frame.citations ?? []);
+      handlers.done(frame.message_id, frame.text, frame.citations ?? []);
     });
     on("action", (data) => handlers.action(JSON.parse(data) as ActionPayload));
 

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { TRY_AGAIN_TEXT } from "./constants";
 import { NudgeUi } from "./nudge";
 import { MORPH_MS } from "./nudge.css";
+import type { ChatSnapshot } from "./types";
 
 const attachShadow = HTMLElement.prototype.attachShadow;
 let shadow: ShadowRoot;
@@ -27,7 +28,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function createUi() {
+function createUi(persist: (snapshot: ChatSnapshot) => void = () => {}) {
   const callbacks = {
     onDismiss: vi.fn(),
     onEngage: vi.fn(),
@@ -35,10 +36,23 @@ function createUi() {
       .fn<(id: string, text: string, ref?: string) => Promise<boolean>>()
       .mockResolvedValue(true),
   };
-  const ui = new NudgeUi(callbacks);
+  const ui = new NudgeUi(callbacks, persist);
   const query = <T extends HTMLElement>(selector: string) =>
     shadow.querySelector<T>(selector);
   return { ui, callbacks, query };
+}
+
+/** Drives the composer to send one question, returning its message id. */
+async function send(
+  ui: ReturnType<typeof createUi>,
+  text = "help",
+): Promise<string> {
+  ui.query<HTMLButtonElement>(".fr-launcher")?.click();
+  const input = ui.query<HTMLTextAreaElement>(".fr-input");
+  input!.value = text;
+  input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  await ui.callbacks.onSend.mock.results[0]?.value;
+  return ui.callbacks.onSend.mock.calls[0]![0];
 }
 
 test("boots as a collapsed launcher with the face", () => {
@@ -342,7 +356,7 @@ test("citations render http links only", async () => {
 
   const messageId = callbacks.onSend.mock.calls[0]![0];
   ui.appendToken(messageId, "Answer.");
-  ui.finishAnswer(messageId, [
+  ui.finishAnswer(messageId, "Answer.", [
     { title: "bad", url: "javascript:alert(1)" },
     { title: "docs", url: "https://docs.example.com/setup" },
   ]);
@@ -362,7 +376,7 @@ test("an answer that ends without tokens or citations reads as a failure", async
   input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   await callbacks.onSend.mock.results[0]?.value;
 
-  ui.finishAnswer(callbacks.onSend.mock.calls[0]![0], []);
+  ui.finishAnswer(callbacks.onSend.mock.calls[0]![0], undefined, []);
 
   expect(query(".fr-message-agent .fr-body")?.textContent).toBe(TRY_AGAIN_TEXT);
 });
@@ -399,12 +413,106 @@ test("frames for another conversation's message never reach the slot", async () 
 
   // another tab's answer, riding the same per-user stream
   ui.appendToken("other-message", "Their answer.");
-  ui.finishAnswer("other-message", []);
+  ui.finishAnswer("other-message", "Their answer.", []);
 
   const messageId = callbacks.onSend.mock.calls[0]![0];
   ui.appendToken(messageId, "Mine.");
 
   expect(query(".fr-message-agent .fr-body")?.textContent).toBe("Mine.");
+});
+
+test("a pending answer shows the typing indicator until the first token", async () => {
+  const ui = createUi();
+  const messageId = await send(ui);
+
+  expect(ui.query(".fr-typing")).not.toBeNull();
+
+  ui.ui.appendToken(messageId, "Here");
+  expect(ui.query(".fr-typing")).toBeNull();
+  expect(ui.query(".fr-message-agent .fr-body")?.textContent).toBe("Here");
+});
+
+test("the done frame heals text that a dropped token left behind", async () => {
+  const ui = createUi();
+  const messageId = await send(ui);
+
+  // a reconnect dropped the middle of the stream, so only a tail arrived live
+  ui.ui.appendToken(messageId, " 42.");
+
+  // the server's full text reconciles the slot to the complete answer
+  ui.ui.finishAnswer(messageId, "The answer is 42.", []);
+
+  expect(ui.query(".fr-message-agent .fr-body")?.textContent).toBe("The answer is 42.");
+});
+
+test("a send persists the settled transcript and the pending answer's id", async () => {
+  let snapshot: ChatSnapshot | undefined;
+  const ui = createUi((s) => (snapshot = structuredClone(s)));
+  const messageId = await send(ui, "how do I connect?");
+
+  expect(snapshot?.open).toBe(true);
+  expect(snapshot?.pendingId).toBe(messageId);
+
+  // The in-flight answer is not persisted; the done frame heals it on restore.
+  expect(snapshot?.messages.map((m) => [m.who, m.text])).toEqual([["user", "how do I connect?"]]);
+});
+
+test("restore rebuilds the conversation and re-arms a pending answer", async () => {
+  let snapshot: ChatSnapshot | undefined;
+  const first = createUi((s) => (snapshot = structuredClone(s)));
+  const messageId = await send(first, "how do I connect?");
+  first.ui.appendToken(messageId, "Half");
+
+  // a reload: a fresh surface restores the prior page's stored snapshot
+  const second = createUi();
+  second.ui.restore(snapshot);
+
+  expect(second.query(".fr-message-user .fr-body")?.textContent).toBe("how do I connect?");
+
+  // the answer was still streaming, so its slot returns to the typing state
+  expect(second.query(".fr-typing")).not.toBeNull();
+
+  // and the answer that completes after the reload lands in the restored slot
+  second.ui.finishAnswer(messageId, "Open Settings.", []);
+  expect(second.query(".fr-typing")).toBeNull();
+  expect(second.query(".fr-message-agent .fr-body")?.textContent).toBe("Open Settings.");
+});
+
+test("a completed answer restores as plain text without a typing indicator", async () => {
+  let snapshot: ChatSnapshot | undefined;
+  const first = createUi((s) => (snapshot = structuredClone(s)));
+  const messageId = await send(first);
+  first.ui.appendToken(messageId, "Done.");
+  first.ui.finishAnswer(messageId, "Done.", []);
+
+  const second = createUi();
+  second.ui.restore(snapshot);
+
+  expect(second.query(".fr-typing")).toBeNull();
+  expect(second.query(".fr-message-agent .fr-body")?.textContent).toBe("Done.");
+});
+
+test("a nudge arriving mid-answer survives a reload without corrupting the answer", async () => {
+  let snapshot: ChatSnapshot | undefined;
+  const first = createUi((s) => (snapshot = structuredClone(s)));
+  const messageId = await send(first, "how do I connect?");
+
+  // a nudge lands in the open panel while the answer is still streaming
+  first.ui.showNudge({ id: "n1", text: "Need a hand?" });
+
+  const second = createUi();
+  second.ui.restore(snapshot);
+
+  const agentText = () =>
+    [...shadow.querySelectorAll(".fr-message-agent .fr-body")].map((b) => b.textContent);
+
+  // the nudge keeps its text, and the answer is a distinct pending slot
+  expect(agentText()).toEqual(["Need a hand?", ""]);
+  expect(second.query(".fr-typing")).not.toBeNull();
+
+  // the answer heals into its own bubble, leaving the nudge untouched
+  second.ui.finishAnswer(messageId, "Open Settings.", []);
+  expect(agentText()).toEqual(["Need a hand?", "Open Settings."]);
 });
 
 test("the header close button collapses the panel without the morph", () => {

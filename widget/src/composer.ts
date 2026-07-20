@@ -1,6 +1,10 @@
 import { el } from "./dom";
 import { COMPOSER_LINE_HEIGHT_PX, COMPOSER_MAX_HEIGHT_PX } from "./nudge.css";
 
+// The messages contract's cap. Enforced here so an oversized paste stays
+// editable instead of bouncing off the server after send.
+const MESSAGE_MAX_CHARS = 2000;
+
 /** The message input row, an autogrowing textarea beside a send button. */
 export interface Composer {
   root: HTMLElement;
@@ -9,10 +13,6 @@ export interface Composer {
   clear(): void;
   focus(): void;
 }
-
-// The messages contract caps text at 2000 characters. Capping entry keeps an
-// oversized paste editable instead of bounced by the server after send.
-const MESSAGE_MAX_CHARS = 2000;
 
 /** Builds the composer. Enter and the send button submit, Shift+Enter breaks the line. */
 export function createComposer(onSubmit: () => void): Composer {
@@ -59,8 +59,10 @@ export function createComposer(onSubmit: () => void): Composer {
    */
   function sync(): void {
     input.style.height = "auto";
-    input.style.height = `${Math.min(input.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
-    input.style.overflowY = input.scrollHeight > COMPOSER_MAX_HEIGHT_PX ? "auto" : "hidden";
+    // Read the content height once; measuring again after setting height reflows twice.
+    const contentHeight = input.scrollHeight;
+    input.style.height = `${Math.min(contentHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
+    input.style.overflowY = contentHeight > COMPOSER_MAX_HEIGHT_PX ? "auto" : "hidden";
     send.classList.toggle("fr-send-ready", /\S/.test(input.value));
   }
 
