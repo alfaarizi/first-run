@@ -8,6 +8,7 @@ import com.firstrunhq.v1.ConversationServiceGrpc;
 import com.firstrunhq.v1.ConverseRequest;
 import com.firstrunhq.v1.ConverseResponse;
 import com.firstrunhq.v1.UserMessage;
+import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import java.time.Duration;
 import java.time.Instant;
@@ -28,6 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.grpc.client.GrpcChannelFactory;
 import org.springframework.stereotype.Component;
 
@@ -63,15 +65,26 @@ class ConversationRelay {
   private final ConversationServiceGrpc.ConversationServiceStub stub;
   private final NudgeStreams streams;
   private final NudgeContexts contexts;
+  private final Duration answerTimeout;
   private final Map<String, Conversation> conversations = new ConcurrentHashMap<>();
   private final Map<UUID, AtomicInteger> appCounts = new ConcurrentHashMap<>();
   private final ScheduledExecutorService scheduler;
 
-  /** Opens the agent channel and starts the idle-conversation sweeper. */
+  @Autowired
   ConversationRelay(GrpcChannelFactory channels, NudgeStreams streams, NudgeContexts contexts) {
+    this(channels, streams, contexts, ANSWER_TIMEOUT);
+  }
+
+  /** Opens the agent channel and starts the idle-conversation sweeper. */
+  ConversationRelay(
+      GrpcChannelFactory channels,
+      NudgeStreams streams,
+      NudgeContexts contexts,
+      Duration answerTimeout) {
     this.stub = ConversationServiceGrpc.newStub(channels.createChannel("agent"));
     this.streams = streams;
     this.contexts = contexts;
+    this.answerTimeout = answerTimeout;
     this.scheduler =
         Executors.newSingleThreadScheduledExecutor(
             runnable ->
@@ -222,7 +235,7 @@ class ConversationRelay {
           id,
           new PendingAnswer(
               scheduler.schedule(
-                  () -> finish(id, true), ANSWER_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)));
+                  () -> timedOut(id), answerTimeout.toMillis(), TimeUnit.MILLISECONDS)));
       try {
         requests.onNext(
             ConverseRequest.newBuilder()
@@ -270,7 +283,12 @@ class ConversationRelay {
     /** Fails every in-flight answer when the agent stream dies. */
     @Override
     public void onError(Throwable failure) {
-      log.warn("agent conversation stream failed", failure);
+      if (Status.fromThrowable(failure).getCode() == Status.Code.CANCELLED) {
+        // The relay cancelled the call itself, so the stack trace is noise.
+        log.info("agent conversation stream cancelled");
+      } else {
+        log.warn("agent conversation stream failed", failure);
+      }
       failAllPending();
       remove(this);
     }
@@ -323,6 +341,29 @@ class ConversationRelay {
     /** Closes every in-flight answer as failed, each yielding the retry line. */
     private void failAllPending() {
       pending.keySet().forEach(messageId -> finish(messageId, true));
+    }
+
+    /**
+     * Fails an overdue answer and scraps its conversation: past the budget the stream's state is
+     * unknown, so the next message must reopen fresh instead of queueing behind a run that may
+     * never finish. Retiring precedes the failure frames, so a send racing the teardown already
+     * finds the registry clean.
+     */
+    private void timedOut(String messageId) {
+      remove(this);
+      cancel();
+      finish(messageId, true);
+    }
+
+    /** Cancels the call toward the agent, failing every answer it still owes. */
+    private synchronized void cancel() {
+      try {
+        requests.onError(
+            Status.CANCELLED.withDescription("the answer watchdog expired").asRuntimeException());
+      } catch (IllegalStateException alreadyTerminated) {
+        // The call already ended, which is the state cancel wants.
+      }
+      failAllPending();
     }
   }
 

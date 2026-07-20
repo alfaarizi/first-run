@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -18,6 +19,7 @@ import com.firstrunhq.v1.ConverseResponse;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -43,6 +45,7 @@ class ConversationRelayTests {
   private final NudgeContexts contexts = new NudgeContexts();
   private io.grpc.Server server;
   private io.grpc.ManagedChannel channel;
+  private GrpcChannelFactory channels;
   private ConversationRelay relay;
 
   /** Builds one message in the suite's single conversation. */
@@ -56,7 +59,7 @@ class ConversationRelayTests {
     server =
         InProcessServerBuilder.forName(name).directExecutor().addService(agent).build().start();
     channel = InProcessChannelBuilder.forName(name).directExecutor().build();
-    GrpcChannelFactory channels = mock(GrpcChannelFactory.class);
+    channels = mock(GrpcChannelFactory.class);
     when(channels.createChannel("agent")).thenReturn(channel);
     relay = new ConversationRelay(channels, streams, contexts);
   }
@@ -195,6 +198,25 @@ class ConversationRelayTests {
             eq(new TokenFrame(messageId.toString(), ConversationRelay.FAILURE_TEXT)));
     verify(streams)
         .pushAnswerFrame(eq(APP), eq(END_USER), eq(new DoneFrame(messageId.toString(), List.of())));
+  }
+
+  @Test
+  void anOverdueAnswerFailsAndScrapsItsConversation() {
+    relay = new ConversationRelay(channels, streams, contexts, Duration.ofMillis(50));
+    UUID messageId = UUID.randomUUID();
+    relay.relay(SDK_APP, message(messageId, "hold", null));
+
+    // The watchdog degrades the held answer to the retry line.
+    verify(streams, timeout(5_000))
+        .pushAnswerFrame(
+            eq(APP),
+            eq(END_USER),
+            eq(new TokenFrame(messageId.toString(), ConversationRelay.FAILURE_TEXT)));
+
+    // The next message reopens a fresh agent stream instead of queueing
+    // behind the hung run on the scrapped one.
+    relay.relay(SDK_APP, message(UUID.randomUUID(), "answer", null));
+    assertThat(agent.conversations).isEqualTo(2);
   }
 
   @Test
