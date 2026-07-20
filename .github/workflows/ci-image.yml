@@ -11,7 +11,7 @@ on:
       - 'web/package-lock.json'
       - 'agent/uv.lock'
       - 'server/pom.xml'
-  # Lockfile-only changes skip PR builds; the make legs already install from them.
+  # Lockfile-only changes skip PR builds. The make legs already install from them.
   pull_request:
     paths:
       - '.github/ci-image/**'

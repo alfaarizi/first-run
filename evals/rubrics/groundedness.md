@@ -1,8 +1,7 @@
 # Groundedness rubric
 
-The judge scores one answer against the chunks it cited. The score is the
-citation check from `docs/evaluation.md`: an answer is grounded only when the
-docs carry it.
+The judge scores one answer against the chunks it cited. An answer is
+grounded only when the docs carry it.
 
 ## Checks
 

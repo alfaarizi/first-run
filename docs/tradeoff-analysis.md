@@ -236,6 +236,7 @@ Nullness is declared with JSpecify annotations and enforced by NullAway inside b
 | **Weighted total** | | **8.50** | **7.20** | **5.15** | **4.35** |
 
 NullAway turns a null-safety promise into a compile error inside `./mvnw verify`,
-so the guarantee holds for CI and every editor at a cheaper build cost. Checker Framework wins only on soundness, where its heavier annotation burden buys. 
-An IDE-only analysis guards a single editor and gates nothing, and no checking 
-at all leaves the NPE class to production.
+so the guarantee holds for CI and every editor at a cheaper build cost. Checker
+Framework wins only on the soundness its heavier annotation burden buys. An
+IDE-only analysis guards a single editor and gates nothing, and no checking at
+all leaves the NPE class to production.

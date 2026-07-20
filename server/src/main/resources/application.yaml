@@ -40,8 +40,9 @@ management:
 
 firstrun:
   ingest:
-    # Per-tenant token bucket counted in events. Capacity bounds the burst and
-    # refill the sustained rate, per instance, so scale-out multiplies both.
+    # Per-tenant token bucket counted in events. Capacity bounds the burst, and
+    # refill bounds the sustained rate. Both are per instance, so a scale-out
+    # multiplies them.
     rate-capacity: 1000
     rate-refill-per-second: 500
     produce-timeout: 5s

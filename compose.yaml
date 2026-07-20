@@ -184,7 +184,7 @@ services:
       context: ./server
       target: local
       # The Dockerfile regenerates gRPC stubs from the proto contract at build
-      # time. Image needs no host-side prebuild.
+      # time. The image needs no host-side prebuild.
       additional_contexts:
         proto: ./api/proto
     environment:
@@ -218,7 +218,7 @@ services:
     build:
       context: ./agent
       # The Dockerfile generates gRPC stubs from the proto contract at build time.
-      # Image needs no host-side prebuild.
+      # The image needs no host-side prebuild.
       additional_contexts:
         proto: ./api/proto
     environment:

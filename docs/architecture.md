@@ -10,7 +10,7 @@ model loop. A vanilla TypeScript widget embeds in the customer's app, and Redpan
 carries the event stream. Every structural choice traces to a decision in
 `docs/adr/`, so read those before changing one.
 
-## System Context
+## System context
 
 ```mermaid
 ---
@@ -239,7 +239,7 @@ README publishes them while `make load` and the eval harness check them:
 - A policy decision returns within 2s at p95.
 - The first chat token arrives within 1.5s at p95.
 
-## Event Stream
+## Event stream
 
 The loop is asynchronous underneath, and each topic feeds its own consumer group
 with its own dead-letter queue:
@@ -257,7 +257,7 @@ event's unique ID by holding a Redis key for 24 hours. Replay tooling reprocesse
 any dead-letter queue after a fix, and the eval harness replays `events.raw`
 through its own group.
 
-## Data Model
+## Data model
 
 ```mermaid 
 ---

@@ -14,7 +14,7 @@ additive or breaking.
   misreported honest oversized requests as `401`.
 
 Additive. A response code clients already had to survive gains its correct
-value; nothing that verified before answers differently.
+value. Nothing that verified before answers differently.
 
 ## 2026-07-19
 
@@ -30,7 +30,8 @@ value; nothing that verified before answers differently.
   streams over `/v1/stream` as `token` frames, then one `done` frame with
   citations, at most one `action` frame per answer, all frame names the
   stream contract already reserved. A holdout user's question is answered
-  like any other: the holdout suppresses proactive nudges, not a question the user asks first.
+  like any other, because the holdout suppresses proactive nudges, not a
+  question the user asks first.
 
 Additive. The stream contract keeps its shape, and its `token`, `done`, and
 `action` frames gain their producer.
@@ -59,10 +60,11 @@ before.
   one delete, so retrieval mixes old and new chunks only while a crawl runs.
   A crawl that fails or writes no chunks discards its own rows, marks the
   source `FAILED`, and keeps the previous index live, and one transient page
-  failure fails the crawl rather than publishing an incomplete index. A crawl a killed agent
-  never finished leaves rows only until the next crawl starts and sweeps
-  every generation but the recorded live one. Chunks embed at 1024
-  dimensions under an inner-product HNSW index (ADR-013).
+  failure fails the crawl rather than publishing an incomplete index. Rows
+  from a crawl a killed agent never finished persist only until the next
+  crawl starts and sweeps every generation but the recorded live one.
+  Chunks embed at 1024 dimensions under an inner-product HNSW index
+  (ADR-013).
 
 ### Changed
 
@@ -83,8 +85,8 @@ before.
   a frame and reads as absent.
 
 Additive. The parameter existed and was ignored, so clients that never send
-it keep a live-only stream; the widget's choice to always send it is a client
-behavior, not a wire change. The knowledge entry pins behavior of an RPC
+it keep a live-only stream. The widget's choice to always send it is a
+client behavior, not a wire change. The knowledge entry pins behavior of an RPC
 nothing calls yet, so no wire shape changes there either.
 
 ## 2026-07-17
@@ -110,9 +112,9 @@ Additive. Existing clients ignore unknown named events.
   429 past the app's concurrent stream budget, because the signing key ships
   in the page and cannot gate connections.
 
-Additive. The ingest schema already carried `ref`; the server envelope now
-carries it too, so intervention events keep their nudge or execution link
-through `events.raw`.
+Additive. The ingest schema already carried `ref`, and the server envelope
+now carries it too, so intervention events keep their nudge or execution
+link through `events.raw`.
 
 ## 2026-07-15
 
