@@ -27,6 +27,7 @@ export const NUDGE_CSS = `
   --link-foreground: #1f1f1f;
   --hover-background: rgba(0, 0, 0, 0.08);
   --border: 1px solid #e0e0e0;
+  --radius: 8px;
   --box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
   --outline: 1px auto var(--accent-background);
   --easing: cubic-bezier(0.4, 0, 0.2, 1);
@@ -82,7 +83,7 @@ export const NUDGE_CSS = `
   container-type: size;
   background: var(--background);
   border: var(--border);
-  border-radius: 24px;
+  border-radius: var(--radius);
   box-shadow: var(--box-shadow);
 }
 .fr-expanded {
@@ -95,7 +96,7 @@ export const NUDGE_CSS = `
   right: 13px;
   padding: 0;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: none;
   cursor: pointer;
 }
@@ -169,7 +170,7 @@ export const NUDGE_CSS = `
   padding: 12px 14px;
   background: var(--background);
   border: var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius);
   box-shadow: var(--box-shadow);
 }
 .fr-bubble-text {
@@ -189,7 +190,7 @@ export const NUDGE_CSS = `
   width: 100%;
   background: var(--background);
   border: var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   box-shadow: var(--box-shadow);
   padding: 12px 14px;
 }
@@ -202,7 +203,7 @@ export const NUDGE_CSS = `
   font: inherit;
   color: inherit;
   border: var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--background);
   padding: 5px 10px;
   cursor: pointer;
@@ -229,7 +230,7 @@ button:focus-visible {
   width: 28px;
   height: 28px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: none;
   padding: 0;
   font-size: 16px;
@@ -262,7 +263,7 @@ button:focus-visible {
   align-items: flex-end;
   gap: 2px 8px;
   max-width: 80%;
-  border-radius: 16px;
+  border-radius: var(--radius);
   padding: 8px 12px;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -352,7 +353,7 @@ button:focus-visible {
   order: 1;
   margin-right: 41px;
   background: var(--agent-message-background);
-  border-radius: 12px;
+  border-radius: var(--radius);
 }
 .fr-composer:focus-within {
   box-shadow: 0 0 0 1px var(--face-background);
