@@ -260,17 +260,17 @@ test("closing the panel before a reply leaves an open-panel nudge unengaged", ()
 test("notify marks the shell unread only while collapsed", () => {
   const { ui, query } = createUi();
 
-  ui.notify();
+  ui.notifyUnread();
   expect(query(".fr-shell")?.classList.contains("fr-unread")).toBe(true);
 
   query<HTMLButtonElement>(".fr-launcher")?.click();
   expect(query(".fr-shell")?.classList.contains("fr-unread")).toBe(false);
 
-  ui.notify();
+  ui.notifyUnread();
   expect(query(".fr-shell")?.classList.contains("fr-unread")).toBe(false);
 });
 
-test("a send renders the user text and a failed send frees the slot", async () => {
+test("a send renders the user text and a failed send releases the answer", async () => {
   const { callbacks, query } = createUi();
   callbacks.onSend.mockResolvedValue(false);
   query<HTMLButtonElement>(".fr-launcher")?.click();
@@ -355,7 +355,7 @@ test("citations render http links only", async () => {
   await callbacks.onSend.mock.results[0]?.value;
 
   const messageId = callbacks.onSend.mock.calls[0]![0];
-  ui.appendToken(messageId, "Answer.");
+  ui.appendAnswerToken(messageId, "Answer.");
   ui.finishAnswer(messageId, "Answer.", [
     { title: "bad", url: "javascript:alert(1)" },
     { title: "docs", url: "https://docs.example.com/setup" },
@@ -392,7 +392,7 @@ test("an answer idle past its window appends the retry line to partial text", as
     input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await vi.waitFor(() => expect(callbacks.onSend).toHaveBeenCalled());
 
-    ui.appendToken(callbacks.onSend.mock.calls[0]![0], "Half an answer");
+    ui.appendAnswerToken(callbacks.onSend.mock.calls[0]![0], "Half an answer");
     vi.advanceTimersByTime(35_000);
 
     // a half answer must never read as a finished one
@@ -402,7 +402,7 @@ test("an answer idle past its window appends the retry line to partial text", as
   }
 });
 
-test("frames for another conversation's message never reach the slot", async () => {
+test("frames for another conversation's message never reach the answer", async () => {
   const { ui, callbacks, query } = createUi();
   query<HTMLButtonElement>(".fr-launcher")?.click();
 
@@ -412,11 +412,11 @@ test("frames for another conversation's message never reach the slot", async () 
   await callbacks.onSend.mock.results[0]?.value;
 
   // another tab's answer, riding the same per-user stream
-  ui.appendToken("other-message", "Their answer.");
+  ui.appendAnswerToken("other-message", "Their answer.");
   ui.finishAnswer("other-message", "Their answer.", []);
 
   const messageId = callbacks.onSend.mock.calls[0]![0];
-  ui.appendToken(messageId, "Mine.");
+  ui.appendAnswerToken(messageId, "Mine.");
 
   expect(query(".fr-message-agent .fr-body")?.textContent).toBe("Mine.");
 });
@@ -427,7 +427,7 @@ test("a pending answer shows the typing indicator until the first token", async 
 
   expect(ui.query(".fr-typing")).not.toBeNull();
 
-  ui.ui.appendToken(messageId, "Here");
+  ui.ui.appendAnswerToken(messageId, "Here");
   expect(ui.query(".fr-typing")).toBeNull();
   expect(ui.query(".fr-message-agent .fr-body")?.textContent).toBe("Here");
 });
@@ -437,9 +437,9 @@ test("the done frame heals text that a dropped token left behind", async () => {
   const messageId = await send(ui);
 
   // a reconnect dropped the middle of the stream, so only a tail arrived live
-  ui.ui.appendToken(messageId, " 42.");
+  ui.ui.appendAnswerToken(messageId, " 42.");
 
-  // the server's full text reconciles the slot to the complete answer
+  // the server's full text reconciles the answer to the complete text
   ui.ui.finishAnswer(messageId, "The answer is 42.", []);
 
   expect(ui.query(".fr-message-agent .fr-body")?.textContent).toBe("The answer is 42.");
@@ -454,7 +454,7 @@ test("a send persists the settled transcript and the pending answer's id", async
   expect(snapshot?.open).toBe(true);
   expect(snapshot?.pendingId).toBe(messageId);
 
-  // The in-flight answer is not persisted; the done frame heals it on restore.
+  // The in-flight answer is not persisted. The done frame heals it on restore.
   expect(snapshot?.messages.map((m) => [m.who, m.text])).toEqual([["user", "how do I connect?"]]);
 });
 
@@ -462,7 +462,7 @@ test("restore rebuilds the conversation and re-arms a pending answer", async () 
   let snapshot: ChatSnapshot | undefined;
   const first = createUi((s) => (snapshot = structuredClone(s)));
   const messageId = await send(first, "how do I connect?");
-  first.ui.appendToken(messageId, "Half");
+  first.ui.appendAnswerToken(messageId, "Half");
 
   // a reload: the surface persists on pagehide, a fresh one restores the snapshot
   dispatchEvent(new Event("pagehide"));
@@ -471,10 +471,10 @@ test("restore rebuilds the conversation and re-arms a pending answer", async () 
 
   expect(second.query(".fr-message-user .fr-body")?.textContent).toBe("how do I connect?");
 
-  // the answer was still streaming, so its slot returns to the typing state
+  // the answer was still streaming, so it returns to the typing state
   expect(second.query(".fr-typing")).not.toBeNull();
 
-  // and the answer that completes after the reload lands in the restored slot
+  // and the answer that completes after the reload lands in the restored answer
   second.ui.finishAnswer(messageId, "Open Settings.", []);
   expect(second.query(".fr-typing")).toBeNull();
   expect(second.query(".fr-message-agent .fr-body")?.textContent).toBe("Open Settings.");
@@ -484,7 +484,7 @@ test("a completed answer restores as plain text without a typing indicator", asy
   let snapshot: ChatSnapshot | undefined;
   const first = createUi((s) => (snapshot = structuredClone(s)));
   const messageId = await send(first);
-  first.ui.appendToken(messageId, "Done.");
+  first.ui.appendAnswerToken(messageId, "Done.");
   first.ui.finishAnswer(messageId, "Done.", []);
 
   dispatchEvent(new Event("pagehide"));
@@ -510,7 +510,7 @@ test("a nudge arriving mid-answer survives a reload without corrupting the answe
   const agentText = () =>
     [...shadow.querySelectorAll(".fr-message-agent .fr-body")].map((b) => b.textContent);
 
-  // the nudge keeps its text, and the answer is a distinct pending slot
+  // the nudge keeps its text, and the answer is a distinct pending message
   expect(agentText()).toEqual(["Need a hand?", ""]);
   expect(second.query(".fr-typing")).not.toBeNull();
 
@@ -536,7 +536,7 @@ test("a half-typed draft is captured on refresh and restored", () => {
   first.query<HTMLButtonElement>(".fr-launcher")?.click();
   first.query<HTMLTextAreaElement>(".fr-input")!.value = "half a question";
 
-  // typing alone never saves; the refresh's pagehide is what captures the draft
+  // typing alone never saves, the refresh's pagehide is what captures the draft
   dispatchEvent(new Event("pagehide"));
   expect(snapshot?.composerDraft).toBe("half a question");
 
@@ -545,7 +545,7 @@ test("a half-typed draft is captured on refresh and restored", () => {
   expect(second.query<HTMLTextAreaElement>(".fr-input")?.value).toBe("half a question");
 });
 
-test("the scroll offset persists only while open, and restore returns to it", () => {
+test("the scroll offset persists only while open, and restore returns to it", async () => {
   let snapshot: ChatSnapshot | undefined;
   const first = createUi((s) => (snapshot = structuredClone(s)));
   first.query<HTMLButtonElement>(".fr-launcher")?.click();
@@ -556,7 +556,8 @@ test("the scroll offset persists only while open, and restore returns to it", ()
   dispatchEvent(new Event("pagehide"));
   expect(snapshot?.scrollTop).toBeUndefined();
 
-  // restore lands the message log back on the saved offset
+  // restore lands the message log back on the saved offset, one frame after the
+  // expanded panel lays out
   const second = createUi();
   const log = second.query(".fr-messages")!;
   let scrollTop = 0;
@@ -566,6 +567,7 @@ test("the scroll offset persists only while open, and restore returns to it", ()
     configurable: true,
   });
   second.ui.restore({ open: true, messages: [{ who: "user", text: "hi", at: 1 }], scrollTop: 200 });
+  await new Promise((resolve) => requestAnimationFrame(resolve));
   expect(scrollTop).toBe(200);
 });
 
@@ -580,4 +582,32 @@ test("reset returns the surface to a fresh collapsed launcher", () => {
   expect(query(".fr-shell")?.classList.contains("fr-unread")).toBe(false);
   expect(query(".fr-bubble")).toBeNull();
   expect(query(".fr-messages")?.childElementCount).toBe(0);
+});
+
+test("the bot's typing bubble opens only once the send lands", async () => {
+  const { callbacks, query } = createUi();
+  let land!: (delivered: boolean) => void;
+  callbacks.onSend.mockReturnValueOnce(new Promise((resolve) => (land = resolve)));
+
+  query<HTMLButtonElement>(".fr-launcher")?.click();
+  const input = query<HTMLTextAreaElement>(".fr-input")!;
+  input.value = "help";
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+  // the question is in, but the bot has not started typing yet
+  expect(query(".fr-message-user .fr-body")?.textContent).toBe("help");
+  expect(query(".fr-typing")).toBeNull();
+
+  land(true);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(query(".fr-typing")).not.toBeNull();
+});
+
+test("a reload returns the cursor to the composer", async () => {
+  const { ui, query } = createUi();
+  ui.restore({ open: true, messages: [{ who: "user", text: "hi", at: 1 }], scrollTop: 0 });
+
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  expect(shadow.activeElement).toBe(query(".fr-input"));
 });

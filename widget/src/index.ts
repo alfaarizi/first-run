@@ -1,12 +1,12 @@
 import { filterProperties } from "./allowlist";
 import { startAutocapture } from "./autocapture";
-import { clearChat, loadChat, saveChat } from "./chat-store";
+import { clearChat, loadChat, storeChat } from "./chat-store";
 import { CONFIRMATIONS_PATH, MESSAGES_PATH } from "./constants";
 import { showConfirmation } from "./confirm";
 import { NudgeUi } from "./nudge";
 import { post } from "./request";
 import { RequestQueue } from "./request-queue";
-import { rotateSession, sessionId } from "./sessionid";
+import { rotateSession, currentSessionId } from "./session-id";
 import { connectStream } from "./stream";
 import type { StreamHandle } from "./stream";
 import type { Config, Properties } from "./types";
@@ -15,7 +15,7 @@ import { uuidv7 } from "./uuidv7";
 // The ingest grammar for custom names. It also excludes the reserved fr. prefix.
 const EVENT_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 const MAX_END_USER_HASH_LENGTH = 128;
-const MAX_PENDING = 100;
+const MAX_PENDING_EVENTS = 100;
 
 /** An event held until identify supplies the customer's hash. */
 type PendingEvent = [event: string, properties: Properties | undefined, timestamp: string];
@@ -30,7 +30,7 @@ declare global {
 }
 
 /** Wraps fn so no widget exception ever reaches the host app. */
-function safe<A extends unknown[]>(fn: (...args: A) => void): (...args: A) => void {
+function failSilent<A extends unknown[]>(fn: (...args: A) => void): (...args: A) => void {
   return (...args) => {
     try {
       fn(...args);
@@ -71,7 +71,7 @@ function start(config: Config): void {
       id: uuidv7(),
       event,
       end_user_hash: endUserHash,
-      session_id: sessionId(),
+      session_id: currentSessionId(),
       timestamp,
       ...(ref && { ref }),
       ...(properties && Object.keys(properties).length > 0 && { properties }),
@@ -86,7 +86,7 @@ function start(config: Config): void {
     const timestamp = new Date().toISOString();
     const allowedProperties = properties && filterProperties(properties, config.allowlist);
     if (endUserHash) enqueueEvent(event, allowedProperties, timestamp);
-    else if (pendingEvents.length < MAX_PENDING) {
+    else if (pendingEvents.length < MAX_PENDING_EVENTS) {
       pendingEvents.push([event, allowedProperties, timestamp]);
     }
   };
@@ -99,8 +99,8 @@ function start(config: Config): void {
 
   const ui = new NudgeUi(
     {
-      onDismiss: safe((nudgeId) => enqueueInterventionEvent("fr.nudge_dismissed", nudgeId)),
-      onEngage: safe((nudgeId) => enqueueInterventionEvent("fr.nudge_engaged", nudgeId)),
+      onDismiss: failSilent((nudgeId) => enqueueInterventionEvent("fr.nudge_dismissed", nudgeId)),
+      onEngage: failSilent((nudgeId) => enqueueInterventionEvent("fr.nudge_engaged", nudgeId)),
       onSend: (id, text, ref) =>
         // Answer frames are live-only, so a send without an open stream spends
         // an answer nobody receives. Fail it now instead of after an idle wait.
@@ -111,7 +111,7 @@ function start(config: Config): void {
               MESSAGES_PATH,
               JSON.stringify({
                 id,
-                session_id: sessionId(),
+                session_id: currentSessionId(),
                 end_user_hash: endUserHash,
                 text,
                 ...(ref && { ref }),
@@ -121,12 +121,12 @@ function start(config: Config): void {
     // Persisted under the current identity, so a reload restores this user's
     // conversation and never another's. A no-op until identify sets the hash.
     (snapshot) => {
-      if (endUserHash) saveChat(config.key, endUserHash, snapshot);
+      if (endUserHash) storeChat(config.key, endUserHash, snapshot);
     },
   );
 
   /** Adopts the end user's hash, releasing held events and (re)opening their stream. */
-  const identify = safe((hash: string) => {
+  const identify = failSilent((hash: string) => {
     // One bad hash would poison every later batch, so the contract's cap gates here.
     if (typeof hash !== "string" || !hash.trim() || hash.length > MAX_END_USER_HASH_LENGTH) return;
     if (hash === endUserHash) return;
@@ -141,7 +141,7 @@ function start(config: Config): void {
     endUserHash = hash;
 
     // Rebuild before the stream reopens, so a buffered answer lands in the
-    // restored slot rather than a blank one.
+    // restored answer rather than a blank one.
     ui.restore(loadChat(config.key, hash));
 
     for (const args of pendingEvents) enqueueEvent(...args);
@@ -149,11 +149,11 @@ function start(config: Config): void {
 
     stream?.close();
     stream = connectStream(config, hash, {
-      nudge: safe((payload) => ui.showNudge(payload)),
-      token: safe((messageId, text) => ui.appendToken(messageId, text)),
-      done: safe((messageId, text, citations) => ui.finishAnswer(messageId, text, citations)),
-      action: safe((payload) => {
-        ui.notify();
+      nudge: failSilent((payload) => ui.showNudge(payload)),
+      token: failSilent((messageId, text) => ui.appendAnswerToken(messageId, text)),
+      done: failSilent((messageId, text, citations) => ui.finishAnswer(messageId, text, citations)),
+      action: failSilent((payload) => {
+        ui.notifyUnread();
         showConfirmation(ui.container, payload, {
           onConfirm: async (executionId) => {
             const result = await post(
@@ -161,13 +161,13 @@ function start(config: Config): void {
               CONFIRMATIONS_PATH,
               JSON.stringify({
                 execution_id: executionId,
-                session_id: sessionId(),
+                session_id: currentSessionId(),
                 end_user_hash: endUserHash,
               }),
             );
             return result.ok;
           },
-          onCancel: safe((executionId) =>
+          onCancel: failSilent((executionId) =>
             enqueueInterventionEvent("fr.action_cancelled", executionId),
           ),
         });
@@ -176,18 +176,18 @@ function start(config: Config): void {
   });
 
   /** Captures one founder-named event, dropping names outside the grammar. */
-  const track = safe((event: string, properties?: Properties) => {
+  const track = failSilent((event: string, properties?: Properties) => {
     // One rejected name never poisons a batch the gateway validates as a whole.
     if (typeof event !== "string" || !EVENT_NAME.test(event)) return;
     capture(event, properties);
   });
 
-  startAutocapture(safe(capture));
+  startAutocapture(failSilent(capture));
   window.fr = { identify, track };
 }
 
 // Boots once per page. A second snippet is a no-op.
-safe(() => {
+failSilent(() => {
   if (window.fr) return;
   const config = readConfig();
   if (config) start(config);

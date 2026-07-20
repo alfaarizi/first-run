@@ -11,7 +11,7 @@ const MAX_STORED_MESSAGES = 40;
  * it survives a refresh but dies with the session, and keying it per app and
  * end user (like the stream cursor) keeps one identity's chat out of another's.
  */
-export function saveChat(key: string, endUserHash: string, snapshot: ChatSnapshot): void {
+export function storeChat(key: string, endUserHash: string, snapshot: ChatSnapshot): void {
   try {
     sessionStorage.setItem(
       storageKey(key, endUserHash),
@@ -26,15 +26,6 @@ export function saveChat(key: string, endUserHash: string, snapshot: ChatSnapsho
     );
   } catch {
     // Storage is blocked or full. The next reload starts fresh.
-  }
-}
-
-/** Clears one app and end user's stored chat, so a prior identity leaves nothing behind. */
-export function clearChat(key: string, endUserHash: string): void {
-  try {
-    sessionStorage.removeItem(storageKey(key, endUserHash));
-  } catch {
-    // Storage is blocked; there is nothing to clear.
   }
 }
 
@@ -54,6 +45,15 @@ export function loadChat(key: string, endUserHash: string): ChatSnapshot | undef
   } catch {
     // Storage is blocked or the entry is corrupt. Starting fresh beats throwing.
     return undefined;
+  }
+}
+
+/** Clears one app and end user's stored chat, so a prior identity leaves nothing behind. */
+export function clearChat(key: string, endUserHash: string): void {
+  try {
+    sessionStorage.removeItem(storageKey(key, endUserHash));
+  } catch {
+    // Storage is blocked, there is nothing to clear.
   }
 }
 

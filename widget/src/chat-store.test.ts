@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test } from "vitest";
 
-import { clearChat, loadChat, saveChat } from "./chat-store";
+import { clearChat, loadChat, storeChat } from "./chat-store";
 import type { ChatSnapshot } from "./types";
 
 afterEach(() => sessionStorage.clear());
@@ -16,24 +16,24 @@ const snapshot: ChatSnapshot = {
 };
 
 test("round-trips a snapshot for one app and end user", () => {
-  saveChat("key_1", "user-1", snapshot);
+  storeChat("key_1", "user-1", snapshot);
   expect(loadChat("key_1", "user-1")).toEqual(snapshot);
 });
 
 test("round-trips the composer draft and scroll offset", () => {
   const withView: ChatSnapshot = { ...snapshot, composerDraft: "half a question", scrollTop: 240 };
-  saveChat("key_1", "user-1", withView);
+  storeChat("key_1", "user-1", withView);
   expect(loadChat("key_1", "user-1")).toEqual(withView);
 });
 
 test("clearChat drops a stored chat", () => {
-  saveChat("key_1", "user-1", snapshot);
+  storeChat("key_1", "user-1", snapshot);
   clearChat("key_1", "user-1");
   expect(loadChat("key_1", "user-1")).toBeUndefined();
 });
 
 test("keeps one app and user's chat out of another's", () => {
-  saveChat("key_1", "user-1", snapshot);
+  storeChat("key_1", "user-1", snapshot);
 
   expect(loadChat("key_1", "user-2")).toBeUndefined();
   expect(loadChat("key_2", "user-1")).toBeUndefined();
@@ -64,12 +64,12 @@ test("caps the stored transcript to bound one user's storage", () => {
       at: i,
     })),
   };
-  saveChat("key_1", "user-1", many);
+  storeChat("key_1", "user-1", many);
 
   const restored = loadChat("key_1", "user-1");
   expect(restored?.messages).toHaveLength(40);
 
-  // the newest messages survive; the oldest scroll out of the store
+  // the newest messages survive, the oldest scroll out of the store
   expect(restored?.messages.at(-1)?.text).toBe("m59");
   expect(restored?.messages.at(0)?.text).toBe("m20");
 });

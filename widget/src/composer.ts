@@ -13,8 +13,8 @@ export interface Composer {
   /** The raw draft, kept verbatim so a reload restores it exactly. */
   draft(): string;
   /** Seeds the draft, growing the input to fit, used when a reload restores it. */
-  fill(value: string): void;
-  clear(): void;
+  setDraft(value: string): void;
+  clearDraft(): void;
   focus(): void;
 }
 
@@ -25,7 +25,7 @@ export function createComposer(onSubmit: () => void): Composer {
   input.maxLength = MESSAGE_MAX_CHARS;
   input.placeholder = "Ask about this product...";
   input.setAttribute("aria-label", "Ask about this product");
-  input.oninput = sync;
+  input.oninput = syncToDraft;
   input.onkeydown = (e) => {
     // An Enter that commits IME composition keeps composing. Safari fires it
     // after compositionend with isComposing already false, so 229 gates it.
@@ -39,7 +39,7 @@ export function createComposer(onSubmit: () => void): Composer {
   };
 
   const send = el("button", "fr-send");
-  send.append(sendIcon());
+  send.append(buildSendIcon());
   send.setAttribute("aria-label", "Send");
   send.onclick = onSubmit;
 
@@ -61,9 +61,9 @@ export function createComposer(onSubmit: () => void): Composer {
    * Grows the composer with its content, handing overflow to a scrollbar at
    * the cap, and arms the send button only for a draft submit would accept.
    */
-  function sync(): void {
+  function syncToDraft(): void {
     input.style.height = "auto";
-    // Read the content height once; measuring again after setting height reflows twice.
+    // Read the content height once. Measuring it again after setting height reflows twice.
     const contentHeight = input.scrollHeight;
     input.style.height = `${Math.min(contentHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
     input.style.overflowY = contentHeight > COMPOSER_MAX_HEIGHT_PX ? "auto" : "hidden";
@@ -71,17 +71,17 @@ export function createComposer(onSubmit: () => void): Composer {
   }
 
   /** Sets the draft and grows the input to fit it. */
-  function setValue(value: string): void {
+  function setDraft(value: string): void {
     input.value = value;
-    sync();
+    syncToDraft();
   }
 
   return {
     root,
     text: () => input.value.trim(),
     draft: () => input.value,
-    fill: setValue,
-    clear: () => setValue(""),
+    setDraft,
+    clearDraft: () => setDraft(""),
     focus() {
       // Scroll-on-focus would drag the shell's content while it is mid-morph.
       input.focus({ preventScroll: true });
@@ -90,7 +90,7 @@ export function createComposer(onSubmit: () => void): Composer {
 }
 
 /** Builds the send arrow with DOM calls alone, so no markup parser or injection sink exists. */
-function sendIcon(): SVGSVGElement {
+function buildSendIcon(): SVGSVGElement {
   const NS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(NS, "svg");
   svg.setAttribute("viewBox", "0 0 16 16");

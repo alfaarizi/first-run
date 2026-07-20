@@ -2,7 +2,7 @@ import { createChime, type Chime } from "./chime";
 import { createComposer, type Composer } from "./composer";
 import { TRY_AGAIN_TEXT } from "./constants";
 import { el } from "./dom";
-import { createFace } from "./face";
+import { buildFace } from "./face";
 import { FACE_CSS } from "./face.css";
 import { MORPH_MS, NUDGE_CSS } from "./nudge.css";
 import type { ChatMessage, ChatSnapshot, Citation, NudgePayload } from "./types";
@@ -71,17 +71,17 @@ export class NudgeUi {
     this.chime = createChime();
     this.launcher = this.buildLauncher();
     this.messages = this.buildMessages();
-    this.composer = createComposer(() => this.submit());
+    this.composer = createComposer(() => this.sendDraft());
     this.panel = this.buildPanel();
     this.shell = this.buildShell();
     this.root = this.buildRoot();
     this.mount();
-    // Persist once, as the page hides — the only state a reload ever reads back.
+    // Persist once, as the page hides.
     // A refresh fires pagehide with the surface's final state intact.
-    addEventListener("pagehide", () => this.save());
+    addEventListener("pagehide", () => this.persistSnapshot());
   }
 
-  /** Where the confirmation card mounts, slotted between the messages and the input. */
+  /** Where the confirmation card mounts, between the messages and the input. */
   get container(): HTMLElement {
     return this.panel;
   }
@@ -94,9 +94,9 @@ export class NudgeUi {
     this.transcript = [];
     this.messages.replaceChildren();
     this.panel.querySelector(".fr-confirm")?.remove();
-    this.composer.clear();
+    this.composer.clearDraft();
     this.shell.classList.remove("fr-unread");
-    this.collapse(false);
+    this.collapsePanel(false);
   }
 
   /**
@@ -105,39 +105,36 @@ export class NudgeUi {
    */
   restore(snapshot: ChatSnapshot | undefined): void {
     if (!snapshot) return;
-    this.transcript = snapshot.messages.map((message) => ({
-      ...message,
-      citations: message.citations && [...message.citations],
+    this.transcript = snapshot.messages.map((model) => ({
+      ...model,
+      citations: model.citations && [...model.citations],
     }));
 
     // Restored messages arrive at once, so they skip the one-by-one entry rise.
-    for (const message of this.transcript) this.renderMessage(message, false);
+    for (const model of this.transcript) this.renderMessage(model, false);
 
-    // A prior page left mid-answer: open a fresh slot; the buffered done frame
-    // fills it when the stream reopens.
-    if (snapshot.pendingId) this.openAnswerSlot(snapshot.pendingId);
-    this.composer.fill(snapshot.composerDraft ?? "");
+    // A prior page left mid-answer, so reopen it. The buffered done frame fills
+    // it when the stream reopens.
+    if (snapshot.pendingId) this.openAnswer(snapshot.pendingId, false);
+    this.composer.setDraft(snapshot.composerDraft ?? "");
 
     if (snapshot.open) {
       this.expanded = true;
       this.shell.classList.add("fr-expanded");
       this.launcher.setAttribute("aria-expanded", "true");
-      // Keep the exact scroll offset, or land on the newest message.
-      this.messages.scrollTop = snapshot.scrollTop ?? this.messages.scrollHeight;
+      // One frame for the panel to lay out: a log with no height yet clamps
+      // scrollTop to zero and the view jumps to the top.
+      requestAnimationFrame(() => {
+        this.messages.scrollTop = snapshot.scrollTop ?? this.messages.scrollHeight;
+        this.composer.focus();
+      });
     }
-  }
-
-  /** Announces a frame the collapsed shell would otherwise hide, with the dot and chime. */
-  notify(): void {
-    if (this.expanded) return;
-    this.shell.classList.add("fr-unread");
-    this.chime.nudge();
   }
 
   /** Shows the nudge: into the conversation when expanded, else as the preview bubble. */
   showNudge(nudge: NudgePayload): void {
     if (this.expanded) {
-      // The open panel joins the nudge into the conversation; the next reply
+      // The open panel joins the nudge into the conversation. The next reply
       // reports it engaged.
       this.appendMessage("agent", nudge.text);
       this.nudgesAwaitingReply.add(nudge.id);
@@ -155,20 +152,29 @@ export class NudgeUi {
     this.pendingNudge = nudge;
     this.bubble = this.buildBubble(nudge);
     this.root.prepend(this.bubble);
-    this.notify();
+    this.notifyUnread();
   }
 
-  /** Streams one answer span into the slot awaiting its message id. */
-  appendToken(messageId: string, text: string): void {
+  /** Announces a frame the collapsed shell would otherwise hide, with the dot and chime. */
+  notifyUnread(): void {
+    if (this.expanded) return;
+    this.shell.classList.add("fr-unread");
+    this.chime.nudge();
+  }
+
+  /** Streams one answer span into the answer awaiting its message id. */
+  appendAnswerToken(messageId: string, text: string): void {
     // Another tab's answer rides the same user stream. Only frames for the
-    // question this panel sent reach its slot.
-    if (!this.answer || messageId !== this.answerMessageId) return;
+    // question this panel sent reach its answer, which a first token may open
+    // before the send is even acknowledged.
+    if (messageId !== this.answerMessageId) return;
+    const body = this.openAnswer(messageId);
 
     const follow = this.isAtBottom();
-    this.clearTyping();
+    this.hideTyping();
 
     // The model text is reconciled once from the done frame, not built per token.
-    this.answer.append(text);
+    body.append(text);
 
     if (follow) this.scrollToBottom();
     this.keepAnswerAlive();
@@ -177,15 +183,77 @@ export class NudgeUi {
   /** Closes the streamed answer, reconciling to the server's final text and citations. */
   finishAnswer(messageId: string, text: string | undefined, citations: Citation[]): void {
     if (messageId !== this.answerMessageId) return;
+    // The done frame is authoritative, so it heals any token the stream dropped.
+    const streamed = this.openAnswer(messageId).textContent;
+    this.closeAnswer(text || streamed || TRY_AGAIN_TEXT, citations);
+  }
+
+  /** Sends the drafted message. The typing bubble opens once the send lands. */
+  private sendDraft(): void {
+    const text = this.composer.text();
+    if (!text || this.answerMessageId) return;
+
+    this.composer.clearDraft();
+    this.chime.send();
+    this.appendMessage("user", text);
+    const ref = this.claimReplyRef();
+
+    // Reserve the answer so its frames match, but let the typing bubble wait for
+    // the send to land, the way a person starts replying after you hit enter.
+    // The watchdog starts now, so a send that never settles cannot wedge it.
+    const id = uuidv7();
+    this.answerMessageId = id;
+    this.keepAnswerAlive();
+
+    void this.callbacks
+      .onSend(id, text, ref)
+      .catch(() => false)
+      .then((delivered) => {
+        if (this.answerMessageId !== id) return;
+        this.openAnswer(id);
+        // A failed send releases the answer with the retry line.
+        if (!delivered) this.closeAnswer(TRY_AGAIN_TEXT);
+      });
+  }
+
+  /**
+   * Resolves the nudge this reply answers and engages every awaiting nudge. A
+   * nudge that arrived meanwhile is the ref only when the launcher opened the
+   * panel, so a later nudge never displaces the opener's ref.
+   */
+  private claimReplyRef(): string | undefined {
+    const awaiting = this.nudgesAwaitingReply.values().next().value;
+    if (awaiting && !this.lastEngagedNudge) this.lastEngagedNudge = awaiting;
+    for (const id of this.nudgesAwaitingReply) this.callbacks.onEngage(id);
+    this.nudgesAwaitingReply.clear();
+    return this.lastEngagedNudge;
+  }
+
+  /**
+   * Opens the agent message an answer streams into, or returns the open one. A
+   * live message rises in. A restored one does not, like every rebuilt message.
+   */
+  private openAnswer(messageId: string, animate = true): HTMLElement {
+    if (this.answer) return this.answer;
+    const { model, body } = this.appendMessage("agent", "", animate);
+    this.answer = body;
+    this.answerModel = model;
+    this.answerMessageId = messageId;
+    this.showTyping();
+    this.keepAnswerAlive();
+    return body;
+  }
+
+  /**
+   * Settles the answer on its final line and releases it. Every ending runs
+   * through here: a done frame, a failed send, and a stalled stream.
+   */
+  private closeAnswer(finalText: string, citations: Citation[] = []): void {
     const body = this.answer;
     if (body) {
       const follow = this.isAtBottom();
-      this.clearTyping();
-
-      // Reconcile to the authoritative done text, healing any dropped token.
-      const streamed = body.textContent;
-      const finalText = text || streamed || TRY_AGAIN_TEXT;
-      if (streamed !== finalText) body.textContent = finalText;
+      this.hideTyping();
+      body.textContent = finalText;
       if (this.answerModel) {
         this.answerModel.text = finalText;
         this.answerModel.citations = citations;
@@ -198,102 +266,38 @@ export class NudgeUi {
     this.dropAnswer();
   }
 
-  /** Builds the launcher button that toggles between the two shell states. */
-  private buildLauncher(): HTMLButtonElement {
-    const launcher = el("button", "fr-launcher");
-    launcher.setAttribute("aria-label", "FirstRun assistant");
-    launcher.setAttribute("aria-expanded", "false");
-    launcher.append(createFace());
-    launcher.onclick = () => (this.expanded ? this.collapse() : this.open());
-    return launcher;
+  /** Resets the idle countdown that degrades a stalled answer to the retry line. */
+  private keepAnswerAlive(): void {
+    clearTimeout(this.answerTimer);
+    this.answerTimer = setTimeout(() => {
+      // The retry line joins any partial text, so a half answer never reads as done.
+      const partial = this.answer?.textContent;
+      this.closeAnswer(partial ? `${partial} ${TRY_AGAIN_TEXT}` : TRY_AGAIN_TEXT);
+    }, ANSWER_IDLE_MS);
   }
 
-  /** Builds the scrollable message log. */
-  private buildMessages(): HTMLElement {
-    const messages = el("div", "fr-messages");
-    messages.setAttribute("role", "log");
-    messages.setAttribute("aria-label", "Messages");
-    return messages;
+  /** Stops the idle countdown and releases the answer. */
+  private dropAnswer(): void {
+    clearTimeout(this.answerTimer);
+    this.hideTyping();
+    this.answer = this.answerModel = this.answerMessageId = undefined;
   }
 
-  /** Builds the expanded panel: header, message log, then the composer. */
-  private buildPanel(): HTMLElement {
-    const heading = el("div", "");
-    heading.append(el("h2", "fr-title", "FirstRun"), el("p", "fr-subtitle", "Here to help"));
-
-    const close = el("button", "fr-close", "×");
-    close.setAttribute("aria-label", "Close");
-    close.onclick = () => {
-      this.collapse(false);
-      this.launcher.focus({ preventScroll: true });
-    };
-
-    const header = el("div", "fr-header");
-    header.append(heading, close);
-
-    const panel = el("div", "fr-panel");
-    panel.append(header, this.messages, this.composer.root);
-    return panel;
+  /** Shows the typing indicator in the open answer until text arrives. */
+  private showTyping(): void {
+    if (!this.answer || this.typing) return;
+    this.typing = buildTyping();
+    this.answer.append(this.typing);
   }
 
-  /** Builds the shell that morphs between the launcher and the panel. */
-  private buildShell(): HTMLElement {
-    const dot = el("span", "fr-dot");
-    dot.setAttribute("aria-hidden", "true");
-
-    // The launcher and dot follow the panel, so they stay clickable above it.
-    const shell = el("div", "fr-shell");
-    shell.append(this.panel, this.launcher, dot);
-    return shell;
-  }
-
-  /** Builds the root that hosts everything and closes the panel on Escape. */
-  private buildRoot(): HTMLElement {
-    const root = el("div", "fr-root");
-    root.append(this.shell);
-    root.onkeydown = (e) => {
-      if (e.key === "Escape" && this.expanded) {
-        this.collapse();
-        this.launcher.focus({ preventScroll: true });
-      }
-    };
-    return root;
-  }
-
-  /** Builds the preview bubble: the nudge text beside its dismiss button. */
-  private buildBubble(nudge: NudgePayload): HTMLElement {
-    const open = el("button", "fr-bubble-text", nudge.text);
-    open.onclick = () => this.open();
-
-    // The multiplication sign, the conventional close glyph.
-    const dismiss = el("button", "fr-close", "×");
-    dismiss.setAttribute("aria-label", "Dismiss");
-    dismiss.onclick = () => {
-      this.removeBubble();
-      this.shell.classList.remove("fr-unread");
-      this.callbacks.onDismiss(nudge.id);
-    };
-
-    const bubble = el("div", "fr-bubble");
-    bubble.setAttribute("role", "status");
-    bubble.append(open, dismiss);
-    return bubble;
-  }
-
-  /** Mounts the surface under document.body, waiting for it on early loads. */
-  private mount(): void {
-    const host = document.createElement("div");
-    const shadow = host.attachShadow({ mode: "closed" });
-    const style = document.createElement("style");
-    style.textContent = NUDGE_CSS + FACE_CSS;
-    shadow.append(style, this.root);
-
-    if (document.body) document.body.append(host);
-    else addEventListener("DOMContentLoaded", () => document.body.append(host));
+  /** Removes the typing indicator once the answer streams in or closes. */
+  private hideTyping(): void {
+    this.typing?.remove();
+    this.typing = undefined;
   }
 
   /** Opens the panel, engaging any previewed nudge into the conversation. */
-  private open(): void {
+  private expandPanel(): void {
     const nudge = this.pendingNudge;
     if (nudge) {
       this.removeBubble();
@@ -311,7 +315,7 @@ export class NudgeUi {
   }
 
   /** Collapses to the launcher. The conversation keeps its DOM, so reopening restores it. */
-  private collapse(animate = true): void {
+  private collapsePanel(animate = true): void {
     if (animate) this.morph();
     else {
       // Cancel any running morph, so the close lands instantly.
@@ -342,58 +346,6 @@ export class NudgeUi {
     this.bubble = this.pendingNudge = undefined;
   }
 
-  /** Sends the drafted message and opens the slot its answer streams into. */
-  private submit(): void {
-    const text = this.composer.text();
-    if (!text || this.answer) return;
-
-    this.composer.clear();
-    this.chime.send();
-    this.appendMessage("user", text);
-    const ref = this.claimReplyRef();
-
-    const id = uuidv7();
-    const slot = this.openAnswerSlot(id);
-
-    void this.callbacks
-      .onSend(id, text, ref)
-      .catch(() => false)
-      .then((delivered) => {
-        // A failed send frees the slot, so the user can try again.
-        if (!delivered && this.answer === slot) {
-          this.clearTyping();
-          slot.textContent = TRY_AGAIN_TEXT;
-          if (this.answerModel) this.answerModel.text = TRY_AGAIN_TEXT;
-          this.dropAnswer();
-        }
-      });
-  }
-
-  /**
-   * Resolves the nudge this reply answers and engages every awaiting nudge. A
-   * nudge that arrived meanwhile is the ref only when the launcher opened the
-   * panel, so a later nudge never displaces the opener's ref.
-   */
-  private claimReplyRef(): string | undefined {
-    const awaiting = this.nudgesAwaitingReply.values().next().value;
-    if (awaiting && !this.lastEngagedNudge) this.lastEngagedNudge = awaiting;
-    for (const id of this.nudgesAwaitingReply) this.callbacks.onEngage(id);
-    this.nudgesAwaitingReply.clear();
-    return this.lastEngagedNudge;
-  }
-
-  /** Opens the agent bubble one answer streams into, tracked by its message id. */
-  private openAnswerSlot(messageId: string): HTMLElement {
-    // It arrives showing the typing indicator, so it never takes the entry rise.
-    const { model, body } = this.appendMessage("agent", "", false);
-    this.answer = body;
-    this.answerModel = model;
-    this.answerMessageId = messageId;
-    this.showTyping();
-    this.keepAnswerAlive();
-    return body;
-  }
-
   /** Appends one message to the transcript and the log, returning its model and body. */
   private appendMessage(
     who: "user" | "agent",
@@ -406,16 +358,16 @@ export class NudgeUi {
   }
 
   /** Renders one message into the log, returning the body streaming writes into. */
-  private renderMessage(message: ChatMessage, animate = true): HTMLElement {
-    const bubble = el("div", `fr-message fr-message-${message.who}`);
-    if (!animate) bubble.classList.add("fr-no-anim");
-    const body = el("span", "fr-body", message.text);
-    if (message.citations?.length) {
-      const list = buildCitations(message.citations);
+  private renderMessage(model: ChatMessage, animate = true): HTMLElement {
+    const message = el("div", `fr-message fr-message-${model.who}`);
+    if (!animate) message.classList.add("fr-no-anim");
+    const body = el("span", "fr-body", model.text);
+    if (model.citations?.length) {
+      const list = buildCitations(model.citations);
       if (list.childElementCount > 0) body.append(list);
     }
-    bubble.append(body, el("span", "fr-time", TIME_FORMAT.format(message.at)));
-    this.messages.append(bubble);
+    message.append(body, el("span", "fr-time", TIME_FORMAT.format(model.at)));
+    this.messages.append(message);
     this.scrollToBottom();
     return body;
   }
@@ -431,50 +383,14 @@ export class NudgeUi {
     this.messages.scrollTo(0, this.messages.scrollHeight);
   }
 
-  /** Shows the typing indicator in the answer slot until text arrives. */
-  private showTyping(): void {
-    if (!this.answer || this.typing) return;
-    this.typing = buildTyping();
-    this.answer.append(this.typing);
-  }
-
-  /** Removes the typing indicator once the answer streams in or closes. */
-  private clearTyping(): void {
-    this.typing?.remove();
-    this.typing = undefined;
-  }
-
-  /** Resets the idle countdown that degrades a stalled answer to the retry line. */
-  private keepAnswerAlive(): void {
-    clearTimeout(this.answerTimer);
-    this.answerTimer = setTimeout(() => {
-      if (this.answer?.isConnected) {
-        this.clearTyping();
-        // Append the retry line to any partial text, so a half answer never reads as done.
-        const partial = this.answer.textContent;
-        const text = partial ? `${partial} ${TRY_AGAIN_TEXT}` : TRY_AGAIN_TEXT;
-        this.answer.textContent = text;
-        if (this.answerModel) this.answerModel.text = text;
-      }
-      this.dropAnswer();
-    }, ANSWER_IDLE_MS);
-  }
-
-  /** Stops the idle countdown and frees the answer slot. */
-  private dropAnswer(): void {
-    clearTimeout(this.answerTimer);
-    this.clearTyping();
-    this.answer = this.answerModel = this.answerMessageId = undefined;
-  }
-
   /**
    * Persists the surface so a reload restores it. The in-flight answer is left
-   * out; restore reopens it as a typing slot the buffered done frame fills. The
-   * scroll offset only carries meaning while open.
+   * out. Restore reopens it and the buffered done frame fills it. The scroll
+   * offset only carries meaning while open.
    */
-  private save(): void {
+  private persistSnapshot(): void {
     const settled = this.answerModel
-      ? this.transcript.filter((message) => message !== this.answerModel)
+      ? this.transcript.filter((model) => model !== this.answerModel)
       : this.transcript;
     this.persist({
       open: this.expanded,
@@ -483,6 +399,100 @@ export class NudgeUi {
       composerDraft: this.composer.draft(),
       scrollTop: this.expanded ? this.messages.scrollTop : undefined,
     });
+  }
+
+  /** Mounts the surface under document.body, waiting for it on early loads. */
+  private mount(): void {
+    const host = document.createElement("div");
+    const shadow = host.attachShadow({ mode: "closed" });
+    const style = document.createElement("style");
+    style.textContent = NUDGE_CSS + FACE_CSS;
+    shadow.append(style, this.root);
+
+    if (document.body) document.body.append(host);
+    else addEventListener("DOMContentLoaded", () => document.body.append(host));
+  }
+
+  /** Builds the root that hosts everything and closes the panel on Escape. */
+  private buildRoot(): HTMLElement {
+    const root = el("div", "fr-root");
+    root.append(this.shell);
+    root.onkeydown = (e) => {
+      if (e.key === "Escape" && this.expanded) {
+        this.collapsePanel();
+        this.launcher.focus({ preventScroll: true });
+      }
+    };
+    return root;
+  }
+
+  /** Builds the shell that morphs between the launcher and the panel. */
+  private buildShell(): HTMLElement {
+    const dot = el("span", "fr-dot");
+    dot.setAttribute("aria-hidden", "true");
+
+    // The launcher and dot follow the panel, so they stay clickable above it.
+    const shell = el("div", "fr-shell");
+    shell.append(this.panel, this.launcher, dot);
+    return shell;
+  }
+
+  /** Builds the expanded panel: header, message log, then the composer. */
+  private buildPanel(): HTMLElement {
+    const heading = el("div", "");
+    heading.append(el("h2", "fr-title", "FirstRun"), el("p", "fr-subtitle", "Here to help"));
+
+    const close = el("button", "fr-close", "×");
+    close.setAttribute("aria-label", "Close");
+    close.onclick = () => {
+      this.collapsePanel(false);
+      this.launcher.focus({ preventScroll: true });
+    };
+
+    const header = el("div", "fr-header");
+    header.append(heading, close);
+
+    const panel = el("div", "fr-panel");
+    panel.append(header, this.messages, this.composer.root);
+    return panel;
+  }
+
+  /** Builds the scrollable message log. */
+  private buildMessages(): HTMLElement {
+    const messages = el("div", "fr-messages");
+    messages.setAttribute("role", "log");
+    messages.setAttribute("aria-label", "Messages");
+    return messages;
+  }
+
+  /** Builds the launcher button that toggles between the two shell states. */
+  private buildLauncher(): HTMLButtonElement {
+    const launcher = el("button", "fr-launcher");
+    launcher.setAttribute("aria-label", "FirstRun assistant");
+    launcher.setAttribute("aria-expanded", "false");
+    launcher.append(buildFace());
+    launcher.onclick = () => (this.expanded ? this.collapsePanel() : this.expandPanel());
+    return launcher;
+  }
+
+  /** Builds the preview bubble: the nudge text beside its dismiss button. */
+  private buildBubble(nudge: NudgePayload): HTMLElement {
+    const openButton = el("button", "fr-bubble-text", nudge.text);
+    openButton.onclick = () => this.expandPanel();
+
+    // The multiplication sign, the conventional close glyph.
+    const dismissButton = el("button", "fr-close", "×");
+    dismissButton.setAttribute("aria-label", "Dismiss");
+    dismissButton.onclick = () => {
+      this.removeBubble();
+      this.shell.classList.remove("fr-unread");
+      this.callbacks.onDismiss(nudge.id);
+    };
+
+    const bubble = el("div", "fr-bubble");
+    bubble.setAttribute("role", "status");
+    bubble.append(openButton, dismissButton);
+    return bubble;
   }
 }
 
