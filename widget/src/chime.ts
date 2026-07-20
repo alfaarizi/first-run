@@ -20,25 +20,25 @@ export interface Chime {
 /**
  * Builds the widget's sounds over one shared AudioContext. The context is
  * created on the page's first user gesture, the only moment the autoplay
- * policy guarantees it runs, and play stays silent whenever the policy kept
+ * policy guarantees it runs, and playback stays silent whenever the policy kept
  * it suspended.
  */
 export function createChime(): Chime {
   let context: AudioContext | undefined;
 
-  const prime = () => {
+  const primeAudioContext = () => {
     try {
       context = new AudioContext();
     } catch {
       // No Web Audio, so the sounds stay silent.
     }
-    removeEventListener("pointerdown", prime);
-    removeEventListener("keydown", prime);
+    removeEventListener("pointerdown", primeAudioContext);
+    removeEventListener("keydown", primeAudioContext);
   };
-  addEventListener("pointerdown", prime);
-  addEventListener("keydown", prime);
+  addEventListener("pointerdown", primeAudioContext);
+  addEventListener("keydown", primeAudioContext);
 
-  const play = (notesHz: readonly [number, number], durationS: number, peakGain: number) => {
+  const playNotes = (notesHz: readonly [number, number], durationS: number, peakGain: number) => {
     if (context?.state !== "running") return;
 
     const start = context.currentTime;
@@ -57,7 +57,7 @@ export function createChime(): Chime {
   };
 
   return {
-    nudge: () => play(NUDGE_NOTES_HZ, NUDGE_DURATION_S, NUDGE_PEAK_GAIN),
-    send: () => play(SEND_NOTES_HZ, SEND_DURATION_S, SEND_PEAK_GAIN),
+    nudge: () => playNotes(NUDGE_NOTES_HZ, NUDGE_DURATION_S, NUDGE_PEAK_GAIN),
+    send: () => playNotes(SEND_NOTES_HZ, SEND_DURATION_S, SEND_PEAK_GAIN),
   };
 }

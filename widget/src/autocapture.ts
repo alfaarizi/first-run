@@ -7,18 +7,18 @@ type Capture = (event: string, properties?: Properties) => void;
  * input values, and error messages never leave the page.
  */
 export function startAutocapture(capture: Capture): void {
-  const pageView = () => capture("fr.page_view", { path: location.pathname });
+  const capturePageView = () => capture("fr.page_view", { path: location.pathname });
 
   for (const method of ["pushState", "replaceState"] as const) {
     const original = history[method].bind(history);
     history[method] = (...args: Parameters<History["pushState"]>) => {
       original(...args);
-      pageView();
+      capturePageView();
     };
   }
 
-  addEventListener("popstate", pageView);
-  pageView();
+  addEventListener("popstate", capturePageView);
+  capturePageView();
 
   addEventListener(
     "click",
