@@ -5,7 +5,7 @@ export const COMPOSER_LINE_HEIGHT_PX = 20;
 export const COMPOSER_MAX_HEIGHT_PX = 120;
 
 // How long the expand morph runs, matched by the timer that unhooks the transition after it.
-export const MORPH_MS = 300;
+export const MORPH_MS = 340;
 
 export const NUDGE_CSS = `
 :host {
@@ -30,7 +30,7 @@ export const NUDGE_CSS = `
   --box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
   --outline: 1px auto var(--accent-background);
   --easing: cubic-bezier(0.4, 0, 0.2, 1);
-  --spring: cubic-bezier(0.34, 1.3, 0.64, 1);
+  --morph-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --interactive-filter: brightness(95%);
   --font-family: system-ui, "Helvetica Neue", Arial, sans-serif;
   --font-size: 14px;
@@ -61,8 +61,8 @@ export const NUDGE_CSS = `
 }
 .fr-root {
   position: fixed;
-  right: 16px;
-  bottom: 16px;
+  right: 20px;
+  bottom: 20px;
   z-index: var(--z-index);
   display: flex;
   flex-direction: column;
@@ -251,7 +251,6 @@ button:focus-visible {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
   overflow-y: auto;
   padding: 0 8px;
   scrollbar-width: thin;
@@ -262,8 +261,8 @@ button:focus-visible {
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 2px 8px;
-  max-width: 75%;
-  border-radius: 12px;
+  max-width: 80%;
+  border-radius: 16px;
   padding: 8px 12px;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -276,6 +275,15 @@ button:focus-visible {
 .fr-message-agent {
   align-self: flex-start;
   background: var(--agent-message-background);
+}
+/* Tight within one sender's turn, roomy where the turn changes, the way
+   Intercom groups a conversation. */
+.fr-message + .fr-message {
+  margin-top: 2px;
+}
+.fr-message-user + .fr-message-agent,
+.fr-message-agent + .fr-message-user {
+  margin-top: 16px;
 }
 .fr-message-user:not(:has(+ .fr-message-user))::after,
 .fr-message-agent:not(:has(+ .fr-message-agent))::after {
@@ -396,16 +404,16 @@ button:focus-visible {
 }
 @media (prefers-reduced-motion: no-preference) {
   .fr-morph {
-    transition: width 250ms var(--easing), height 250ms var(--easing);
+    transition: width 220ms var(--easing), height 220ms var(--easing);
   }
   .fr-morph.fr-expanded {
-    transition-duration: ${MORPH_MS}ms;
+    transition: width ${MORPH_MS}ms var(--morph-ease), height ${MORPH_MS}ms var(--morph-ease);
   }
   .fr-morph .fr-panel {
-    transition: opacity 150ms, visibility 0s 150ms, transform 150ms var(--easing);
+    transition: opacity 120ms var(--easing), visibility 0s 120ms, transform 160ms var(--easing);
   }
   .fr-morph.fr-expanded .fr-panel {
-    transition: opacity 200ms 100ms, visibility 0s, transform ${MORPH_MS}ms 60ms var(--spring);
+    transition: opacity 200ms 120ms var(--easing), visibility 0s, transform ${MORPH_MS}ms 40ms var(--morph-ease);
   }
   .fr-dot {
     transition: transform 150ms var(--easing);
