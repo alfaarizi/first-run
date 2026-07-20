@@ -60,14 +60,7 @@ class ConversationService(ConversationServiceServicer):  # type: ignore[misc]
                     "tenant_id": conversation.tenant_id,
                 },
             ) as span:
-                state: ConversationState = {
-                    "tenant_id": conversation.tenant_id,
-                    "app_id": conversation.app_id,
-                    "question": message.text,
-                    "milestone_name": conversation.milestone_name,
-                    "history": list(history),
-                    "chunks": [],
-                }
+                state = _initial_state(conversation, message.text, history)
                 try:
                     async for event in self._graph.astream(state, stream_mode="custom"):
                         if isinstance(event, AnswerToken):
@@ -116,6 +109,22 @@ async def _read_context(
     conversation = first.context
     await abort_unless_uuids(conversation, context, "tenant_id", "app_id")
     return conversation
+
+
+def _initial_state(
+    conversation: conversation_pb2.ConversationContext,
+    question: str,
+    history: list[Turn],
+) -> ConversationState:
+    """Build the graph input for one question over the conversation so far."""
+    return {
+        "tenant_id": conversation.tenant_id,
+        "app_id": conversation.app_id,
+        "question": question,
+        "milestone_name": conversation.milestone_name,
+        "history": list(history),
+        "chunks": [],
+    }
 
 
 def _to_response(

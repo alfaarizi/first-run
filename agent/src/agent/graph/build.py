@@ -1,15 +1,43 @@
 """Wires the retrieve and answer nodes into the conversation graph."""
 
-from typing import TypedDict
+from collections.abc import AsyncIterator, Sequence
+from typing import Protocol, TypedDict
 
 from langfuse import Langfuse
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from agent.llm.client import ChatClient, EmbeddingClient, Turn
-from agent.retrieval.search import ChunkSearcher, RetrievedChunk
-from agent.schemas.answer import AnswerDone
+from agent.llm.client import Turn
+from agent.retrieval.search import RetrievedChunk
+from agent.schemas.answer import AnswerDone, AnswerEvent
+
+
+class QueryEmbedder(Protocol):
+    """The slice of the embedding client the retrieve node needs."""
+
+    async def embed_query(self, text: str) -> list[float]: ...
+
+
+class ChunkReader(Protocol):
+    """The slice of the chunk index the retrieve node needs."""
+
+    async def search(
+        self, *, tenant_id: str, app_id: str, embedding: list[float], limit: int
+    ) -> list[RetrievedChunk]: ...
+
+
+class AnswerSource(Protocol):
+    """The slice of the chat client the answer node needs."""
+
+    def stream_answer(
+        self,
+        *,
+        question: str,
+        chunks: Sequence[RetrievedChunk],
+        history: Sequence[Turn],
+        milestone_name: str,
+    ) -> AsyncIterator[AnswerEvent]: ...
 
 
 class ConversationState(TypedDict):
@@ -25,9 +53,9 @@ class ConversationState(TypedDict):
 
 def build_graph(
     *,
-    embedder: EmbeddingClient,
-    searcher: ChunkSearcher,
-    chat: ChatClient,
+    embedder: QueryEmbedder,
+    searcher: ChunkReader,
+    chat: AnswerSource,
     langfuse: Langfuse,
     answer_model: str,
     top_k: int,

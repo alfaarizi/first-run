@@ -13,13 +13,11 @@ from agent.graph.build import build_graph
 from agent.graph.service import ConversationService
 from agent.llm.client import (
     _ANSWER_SYSTEM_PROMPT,
-    ChatClient,
-    EmbeddingClient,
     Turn,
     _parse_citation,
     _build_user_content,
 )
-from agent.retrieval.search import ChunkSearcher, RetrievedChunk
+from agent.retrieval.search import RetrievedChunk
 from agent.schemas.answer import AnswerDone, AnswerEvent, AnswerToken, Citation
 from firstrun.v1 import conversation_pb2
 
@@ -115,9 +113,9 @@ class FakeContext:
 
 def _service(chat: FakeChat) -> ConversationService:
     graph = build_graph(
-        embedder=cast(EmbeddingClient, FakeEmbedder()),
-        searcher=cast(ChunkSearcher, FakeSearcher()),
-        chat=cast(ChatClient, chat),
+        embedder=FakeEmbedder(),
+        searcher=FakeSearcher(),
+        chat=chat,
         langfuse=Langfuse(tracing_enabled=False),
         answer_model="test-model",
         top_k=4,
