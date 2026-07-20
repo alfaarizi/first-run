@@ -14,7 +14,7 @@ receive them.
 
 Do not open a public issue for a vulnerability. Report it privately through
 GitHub's [security advisories](https://github.com/alfaarizi/first-run/security/advisories/new),
-or by email to [zizithe2nd@gmail.com](mailto:zizithe2nd@gmail.com).
+or by email to [firstrunhq@gmail.com](mailto:firstrunhq@gmail.com).
 
 Include the affected component, the steps to reproduce, and the impact you
 see. You will get an acknowledgment within three working days and an
@@ -41,6 +41,3 @@ executes actions against their APIs, so these areas matter most:
 - **Widget escape.** Breaking out of the shadow root to read or alter the
   host page, or delivering script through server-rendered nudge or answer
   text.
-
-Local development ships with placeholder secrets in `.env.example` and
-compose. Those are intentional, not a finding.
