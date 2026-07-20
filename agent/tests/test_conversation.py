@@ -75,9 +75,15 @@ class FakeSearcher:
 
 
 class FakeChat:
-    def __init__(self, broken: bool = False, breaks_after_tokens: int = 0) -> None:
+    def __init__(
+        self,
+        broken: bool = False,
+        breaks_after_tokens: int = 0,
+        truncated: bool = False,
+    ) -> None:
         self.broken = broken
         self.breaks_after_tokens = breaks_after_tokens
+        self.truncated = truncated
         self.histories: list[list[Turn]] = []
         self.milestones: list[str] = []
 
@@ -95,6 +101,10 @@ class FakeChat:
             raise RuntimeError("provider outage")
         streamed = 0
         for event in _fixture_events():
+            # A token-limit truncation streams normally, then reports the done
+            # failed instead of raising.
+            if isinstance(event, AnswerDone) and self.truncated:
+                event = event.model_copy(update={"failed": True})
             yield event
             if isinstance(event, AnswerToken):
                 streamed += 1
@@ -231,6 +241,28 @@ async def test_a_mid_stream_failure_marks_the_done_failed() -> None:
 
     # Tokens streamed before the failure, so the done must carry the failed
     # flag and the truncated turn must stay out of history.
+    dones = [r.answer_done for r in responses if r.WhichOneof("frame") == "answer_done"]
+    assert [done.failed for done in dones] == [True, True]
+    assert chat.histories[1] == []
+
+
+async def test_a_token_limit_truncation_marks_the_done_failed() -> None:
+    chat = FakeChat(truncated=True)
+    service = _service(chat)
+    responses = [
+        response
+        async for response in service.Converse(
+            _frames(
+                _context_frame(),
+                _message_frame("m1", "How do I connect?"),
+                _message_frame("m2", "And then?"),
+            ),
+            _grpc_context(),
+        )
+    ]
+
+    # A truncation completes without an exception, so the done still carries the
+    # failed flag, and the cut-off turn stays out of the next message's history.
     dones = [r.answer_done for r in responses if r.WhichOneof("frame") == "answer_done"]
     assert [done.failed for done in dones] == [True, True]
     assert chat.histories[1] == []

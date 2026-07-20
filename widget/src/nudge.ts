@@ -291,9 +291,11 @@ export class NudgeUi {
 
     this.composer.clear();
     this.appendMessage("user", text);
+    // Bind the message to the nudge that opened the conversation. Fall back to
+    // a nudge that arrived while it was open only when the launcher, not a
+    // nudge, opened it, so a later nudge never displaces the opener's ref.
     const awaiting = this.nudgesAwaitingReply.values().next().value;
-    if (awaiting) this.lastEngagedNudge = awaiting;
-    // Binds the message to the nudge that opened the conversation.
+    if (awaiting && !this.lastEngagedNudge) this.lastEngagedNudge = awaiting;
     const ref = this.lastEngagedNudge;
     for (const id of this.nudgesAwaitingReply) this.callbacks.onEngage(id);
     this.nudgesAwaitingReply.clear();

@@ -176,9 +176,12 @@ class ChatClient:
                     if citation is not None:
                         yield citation
             final = await stream.get_final_message()
+        # A max_tokens stop means the answer hit the token budget and ends
+        # mid-sentence, so it fails rather than passing as a complete answer.
         yield AnswerDone(
             input_tokens=final.usage.input_tokens,
             output_tokens=final.usage.output_tokens,
+            failed=final.stop_reason == "max_tokens",
         )
 
 

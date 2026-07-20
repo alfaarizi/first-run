@@ -21,10 +21,16 @@ class Citation(BaseModel):
 
 
 class AnswerDone(BaseModel):
-    """Marks the answer complete."""
+    """Marks the answer complete.
+
+    ``failed`` is true when the answer completed without content it should
+    have, such as a token-limit truncation that ends mid-sentence. The server
+    degrades a failed answer to the retry line and keeps it out of history.
+    """
 
     input_tokens: int = 0
     output_tokens: int = 0
+    failed: bool = False
 
 
 AnswerEvent = AnswerToken | Citation | AnswerDone

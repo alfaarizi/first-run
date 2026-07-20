@@ -10,7 +10,7 @@ from langgraph.graph.state import CompiledStateGraph
 from agent.graph.build import ConversationState
 from agent.grpc_validation import abort_unless_uuids
 from agent.llm.client import Turn
-from agent.schemas.answer import AnswerToken, Citation
+from agent.schemas.answer import AnswerDone, AnswerToken, Citation
 from firstrun.v1 import conversation_pb2
 from firstrun.v1.conversation_pb2_grpc import ConversationServiceServicer
 
@@ -65,6 +65,10 @@ class ConversationService(ConversationServiceServicer):  # type: ignore[misc]
                     async for event in self._graph.astream(state, stream_mode="custom"):
                         if isinstance(event, AnswerToken):
                             answer_text.append(event.text)
+                        elif isinstance(event, AnswerDone) and event.failed:
+                            # A truncated answer completes without raising, so
+                            # its done carries the failure the stream would miss.
+                            failed = True
                         response = _to_response(message.message_id, event)
                         if response is not None:
                             yield response

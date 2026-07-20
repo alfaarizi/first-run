@@ -167,6 +167,23 @@ test("a nudge displaced from the bubble keeps its text and outcome", () => {
   expect(callbacks.onEngage).toHaveBeenCalledWith("n1");
 });
 
+test("a nudge arriving after the panel opens keeps the opening nudge as the ref", () => {
+  const { ui, callbacks, query } = createUi();
+  ui.showNudge({ id: "n1", text: "Stuck on setup?" });
+  query<HTMLButtonElement>(".fr-bubble-text")?.click();
+  ui.showNudge({ id: "n2", text: "Stuck on billing?" });
+
+  const input = query<HTMLTextAreaElement>(".fr-input");
+  input!.value = "how do I connect?";
+  input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+  // n1's expansion opened the conversation, so the message refs n1 even though
+  // n2 arrived first. Both nudges still report engaged.
+  expect(callbacks.onSend).toHaveBeenCalledWith(expect.any(String), "how do I connect?", "n1");
+  expect(callbacks.onEngage).toHaveBeenCalledWith("n1");
+  expect(callbacks.onEngage).toHaveBeenCalledWith("n2");
+});
+
 test("a redelivered pending nudge duplicates neither its text nor its outcome", () => {
   const { ui, callbacks, query } = createUi();
   ui.showNudge({ id: "n1", text: "Stuck?" });

@@ -55,9 +55,11 @@ async function main() {
   const results = []
   for (const row of rows) {
     const answer = await converse(client, row.question)
+    // A failed or empty answer is an unanswered request, scored ungrounded so a
+    // partial that never completed cannot inflate the groundedness rate.
     const verdict =
-      answer.text.length === 0
-        ? { verdict: 'ungrounded', reason: 'the answer failed to stream' }
+      answer.failed || answer.text.length === 0
+        ? { verdict: 'ungrounded', reason: answer.failed ? 'the answer failed mid-stream' : 'the answer failed to stream' }
         : await judgeAnswer(judge, rubric, row, answer)
     results.push({ row, answer, ...verdict })
   }
@@ -89,7 +91,7 @@ function converse(client, question) {
     const call = client.converse()
     const messageId = crypto.randomUUID()
     const started = performance.now()
-    const answer = { text: '', citations: [], firstTokenMs: null }
+    const answer = { text: '', citations: [], firstTokenMs: null, failed: false }
     const timeout = setTimeout(() => {
       call.cancel()
       resolve(answer)
@@ -102,6 +104,9 @@ function converse(client, question) {
       } else if (frame.citation) {
         answer.citations.push(frame.citation)
       } else if (frame.answer_done) {
+        // A failed done means the answer died or truncated mid-stream, so the
+        // partial text is not a real answer to judge.
+        answer.failed = frame.answer_done.failed
         clearTimeout(timeout)
         call.end()
         resolve(answer)
