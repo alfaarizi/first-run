@@ -21,11 +21,13 @@ class Holdouts {
   // A tenth of each tenant's end users, fixed until per-tenant configuration is added.
   private static final int HOLDOUT_BUCKETS = 1_000;
 
+  /** Reports whether the user's deterministic bucket falls in the holdout. */
   boolean contains(UUID tenantId, String endUserHash) {
     byte[] digest = sha256(tenantId + ":" + endUserHash);
     return Math.floorMod(ByteBuffer.wrap(digest).getInt(), BUCKET_COUNT) < HOLDOUT_BUCKETS;
   }
 
+  /** Hashes the value, wrapping the checked exception the JCA cannot actually throw. */
   private static byte[] sha256(String value) {
     try {
       return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));

@@ -61,6 +61,7 @@ class Indexer:
         chunk_max_chars: int,
         crawl_max_concurrent: int,
     ) -> None:
+        """Wire the pipeline and cap concurrent crawls at ``crawl_max_concurrent``."""
         self._crawler = crawler
         self._embedder = embedder
         self._store = store
@@ -96,6 +97,7 @@ class Indexer:
     async def _run(
         self, *, tenant_id: str, app_id: str, source_id: str, source_url: str
     ) -> None:
+        """Run one crawl to completion, marking the source FAILED on any exit."""
         crawl_id = str(uuid7())
         marked = False
         try:
@@ -130,6 +132,7 @@ class Indexer:
     async def _run_crawl(
         self, *, tenant_id: str, source_id: str, source_url: str, crawl_id: str
     ) -> None:
+        """Crawl, chunk, embed, and store every page, then publish the crawl."""
         chunk_total = 0
         async for page in self._crawler.crawl(source_url):
             chunks = chunk_page(page.url, page.html, max_chars=self._chunk_max_chars)
@@ -167,6 +170,7 @@ class Indexer:
         logger.info("reindexed source %s from %s", source_id, source_url)
 
     async def _fail(self, tenant_id: str, source_id: str, crawl_id: str) -> None:
+        """Mark the source FAILED, logging instead of raising from cleanup."""
         try:
             await self._store.fail(
                 tenant_id=tenant_id, source_id=source_id, crawl_id=crawl_id

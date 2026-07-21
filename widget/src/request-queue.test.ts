@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
+import type { PostResult } from "./request";
 import { post } from "./request";
 import { RequestQueue } from "./request-queue";
 import type { CapturedEvent, Config } from "./types";
@@ -8,6 +9,11 @@ import type { CapturedEvent, Config } from "./types";
 vi.mock("./request", () => ({ post: vi.fn() }));
 
 const postMock = vi.mocked(post);
+
+// The three outcomes the queue reacts to, named so each double says which it stands for.
+const ACCEPTED: PostResult = { ok: true, retryable: false, refused: false };
+const UNAVAILABLE: PostResult = { ok: false, retryable: true, refused: false };
+const REFUSED: PostResult = { ok: false, retryable: false, refused: true };
 
 const config: Config = {
   key: "pk",
@@ -30,7 +36,7 @@ const sentEvents = (call: number): CapturedEvent[] =>
 
 beforeEach(() => {
   vi.useFakeTimers();
-  postMock.mockResolvedValue({ ok: true, retryable: false });
+  postMock.mockResolvedValue(ACCEPTED);
 });
 
 afterEach(() => {
@@ -61,7 +67,7 @@ test("flushes a partial batch after five seconds", async () => {
 });
 
 test("retries a retryable failure with backoff and drops after three attempts", async () => {
-  postMock.mockResolvedValue({ ok: false, retryable: true });
+  postMock.mockResolvedValue(UNAVAILABLE);
   const queue = new RequestQueue(config);
   queue.enqueue(event(0));
 
@@ -79,7 +85,7 @@ test("retries a retryable failure with backoff and drops after three attempts", 
 });
 
 test("drops a rejected batch without retrying", async () => {
-  postMock.mockResolvedValue({ ok: false, retryable: false });
+  postMock.mockResolvedValue(REFUSED);
   const queue = new RequestQueue(config);
   queue.enqueue(event(0));
 
@@ -120,7 +126,7 @@ test("flushes when the tab becomes hidden", () => {
 });
 
 test("returns a network-refused hide flush to the queue for a surviving tab", async () => {
-  postMock.mockResolvedValue({ ok: false, retryable: true });
+  postMock.mockResolvedValue(UNAVAILABLE);
   const queue = new RequestQueue(config);
   queue.enqueue(event(0));
 
@@ -128,7 +134,7 @@ test("returns a network-refused hide flush to the queue for a surviving tab", as
   await vi.advanceTimersByTimeAsync(0);
   expect(postMock).toHaveBeenCalledTimes(1);
 
-  postMock.mockResolvedValue({ ok: true, retryable: false });
+  postMock.mockResolvedValue(ACCEPTED);
   await vi.advanceTimersByTimeAsync(5000);
   expect(postMock).toHaveBeenCalledTimes(2);
   expect(sentEvents(1)).toHaveLength(1);

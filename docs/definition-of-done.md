@@ -2,11 +2,12 @@
 
 Date: 2026-07-01
 
-This document lists the criteria every change meets before it merges. A criterion
-that cites an ADR or another doc keeps its reasoning there, and this file only
-lists what to check. CI enforces the machine-checkable criteria on every pull
-request. A change is done when every applicable criterion passes, and none was
-skipped or weakened to get there.
+Every change meets these criteria before it merges. A criterion that cites an ADR
+or another doc keeps its reasoning there, and this file lists only what to check.
+CI
+enforces the machine-checkable criteria on every pull request. A change is done
+when every applicable criterion passes, and none was skipped or weakened to get
+there.
 
 ## Every change
 

@@ -37,6 +37,17 @@
          Bump in lockstep with a NullAway release that supports 2.50 or later. -->
     <error-prone.version>2.39.0</error-prone.version>
     <nullaway.version>0.12.7</nullaway.version>
+    <!-- Newest line built on Boot 3.5 (1.x moved to the Boot 4 baseline),
+         and the last with the split client-only starter, whose server
+         autoconfiguration this app never wants. Bump with the Boot parent. -->
+    <spring-grpc.version>0.12.0</spring-grpc.version>
+    <!-- protoc and protoc-gen-grpc-java pin to the protobuf-java and
+         grpc-java versions the spring-grpc BOM manages, so generated code
+         and runtime always agree. -->
+    <protobuf.version>4.32.1</protobuf.version>
+    <grpc.version>1.76.0</grpc.version>
+    <protobuf-maven-plugin.version>5.1.7</protobuf-maven-plugin.version>
+    <resilience4j.version>2.4.0</resilience4j.version>
   </properties>
 
   <dependencyManagement>
@@ -54,6 +65,13 @@
         <groupId>org.apache.commons</groupId>
         <artifactId>commons-compress</artifactId>
         <version>1.28.0</version>
+      </dependency>
+      <dependency>
+        <groupId>org.springframework.grpc</groupId>
+        <artifactId>spring-grpc-dependencies</artifactId>
+        <version>${spring-grpc.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
       </dependency>
     </dependencies>
   </dependencyManagement>
@@ -101,6 +119,25 @@
     <dependency>
       <groupId>org.springframework.kafka</groupId>
       <artifactId>spring-kafka</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.grpc</groupId>
+      <artifactId>spring-grpc-client-spring-boot-starter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-stub</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-protobuf</artifactId>
+    </dependency>
+    <!-- Programmatic core, not the Spring starter: one decorated call needs
+         no AOP proxying. -->
+    <dependency>
+      <groupId>io.github.resilience4j</groupId>
+      <artifactId>resilience4j-retry</artifactId>
+      <version>${resilience4j.version}</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.modulith</groupId>
@@ -172,6 +209,11 @@
       <artifactId>redpanda</artifactId>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-inprocess</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
@@ -189,7 +231,7 @@
             <arg>-XDcompilePolicy=simple</arg>
             <arg>--should-stop=ifError=FLOW</arg>
             <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
-            <arg>-Xplugin:ErrorProne -XepDisableAllChecks -Xep:NullAway:ERROR -XepOpt:NullAway:AnnotatedPackages=com.firstrunhq -XepOpt:NullAway:HandleTestAssertionLibraries=true</arg>
+            <arg>-Xplugin:ErrorProne -XepDisableAllChecks -Xep:NullAway:ERROR -XepOpt:NullAway:AnnotatedPackages=com.firstrunhq -XepOpt:NullAway:HandleTestAssertionLibraries=true -XepExcludedPaths:.*/target/generated-sources/.*</arg>
           </compilerArgs>
           <annotationProcessorPaths>
             <path>
@@ -208,6 +250,36 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+      <!-- Stubs regenerate from /api on every build and land in
+           target/generated-sources, never in the tree, so there is no
+           checked-in stub to hand-edit or let drift. -->
+      <plugin>
+        <groupId>io.github.ascopes</groupId>
+        <artifactId>protobuf-maven-plugin</artifactId>
+        <version>${protobuf-maven-plugin.version}</version>
+        <configuration>
+          <protoc kind="binary-maven">
+            <version>${protobuf.version}</version>
+          </protoc>
+          <plugins>
+            <plugin kind="binary-maven">
+              <groupId>io.grpc</groupId>
+              <artifactId>protoc-gen-grpc-java</artifactId>
+              <version>${grpc.version}</version>
+            </plugin>
+          </plugins>
+          <sourceDirectories>
+            <sourceDirectory>${project.basedir}/../api/proto</sourceDirectory>
+          </sourceDirectories>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>generate</goal>
+            </goals>
+          </execution>
+        </executions>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

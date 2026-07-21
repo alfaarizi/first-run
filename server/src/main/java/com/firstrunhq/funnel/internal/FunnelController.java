@@ -28,6 +28,7 @@ class FunnelController {
     this.reader = reader;
   }
 
+  /** Reads the app's funnel over the requested range, defaulting to the last 30 days. */
   @SchemaMapping(typeName = "App")
   Funnel funnel(
       App app,
@@ -45,6 +46,7 @@ class FunnelController {
     return new Funnel(rangeStart, rangeEnd, reader.read(tenantId, app.id(), rangeStart, rangeEnd));
   }
 
+  /** Turns the module's client-safe exception into its GraphQL error. */
   @GraphQlExceptionHandler
   GraphQLError handle(FunnelQueryException exception, DataFetchingEnvironment env) {
     return GraphqlErrorBuilder.newError(env)

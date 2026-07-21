@@ -15,6 +15,7 @@ def settings_test_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "lf_sk_local_test")
     monkeypatch.setenv("DATABASE_URL", "postgresql://firstrun:test@localhost/firstrun")
     monkeypatch.setenv("VOYAGE_API_KEY", "vo_local_test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant_local_test")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

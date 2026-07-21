@@ -41,6 +41,7 @@ clear.addEventListener('click', () => {
   window.fr?.track('completed_tasks_cleared', { task_count: list.children.length })
 })
 
+/** Returns the stored value, making and storing one on first sight. */
 function stored(storage: Storage, key: string, make: () => string): string {
   const existing = storage.getItem(key)
   if (existing) return existing

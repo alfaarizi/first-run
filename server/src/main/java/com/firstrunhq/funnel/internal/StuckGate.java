@@ -37,6 +37,7 @@ class StuckGate {
   private final MeterRegistry meterRegistry;
   private final Timer events;
 
+  /** Wires the thresholds, the candidate producer, and the gate's two metrics. */
   StuckGate(
       StuckGateProperties properties,
       SessionFeatureStore sessionFeatures,
@@ -64,43 +65,53 @@ class StuckGate {
       throws JsonProcessingException {
     long startedNanos = System.nanoTime();
     try {
-      // A session flags once, so the candidate marker mutes it however far the signals grow.
-      if (features == null
-          || currentStep == null
-          || features.containsKey(SessionFeatureStore.CANDIDATE_ID)) {
-        return;
-      }
-      CandidateEnvelope.SessionFeatures snapshot = snapshot(features);
-      CandidateEnvelope.Rule rule = firingRule(snapshot);
-      if (rule == null) {
-        return;
-      }
-      CandidateEnvelope candidate =
-          new CandidateEnvelope(
-              UUID_V7.generate(),
-              envelope.tenantId(),
-              envelope.appId(),
-              envelope.endUserHash(),
-              envelope.sessionId(),
-              envelope.id(),
-              currentStep.id(),
-              currentStep.name(),
-              rule,
-              snapshot,
-              envelope.timestamp());
-      kafkaTemplate
-          .send(
-              CandidateTopics.INTERVENTION_CANDIDATES,
-              recordKey != null ? recordKey : envelope.endUserHash(),
-              objectMapper.writeValueAsString(candidate))
-          .join();
-      sessionFeatures.markFlagged(envelope, candidate.id());
-      meterRegistry
-          .counter(CANDIDATES_METRIC, RULE_TAG, rule.name().toLowerCase(Locale.ROOT))
-          .increment();
+      emitAtMostOneCandidate(envelope, currentStep, features, recordKey);
     } finally {
       events.record(System.nanoTime() - startedNanos, TimeUnit.NANOSECONDS);
     }
+  }
+
+  /** Emits the candidate when a signal fired and the session never flagged before. */
+  private void emitAtMostOneCandidate(
+      EventEnvelope envelope,
+      MilestoneProgressTracker.@Nullable CurrentStep currentStep,
+      @Nullable Map<String, String> features,
+      @Nullable String recordKey)
+      throws JsonProcessingException {
+    // A session flags once, so the candidate marker mutes it however far the signals grow.
+    if (features == null
+        || currentStep == null
+        || features.containsKey(SessionFeatureStore.CANDIDATE_ID)) {
+      return;
+    }
+    CandidateEnvelope.SessionFeatures snapshot = snapshot(features);
+    CandidateEnvelope.Rule rule = firingRule(snapshot);
+    if (rule == null) {
+      return;
+    }
+    CandidateEnvelope candidate =
+        new CandidateEnvelope(
+            UUID_V7.generate(),
+            envelope.tenantId(),
+            envelope.appId(),
+            envelope.endUserHash(),
+            envelope.sessionId(),
+            envelope.id(),
+            currentStep.id(),
+            currentStep.name(),
+            rule,
+            snapshot,
+            envelope.timestamp());
+    kafkaTemplate
+        .send(
+            CandidateTopics.INTERVENTION_CANDIDATES,
+            recordKey != null ? recordKey : envelope.endUserHash(),
+            objectMapper.writeValueAsString(candidate))
+        .join();
+    sessionFeatures.markFlagged(envelope, candidate.id());
+    meterRegistry
+        .counter(CANDIDATES_METRIC, RULE_TAG, rule.name().toLowerCase(Locale.ROOT))
+        .increment();
   }
 
   /**
@@ -120,6 +131,7 @@ class StuckGate {
     return null;
   }
 
+  /** Copies the session hash into the envelope's typed feature record. */
   private static CandidateEnvelope.SessionFeatures snapshot(Map<String, String> features) {
     return new CandidateEnvelope.SessionFeatures(
         signal(features, SessionFeatureStore.DWELL_SECONDS),
@@ -129,6 +141,7 @@ class StuckGate {
         features.get(SessionFeatureStore.LAST_PATH));
   }
 
+  /** Reads one counter off the session hash, absent as zero. */
   private static long signal(Map<String, String> features, String field) {
     return Long.parseLong(features.getOrDefault(field, "0"));
   }

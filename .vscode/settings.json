@@ -1,5 +1,5 @@
 {
-    // NullAway enforces nullness in the build (ADR-012), so the pessimistic
+    // NullAway enforces nullness in the build, so the pessimistic
     // JDT null analysis is off to avoid a second, disagreeing checker.
     "java.compile.nullAnalysis.mode": "disabled",
     "java.configuration.updateBuildConfiguration": "interactive",

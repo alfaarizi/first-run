@@ -4,12 +4,16 @@ version = "0.1.0"
 description = "FirstRun policy, RAG, conversation, and memory service."
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    # Floor set by search_result content blocks and streamed citations_delta.
+    "anthropic>=0.92",
     "asyncpg>=0.30",
     "beautifulsoup4>=4.13",
     "fastapi>=0.115",
     # Floors set by the generated stubs, which reject older runtimes at import.
     "grpcio>=1.81.1",
     "httpx>=0.28",
+    "langfuse>=3",
+    "langgraph>=1.0",
     "pgvector>=0.4",
     "protego>=0.3",
     "protobuf>=6.33.5",

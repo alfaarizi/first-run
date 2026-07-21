@@ -66,3 +66,15 @@ ON CONFLICT (id) DO UPDATE SET
   title = EXCLUDED.title,
   position = EXCLUDED.position,
   created_at = EXCLUDED.created_at;
+
+-- Tasklet's docs root, so a reindex has something local to crawl. The agent
+-- reaches it through the compose network; status stays PENDING until the
+-- founder (or the e2e suite) triggers a reindex.
+INSERT INTO doc_source (id, tenant_id, app_id, url)
+VALUES (
+  '019813f2-0000-7000-8000-000000000006',
+  '019813f2-0000-7000-8000-000000000001',
+  '019813f2-0000-7000-8000-000000000002',
+  'http://tasklet:5174/docs/index.html'
+)
+ON CONFLICT (id) DO UPDATE SET url = EXCLUDED.url;

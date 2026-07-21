@@ -29,20 +29,24 @@ class CandidateProcessor {
   private final CandidateDeduper deduper;
   private final MilestoneTitles milestoneTitles;
   private final NudgeStreams streams;
+  private final NudgeContexts contexts;
 
   CandidateProcessor(
       ObjectMapper objectMapper,
       Holdouts holdouts,
       CandidateDeduper deduper,
       MilestoneTitles milestoneTitles,
-      NudgeStreams streams) {
+      NudgeStreams streams,
+      NudgeContexts contexts) {
     this.objectMapper = objectMapper;
     this.holdouts = holdouts;
     this.deduper = deduper;
     this.milestoneTitles = milestoneTitles;
     this.streams = streams;
+    this.contexts = contexts;
   }
 
+  /** Turns one candidate into a nudge, unless the holdout or the dedupe mutes it. */
   @KafkaListener(topics = CandidateTopics.INTERVENTION_CANDIDATES, groupId = GROUP)
   void onCandidate(ConsumerRecord<String, String> record) throws JsonProcessingException {
     CandidateEnvelope candidate = objectMapper.readValue(record.value(), CandidateEnvelope.class);
@@ -58,6 +62,15 @@ class CandidateProcessor {
     if (deduper.isClaimed(candidate.appId(), candidate.eventId())) {
       return;
     }
+
+    // Record the context before the frame can leave, so a question that refs
+    // this nudge always resolves it. An undelivered nudge's context is
+    // unreachable: it never sends the ref that finds it.
+    contexts.record(
+        candidate.appId(),
+        candidate.endUserHash(),
+        new NudgeContexts.NudgeContext(
+            candidate.id(), candidate.milestoneId(), candidate.milestoneName()));
 
     // A nudge neither delivered nor buffered stays unclaimed, so a candidate copy can retry it.
     if (streams.pushNudge(
@@ -78,13 +91,15 @@ class CandidateProcessor {
         .orElse("Need a hand? Ask a question and we can help.");
   }
 
+  /** Rejects an envelope missing a required field, before any push. */
   private static void requireComplete(CandidateEnvelope candidate) {
     if (candidate.id() == null
         || candidate.tenantId() == null
         || candidate.appId() == null
         || candidate.endUserHash() == null
         || candidate.eventId() == null
-        || candidate.milestoneId() == null) {
+        || candidate.milestoneId() == null
+        || candidate.milestoneName() == null) {
       throw new IllegalArgumentException("intervention.candidates envelope is missing a field");
     }
   }

@@ -43,6 +43,49 @@ export interface Citation {
   url: string;
 }
 
+/** The data of one `token` stream frame: a span of the answer to one message. */
+export interface TokenFrame {
+  message_id: string;
+  text: string;
+}
+
+/** The data of the `done` stream frame closing one message's answer. */
+export interface DoneFrame {
+  message_id: string;
+  /** The complete answer, so tokens a reconnect or reload dropped heal here. */
+  text?: string;
+  citations?: Citation[];
+}
+
+/** One rendered chat message, as the surface persists and restores it. */
+export interface ChatMessage {
+  who: "user" | "agent";
+  text: string;
+  /** Epoch milliseconds, so a restored message keeps its original time. */
+  at: number;
+  citations?: Citation[];
+}
+
+/** The chat surface's persistable state, restored across a page reload. */
+export interface ChatSnapshot {
+  open: boolean;
+  messages: ChatMessage[];
+  /** The in-flight answer's id, so a reload restores its typing indicator. */
+  pendingId?: string;
+  /** The nudge the conversation opened from, so a reload keeps the reply's ref. */
+  engagedNudgeId?: string;
+  /** The previewed nudge the user has not acted on, so a reload keeps its bubble. */
+  previewNudge?: NudgePayload;
+  /** The open-panel nudges awaiting a reply, so a reload keeps their engagement. */
+  awaitingNudgeIds?: string[];
+  /** The unsent composer text, so a reload keeps a half-typed question. */
+  composerDraft?: string;
+  /** Whether the composer held the caret. */
+  composerFocused?: boolean;
+  /** The message log's scroll offset while open, so a reload keeps the view. */
+  scrollTop?: number;
+}
+
 /** A proposed action awaiting the user's explicit click, with the registry's copy. */
 export interface ActionPayload {
   execution_id: string;

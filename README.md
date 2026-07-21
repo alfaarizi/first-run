@@ -14,8 +14,7 @@ the milestones that count as activation. It runs the loop below, and every numbe
 reports is measured, not asserted.
 
 FirstRun is a Java modular monolith for the product core and a Python agent for the
-model loop (ADR-001). It is building toward v1, and the dashboard goes live on
-2026-09-10 (BRS).
+model loop. The project is building toward v1, with the dashboard live on 2026-09-10 (BRS).
 
 ## How it works
 
@@ -30,9 +29,9 @@ FirstRun runs one loop, from a raw event to measured lift:
 
 ## Benchmarks
 
-Each row shows the target the metric must clear, or for lift and ingest how it will be
-reported. At v1 the measured value fills in, labeled SYNTHETIC (Tasklet demo) or REAL
-(design partner) and never blended, with targets drawn from the success criteria and
+Each row shows the target the metric must clear, or for lift and ingest how it will
+be reported. Measured values fill in at v1, labeled SYNTHETIC (Tasklet demo) or REAL
+(design partner) and never blended. Targets come from the success criteria and
 constraints in [Business requirements](docs/brs.md).
 
 | Metric | Target | Basis |
@@ -64,12 +63,14 @@ agent, web, and Tasklet.
 
 ## To start developing FirstRun
 
-FirstRun's design is settled in the records below, which the code executes. Read them
-before any structural change:
+Start with the [contributing guide](CONTRIBUTING.md), which covers setup, the
+commit conventions, and the rules CI enforces. FirstRun's design is settled in
+the records below, which the code executes. Read them before any structural
+change:
 
 - [Business requirements](docs/brs.md) records the problem, stakeholders, and v1 success criteria.
 - [Architecture](docs/architecture.md) maps the system context, containers, components, and event stream.
-- [Architecture decision records](docs/adr/README.md) collect the reasoning behind each major choice.
+- [Architecture decision records](docs/adr/) collect the reasoning behind each major choice.
 - [Tradeoff analysis](docs/tradeoff-analysis.md) scores the alternatives those decisions weighed.
 - [Risk register](docs/risk-register.md) tracks the risks, their mitigations, and status.
 - [Definition of done](docs/definition-of-done.md) sets the bar every change clears before it merges.
@@ -78,4 +79,4 @@ before any structural change:
 
 The platform is [AGPL-3.0-only](LICENSE). The embeddable widget is the exception,
 [MIT](widget/LICENSE) so customers can audit and embed the code that runs in their
-product without copyleft obligations (ADR-011).
+product without copyleft obligations.

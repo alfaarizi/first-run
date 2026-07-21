@@ -1,9 +1,8 @@
 """Serves KnowledgeService over grpc.aio."""
 
-import uuid
-
 import grpc
 
+from agent.grpc_validation import abort_unless_uuids
 from agent.indexing.indexer import Indexer
 from firstrun.v1 import knowledge_pb2
 from firstrun.v1.knowledge_pb2_grpc import KnowledgeServiceServicer
@@ -13,6 +12,7 @@ class KnowledgeService(KnowledgeServiceServicer):  # type: ignore[misc]
     """Accepts reindex requests and hands them to the indexer."""
 
     def __init__(self, indexer: Indexer) -> None:
+        """Serve reindex requests against the given indexer."""
         self._indexer = indexer
 
     async def Reindex(
@@ -21,13 +21,7 @@ class KnowledgeService(KnowledgeServiceServicer):  # type: ignore[misc]
         context: grpc.aio.ServicerContext,
     ) -> knowledge_pb2.ReindexResponse:
         """Start a crawl of one doc source and return immediately."""
-        for name in ("tenant_id", "app_id", "source_id"):
-            try:
-                uuid.UUID(getattr(request, name))
-            except ValueError:
-                await context.abort(
-                    grpc.StatusCode.INVALID_ARGUMENT, f"{name} is not a UUID"
-                )
+        await abort_unless_uuids(request, context, "tenant_id", "app_id", "source_id")
         started = self._indexer.start(
             tenant_id=request.tenant_id,
             app_id=request.app_id,

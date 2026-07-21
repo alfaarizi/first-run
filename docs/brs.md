@@ -20,15 +20,10 @@ FirstRun is an embeddable browser widget backed by a hosted multi-tenant service
 
 ## Stakeholders
 
-Three groups have a stake in FirstRun:
-
-- Muhammad Al Farizi, the developer.
 - Small-SaaS founders, the customers who install the widget and read the dashboard.
 - End users inside the customer's product, who receive the nudges.
 
 ## Success criteria
-
-Seven criteria define a successful v1:
 
 1. Stuck detection reaches 0.80 or higher precision and 0.70 or higher recall on 300
    labeled sessions.
@@ -41,8 +36,6 @@ Seven criteria define a successful v1:
 
 ## Constraints
 
-Five hard constraints bound v1:
-
 - The widget bundle is at most 30KB gzipped, with zero runtime dependencies.
 - Each monthly active user costs $0.05 or less to serve.
 - A decision returns within 2s and the first chat token within 1.5s, both at p95.
@@ -51,8 +44,6 @@ Five hard constraints bound v1:
 - v1 stays small, one Redpanda node and one Postgres.
 
 ## Assumptions
-
-v1 rests on four assumptions:
 
 1. Customers install FirstRun by pasting a JavaScript snippet and registering
    setup-action webhooks.
@@ -63,9 +54,7 @@ v1 rests on four assumptions:
 
 ## Dependencies
 
-FirstRun depends on five external services and integrations:
-
-- An LLM provider (OpenAI or Bedrock).
+- An LLM provider (Anthropic for chat, Voyage AI for embeddings).
 - Stripe for metered billing.
 - AWS (ECS Fargate and RDS Postgres).
 - Langfuse for tracing, without which the agent will not start.

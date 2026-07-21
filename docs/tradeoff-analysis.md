@@ -2,12 +2,10 @@
 
 Date: 2026-07-06
 
-Each matrix below weighs the decision in one Architecture Decision Record (ADR)
-against the alternatives it rejected. The columns are the accepted option and those
-alternatives, the rows are the forces `architecture.md` and the ADR consider, and
-each score runs from 1 (worst) to 10 (best) against weights that sum to 1.0. A
-column total is the weighted sum of its scores. The ADR holds the full rationale,
-so the note under each matrix gives only the decisive tradeoff.
+Each matrix weighs one ADR's decision against the alternatives it rejected. Columns
+are the options, rows are the forces the ADR weighs, and scores run from 1 (worst)
+to 10 (best) against weights that sum to 1.0. A column total is its weighted sum.
+The ADR holds the full rationale, so each note gives only the decisive tradeoff.
 
 ## Server architecture (ADR-001)
 
@@ -236,6 +234,7 @@ Nullness is declared with JSpecify annotations and enforced by NullAway inside b
 | **Weighted total** | | **8.50** | **7.20** | **5.15** | **4.35** |
 
 NullAway turns a null-safety promise into a compile error inside `./mvnw verify`,
-so the guarantee holds for CI and every editor at a cheaper build cost. Checker Framework wins only on soundness, where its heavier annotation burden buys. 
-An IDE-only analysis guards a single editor and gates nothing, and no checking 
-at all leaves the NPE class to production.
+so the guarantee holds for CI and every editor at a cheaper build cost. Checker
+Framework wins only on the soundness its heavier annotation burden buys. An
+IDE-only analysis guards a single editor and gates nothing, and no checking at
+all leaves the NPE class to production.

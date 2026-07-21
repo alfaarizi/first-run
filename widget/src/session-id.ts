@@ -11,7 +11,7 @@ let memoryTouchedAt = 0;
  * storage is blocked the id lives in memory, so sessions shorten but never
  * throw into the host app.
  */
-export function sessionId(now = Date.now()): string {
+export function currentSessionId(now = Date.now()): string {
   let id = memoryId;
   let touchedAt = memoryTouchedAt;
   try {
@@ -22,27 +22,27 @@ export function sessionId(now = Date.now()): string {
       id = raw.slice(splitAt + 1);
     }
   } catch {
-    // storage is blocked, use the in-memory copy
+    // Storage is blocked. The in-memory copy stands in.
   }
 
-  // a corrupt store rotates instead of poisoning every batch
+  // A corrupt store rotates instead of poisoning every batch.
   if (!isUuidv7(id) || !Number.isFinite(touchedAt) || now - touchedAt > IDLE_MS) id = uuidv7();
   storeSession(now, id);
   return id;
 }
 
+/** Records the id as the active session, in memory and in storage. */
+function storeSession(now: number, id: string): void {
+  memoryId = id;
+  memoryTouchedAt = now;
+  try {
+    sessionStorage.setItem(STORAGE_KEY, `${now}:${id}`);
+  } catch {
+    // Best effort. The in-memory copy already advanced.
+  }
+}
+
 /** Starts a fresh session, used when the identified end user changes. */
 export function rotateSession(now = Date.now()): void {
   storeSession(now, uuidv7());
-}
-
-/** Records the id as the active session, in memory and in storage. */
-function storeSession(now: number, sessionId: string): void {
-  memoryId = sessionId;
-  memoryTouchedAt = now;
-  try {
-    sessionStorage.setItem(STORAGE_KEY, `${now}:${sessionId}`);
-  } catch {
-    // best effort
-  }
 }

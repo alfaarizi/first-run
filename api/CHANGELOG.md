@@ -3,7 +3,64 @@
 Each entry records the date, the change, the rationale, and whether it is
 additive or breaking.
 
-## 2026-07-18
+## 2026-07-20
+
+### Changed
+
+- `openapi/stream.yaml`: the `done` frame now carries the complete answer
+  text alongside its citations, and a completed `done` is briefly buffered so
+  a reconnecting stream (a browser reload included) replays it. `token`
+  frames stay live-only; a reconnect resumes live tokens and heals whatever
+  it missed from the replayed `done`. The widget reconciles its slot to the
+  `done` text and applies a replayed `done` only to the question awaiting it.
+
+Additive. Existing clients that ignore the new `text` field and see one live
+`done` behave as before; the buffering only adds a reconnect path.
+
+- `openapi/messages.yaml` documents `413` for a body over 16 KB, aligning
+  the endpoint with the ingest contract and RFC 9110's Content Too Large.
+  The gateway answers it before the signature check, because the HMAC
+  covers the full body and a capped read could never verify, which had
+  misreported honest oversized requests as `401`.
+
+Additive. A response code clients already had to survive gains its correct
+value. Nothing that verified before answers differently.
+
+## 2026-07-19
+
+### Added
+
+- `openapi/messages.yaml`: `POST /v1/messages` accepts one end-user chat
+  message from the widget, signed with the ingest headers over
+  `{timestamp}.{raw body}`. The body carries a client-generated UUIDv7 `id`
+  (the Segment `messageId` pattern the ingest events already follow) that
+  ties the answer's stream frames to the message, and an optional `ref`
+  naming the nudge whose expansion opened the conversation, mirroring the
+  `ref` on intervention events. The answer never rides the response: it
+  streams over `/v1/stream` as `token` frames, then one `done` frame with
+  citations, at most one `action` frame per answer, all frame names the
+  stream contract already reserved. A holdout user's question is answered
+  like any other, because the holdout suppresses proactive nudges, not a
+  question the user asks first.
+
+Additive. The stream contract keeps its shape, and its `token`, `done`, and
+`action` frames gain their producer.
+
+### Changed
+
+- `openapi/stream.yaml` documents that `token` and `done` frame data carries
+  the `message_id` of the message it answers, making the binding
+  `messages.yaml` promises on `id` explicit on the wire. The widget uses it
+  to render only the answer to the question it sent, since frames fan out to
+  every tab the user has open.
+- `proto/firstrun/v1/conversation.proto` `AnswerDone` gains `failed`, set
+  when an answer died mid-stream. The gateway degrades already-streamed
+  tokens to the retry line instead of closing them as a complete cited
+  answer, and the agent keeps the truncated turn out of conversation
+  history.
+
+Additive. The frames and the done message gain fields no client read
+before.
 
 ### Added
 
@@ -13,10 +70,11 @@ additive or breaking.
   one delete, so retrieval mixes old and new chunks only while a crawl runs.
   A crawl that fails or writes no chunks discards its own rows, marks the
   source `FAILED`, and keeps the previous index live, and one transient page
-  failure fails the crawl rather than publishing an incomplete index. A crawl a killed agent
-  never finished leaves rows only until the next crawl starts and sweeps
-  every generation but the recorded live one. Chunks embed at 1024
-  dimensions under an inner-product HNSW index (ADR-013).
+  failure fails the crawl rather than publishing an incomplete index. Rows
+  from a crawl a killed agent never finished persist only until the next
+  crawl starts and sweeps every generation but the recorded live one.
+  Chunks embed at 1024 dimensions under an inner-product HNSW index
+  (ADR-013).
 
 ### Changed
 
@@ -37,8 +95,8 @@ additive or breaking.
   a frame and reads as absent.
 
 Additive. The parameter existed and was ignored, so clients that never send
-it keep a live-only stream; the widget's choice to always send it is a client
-behavior, not a wire change. The knowledge entry pins behavior of an RPC
+it keep a live-only stream. The widget's choice to always send it is a
+client behavior, not a wire change. The knowledge entry pins behavior of an RPC
 nothing calls yet, so no wire shape changes there either.
 
 ## 2026-07-17
@@ -64,9 +122,9 @@ Additive. Existing clients ignore unknown named events.
   429 past the app's concurrent stream budget, because the signing key ships
   in the page and cannot gate connections.
 
-Additive. The ingest schema already carried `ref`; the server envelope now
-carries it too, so intervention events keep their nudge or execution link
-through `events.raw`.
+Additive. The ingest schema already carried `ref`, and the server envelope
+now carries it too, so intervention events keep their nudge or execution
+link through `events.raw`.
 
 ## 2026-07-15
 

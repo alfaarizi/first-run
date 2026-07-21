@@ -6,6 +6,7 @@ import java.util.Arrays;
 import java.util.regex.Pattern;
 import org.jspecify.annotations.Nullable;
 
+/** Coarsens client addresses before storage, the privacy floor for everything downstream. */
 final class IpTruncator {
 
   private static final String OCTET = "(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])";

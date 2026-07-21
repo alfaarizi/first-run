@@ -2,10 +2,9 @@
 
 Date: 2026-07-06
 
-This register tracks the risks to the project, each with its probability, impact,
-mitigation, and current status. It is a living document, so a status moves here as a
-risk is mitigated, accepted, or closed. Risks are ordered by impact, and the first
-three are the project's falsifiable kill criteria.
+Each risk carries its probability, impact, mitigation, and status, and the status
+moves as the risk is mitigated, accepted, or closed. Risks are ordered by impact.
+The first three are the project's falsifiable kill criteria.
 
 | ID | Risk | Probability | Impact | Mitigation | Status |
 |:---:|---|:---:|:---:|---|:---:|

@@ -32,9 +32,12 @@ class NudgeStreams {
   private final Map<String, List<Stream>> streams = new ConcurrentHashMap<>();
   private final Map<UUID, AtomicInteger> appStreamCounts = new ConcurrentHashMap<>();
   private final NudgeReplayBuffer buffer;
+  private final AnswerReplayBuffer answers;
 
-  NudgeStreams(NudgeReplayBuffer buffer) {
+  /** Fans out over open streams, replaying missed nudges and answers from the buffers. */
+  NudgeStreams(NudgeReplayBuffer buffer, AnswerReplayBuffer answers) {
     this.buffer = buffer;
+    this.answers = answers;
   }
 
   /**
@@ -51,7 +54,39 @@ class NudgeStreams {
     Stream stream = new Stream(new SseEmitter(STREAM_TIMEOUT.toMillis()), lastEventId != null);
     String key = key(appId, endUserHash);
 
-    // compute serializes with removal per key, so a concurrent removal never strands a live stream
+    // Completing inside compute would re-enter the map through the removal callback.
+    for (Stream retired : addCappingPerUser(key, stream)) {
+      appCount.decrementAndGet();
+      retired.retire();
+    }
+
+    Runnable remove = () -> remove(appCount, key, stream);
+    stream.emitter.onCompletion(remove);
+    stream.emitter.onTimeout(remove);
+    stream.emitter.onError(error -> remove.run());
+
+    stream.sendConnectedComment();
+
+    if (lastEventId != null) {
+      // The buffer is read after the map insert, so a nudge pushed between the two arrives as
+      // both replay and live copy instead of falling between them. The widget drops the copy.
+      stream.finishReplay(buffer.after(appId, endUserHash, lastEventId));
+    }
+
+    // Every reconnect drains the answer buffer, so a reload lands its completed answer. The widget
+    // applies only the done its pending question awaits; a first connect drains an empty buffer.
+    for (DoneFrame done : answers.replay(appId, endUserHash)) {
+      stream.sendLive(done.event(), done);
+    }
+    return stream.emitter;
+  }
+
+  /**
+   * Adds the stream under the user's registry key and returns the oldest streams the per-user cap
+   * pushed out. compute serializes with removal per key, so a concurrent removal never strands a
+   * live stream.
+   */
+  private List<Stream> addCappingPerUser(String key, Stream stream) {
     List<Stream> evicted = new ArrayList<>();
     streams.compute(
         key,
@@ -63,31 +98,7 @@ class NudgeStreams {
           live.add(stream);
           return live;
         });
-
-    // completing inside compute would re-enter the map through the removal callback
-    for (Stream retired : evicted) {
-      appCount.decrementAndGet();
-      retired.retire();
-    }
-
-    Runnable remove = () -> remove(appCount, key, stream);
-    stream.emitter.onCompletion(remove);
-    stream.emitter.onTimeout(remove);
-    stream.emitter.onError(error -> remove.run());
-
-    // A first frame commits the response headers, so EventSource opens now, not on the first nudge.
-    try {
-      stream.emitter.send(SseEmitter.event().comment("connected"));
-    } catch (IOException | IllegalStateException gone) {
-      stream.emitter.completeWithError(gone);
-    }
-
-    if (lastEventId != null) {
-      // The buffer is read after the map insert, so a nudge pushed between the two arrives as
-      // both replay and live copy instead of falling between them. The widget drops the copy.
-      stream.finishReplay(buffer.after(appId, endUserHash, lastEventId));
-    }
-    return stream.emitter;
+    return evicted;
   }
 
   /**
@@ -106,8 +117,36 @@ class NudgeStreams {
     return accepted;
   }
 
-  // One stream can fire onError and then onCompletion, so only the call that wins the list
-  // removal pays back the app budget.
+  /**
+   * Streams one token frame live to every stream the user has open. Tokens are never buffered: a
+   * replayed fragment would render as a fresh answer, so a reconnect only resumes live tokens and
+   * heals what it missed from the closing {@code done} frame (api/openapi/stream.yaml).
+   */
+  void pushToken(UUID appId, String endUserHash, TokenFrame frame) {
+    pushLive(appId, endUserHash, frame);
+  }
+
+  /**
+   * Closes one answer: buffers the {@code done} frame for a brief reconnect window, then fans it
+   * out live. The done carries the full answer text, so a stream that dropped tokens to a reload
+   * heals from the replay rather than hanging until its idle timeout.
+   */
+  void pushDone(UUID appId, String endUserHash, DoneFrame frame) {
+    answers.append(appId, endUserHash, frame);
+    pushLive(appId, endUserHash, frame);
+  }
+
+  /** Fans one answer frame out over the user's open streams. */
+  private void pushLive(UUID appId, String endUserHash, AnswerFrame frame) {
+    for (Stream stream : streams.getOrDefault(key(appId, endUserHash), List.of())) {
+      stream.sendLive(frame.event(), frame);
+    }
+  }
+
+  /**
+   * Drops the stream from the registry. One stream can fire onError and then onCompletion, so only
+   * the call that wins the list removal pays back the app budget.
+   */
   private void remove(AtomicInteger appCount, String key, Stream stream) {
     streams.computeIfPresent(
         key,
@@ -119,6 +158,7 @@ class NudgeStreams {
         });
   }
 
+  /** Builds the registry key holding one user's open streams for one app. */
   private static String key(UUID appId, String endUserHash) {
     return appId + ":" + endUserHash;
   }
@@ -134,6 +174,7 @@ class NudgeStreams {
     private final List<NudgeFrame> heldByReplay = new ArrayList<>();
     private boolean replaying;
 
+    /** Gates a reconnecting stream on its replay. A fresh stream starts open. */
     Stream(SseEmitter emitter, boolean replaying) {
       this.emitter = emitter;
       this.replaying = replaying;
@@ -177,6 +218,25 @@ class NudgeStreams {
       emitter.complete();
     }
 
+    /** Commits the response headers, so EventSource opens now, not on the first nudge. */
+    synchronized void sendConnectedComment() {
+      try {
+        emitter.send(SseEmitter.event().comment("connected"));
+      } catch (IOException | IllegalStateException gone) {
+        emitter.completeWithError(gone);
+      }
+    }
+
+    /** Sends one unbuffered frame, closing the stream when the tab is gone. */
+    synchronized void sendLive(String eventName, Object frame) {
+      try {
+        emitter.send(SseEmitter.event().name(eventName).data(frame, MediaType.APPLICATION_JSON));
+      } catch (IOException | IllegalStateException gone) {
+        emitter.completeWithError(gone);
+      }
+    }
+
+    /** Sends one nudge frame with its replay-cursor id, reporting whether it left. */
     private boolean send(NudgeFrame frame) {
       try {
         emitter.send(

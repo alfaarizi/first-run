@@ -98,6 +98,7 @@ class NudgeReplayBuffer {
     return frames;
   }
 
+  /** Parses one stored entry, dropping a corrupt one rather than failing the replay. */
   private @Nullable Buffered read(String entry) {
     try {
       return objectMapper.readValue(entry, Buffered.class);
@@ -107,6 +108,7 @@ class NudgeReplayBuffer {
     }
   }
 
+  /** Builds the buffer key for one user, qualified by the producing consumer group. */
   private static String key(UUID appId, String endUserHash) {
     return "replay:%s:%s:%s".formatted(CandidateProcessor.GROUP, appId, endUserHash);
   }

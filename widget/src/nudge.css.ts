@@ -1,11 +1,11 @@
-// the input's line grid, which the composer's caret scroll steps by
+// The input's line grid, which the composer's caret scroll steps by.
 export const COMPOSER_LINE_HEIGHT_PX = 20;
 
-// where the growing composer stops and scrolls instead, about five lines
+// Where the growing composer stops and scrolls instead, about five lines.
 export const COMPOSER_MAX_HEIGHT_PX = 120;
 
-// how long the expand morph runs, matched by the timer that unhooks the transition after it
-export const MORPH_MS = 300;
+// How long the expand morph runs, matched by the timer that unhooks the transition after it.
+export const MORPH_MS = 340;
 
 export const NUDGE_CSS = `
 :host {
@@ -27,9 +27,11 @@ export const NUDGE_CSS = `
   --link-foreground: #1f1f1f;
   --hover-background: rgba(0, 0, 0, 0.08);
   --border: 1px solid #e0e0e0;
+  --radius: 8px;
   --box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
   --outline: 1px auto var(--accent-background);
   --easing: cubic-bezier(0.4, 0, 0.2, 1);
+  --morph-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --interactive-filter: brightness(95%);
   --font-family: system-ui, "Helvetica Neue", Arial, sans-serif;
   --font-size: 14px;
@@ -60,8 +62,8 @@ export const NUDGE_CSS = `
 }
 .fr-root {
   position: fixed;
-  right: 16px;
-  bottom: 16px;
+  right: 20px;
+  bottom: 20px;
   z-index: var(--z-index);
   display: flex;
   flex-direction: column;
@@ -81,12 +83,12 @@ export const NUDGE_CSS = `
   container-type: size;
   background: var(--background);
   border: var(--border);
-  border-radius: 24px;
+  border-radius: var(--radius);
   box-shadow: var(--box-shadow);
 }
 .fr-expanded {
-  width: min(400px, calc(100vw - 32px));
-  height: min(520px, calc(100dvh - 32px));
+  width: min(400px, calc(100vw - 40px));
+  height: min(704px, calc(100dvh - 40px));
 }
 .fr-launcher {
   position: absolute;
@@ -94,7 +96,7 @@ export const NUDGE_CSS = `
   right: 13px;
   padding: 0;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: none;
   cursor: pointer;
 }
@@ -128,6 +130,7 @@ export const NUDGE_CSS = `
   padding: 16px 16px 12px;
   opacity: 0;
   visibility: hidden;
+  transform: translateY(12px);
 }
 .fr-header {
   display: flex;
@@ -156,6 +159,7 @@ export const NUDGE_CSS = `
 .fr-expanded .fr-panel {
   opacity: 1;
   visibility: visible;
+  transform: none;
 }
 .fr-bubble {
   box-sizing: border-box;
@@ -166,7 +170,7 @@ export const NUDGE_CSS = `
   padding: 12px 14px;
   background: var(--background);
   border: var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius);
   box-shadow: var(--box-shadow);
 }
 .fr-bubble-text {
@@ -186,7 +190,7 @@ export const NUDGE_CSS = `
   width: 100%;
   background: var(--background);
   border: var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   box-shadow: var(--box-shadow);
   padding: 12px 14px;
 }
@@ -199,7 +203,7 @@ export const NUDGE_CSS = `
   font: inherit;
   color: inherit;
   border: var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--background);
   padding: 5px 10px;
   cursor: pointer;
@@ -226,7 +230,7 @@ button:focus-visible {
   width: 28px;
   height: 28px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: none;
   padding: 0;
   font-size: 16px;
@@ -248,7 +252,6 @@ button:focus-visible {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
   overflow-y: auto;
   padding: 0 8px;
   scrollbar-width: thin;
@@ -259,8 +262,8 @@ button:focus-visible {
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 2px 8px;
-  max-width: 75%;
-  border-radius: 12px;
+  max-width: 80%;
+  border-radius: var(--radius);
   padding: 8px 12px;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -273,6 +276,15 @@ button:focus-visible {
 .fr-message-agent {
   align-self: flex-start;
   background: var(--agent-message-background);
+}
+/* Tight within one sender's turn, roomy where the turn changes, the way
+   Intercom groups a conversation. */
+.fr-message + .fr-message {
+  margin-top: 2px;
+}
+.fr-message-user + .fr-message-agent,
+.fr-message-agent + .fr-message-user {
+  margin-top: 16px;
 }
 .fr-message-user:not(:has(+ .fr-message-user))::after,
 .fr-message-agent:not(:has(+ .fr-message-agent))::after {
@@ -311,6 +323,22 @@ button:focus-visible {
   color: inherit;
   opacity: 0.8;
 }
+.fr-typing {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px 0;
+}
+.fr-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+  opacity: 0.4;
+}
+/* The timestamp waits for the answer to settle */
+.fr-pending + .fr-time {
+  display: none;
+}
 .fr-citations {
   margin: 0;
   padding-left: 18px;
@@ -325,7 +353,7 @@ button:focus-visible {
   order: 1;
   margin-right: 41px;
   background: var(--agent-message-background);
-  border-radius: 12px;
+  border-radius: var(--radius);
 }
 .fr-composer:focus-within {
   box-shadow: 0 0 0 1px var(--face-background);
@@ -367,8 +395,13 @@ button:focus-visible {
 .fr-send-ready {
   background: var(--send-ready-background);
 }
-.fr-send:hover {
+.fr-send:hover:not(:disabled) {
   filter: var(--interactive-filter);
+}
+/* Outranks the ready color, so a blocked send never looks armed. */
+.fr-send:disabled {
+  background: var(--send-background);
+  cursor: default;
 }
 .fr-send svg {
   width: 14px;
@@ -381,16 +414,16 @@ button:focus-visible {
 }
 @media (prefers-reduced-motion: no-preference) {
   .fr-morph {
-    transition: width 250ms var(--easing), height 250ms var(--easing);
+    transition: width 220ms var(--easing), height 220ms var(--easing);
   }
   .fr-morph.fr-expanded {
-    transition-duration: ${MORPH_MS}ms;
+    transition: width ${MORPH_MS}ms var(--morph-ease), height ${MORPH_MS}ms var(--morph-ease);
   }
   .fr-morph .fr-panel {
-    transition: opacity 150ms, visibility 0s 150ms;
+    transition: opacity 120ms var(--easing), visibility 0s 120ms, transform 160ms var(--easing);
   }
   .fr-morph.fr-expanded .fr-panel {
-    transition: opacity 200ms 100ms, visibility 0s;
+    transition: opacity 200ms 120ms var(--easing), visibility 0s, transform ${MORPH_MS}ms 40ms var(--morph-ease);
   }
   .fr-dot {
     transition: transform 150ms var(--easing);
@@ -398,13 +431,36 @@ button:focus-visible {
   .fr-send {
     transition: background 150ms;
   }
-  .fr-bubble {
+  .fr-bubble,
+  .fr-message {
     animation: fr-rise 200ms var(--easing);
+  }
+  .fr-message.fr-no-anim {
+    animation: none;
+  }
+  .fr-typing span {
+    animation: fr-typing 1.4s ease-in-out infinite;
+  }
+  .fr-typing span:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+  .fr-typing span:nth-child(3) {
+    animation-delay: 0.4s;
   }
   @keyframes fr-rise {
     from {
       opacity: 0;
       transform: translateY(4px);
+    }
+  }
+  @keyframes fr-typing {
+    0%, 60%, 100% {
+      transform: translateY(0);
+      opacity: 0.4;
+    }
+    30% {
+      transform: translateY(-5px);
+      opacity: 0.9;
     }
   }
 }

@@ -21,6 +21,7 @@ class CandidateDeduper {
     this.redis = redis;
   }
 
+  /** Reports whether a candidate for this flagging event was already delivered. */
   boolean isClaimed(UUID appId, UUID eventId) {
     return Boolean.TRUE.equals(redis.hasKey(key(appId, eventId)));
   }
@@ -30,6 +31,7 @@ class CandidateDeduper {
     redis.opsForValue().set(key(appId, eventId), "", CLAIM_TTL);
   }
 
+  /** Builds the claim key, qualified by the consumer group so claims never collide. */
   private static String key(UUID appId, UUID eventId) {
     return "dedupe:%s:%s:%s".formatted(CandidateProcessor.GROUP, appId, eventId);
   }

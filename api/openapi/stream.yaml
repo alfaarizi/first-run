@@ -9,9 +9,19 @@ info:
     subscribe another user.
 
     Each frame carries one named event from the widget contract (`nudge`,
-    `token`, `done`, `action`, `retired`). A reconnect that carries the last
-    seen frame id replays the `nudge` frames a bounded per-user buffer held
-    while the stream was down. The other frame kinds reopen live only.
+    `token`, `done`, `action`, `retired`). The `token` and `done` frames
+    carry the `message_id` of the message they answer, so a widget renders
+    only the answer to the question it sent even though frames reach every
+    tab the user has open. A reconnect that carries the last seen frame id
+    replays the `nudge` frames a bounded per-user buffer held while the
+    stream was down.
+
+    `token` frames reopen live only, because a replayed fragment would render
+    as a fresh answer. The closing `done` frame carries the complete answer
+    text and is briefly buffered, so a reconnecting stream (a browser reload
+    included) replays it and heals a slot that missed tokens instead of
+    hanging until its idle timeout. The widget applies a replayed `done` only
+    to the question still awaiting it. The `action` frame reopens live only.
   contact:
     name: FirstRun
     url: https://github.com/alfaarizi/first-run

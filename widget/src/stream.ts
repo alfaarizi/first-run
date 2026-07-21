@@ -1,19 +1,29 @@
 import { STREAM_PATH } from "./constants";
 import { sign } from "./request";
-import type { ActionPayload, Citation, Config, NudgePayload } from "./types";
+import type { ActionPayload, Citation, Config, DoneFrame, NudgePayload, TokenFrame } from "./types";
 
 const CURSOR_KEY_PREFIX = "fr_stream:";
 const CURSOR_EARLIEST = "earliest";
 const RETRY_MS = 5000;
 const MAX_BACKOFF_STEPS = 6;
 
+// Fallback cursors for pages where sessionStorage is blocked.
 const memoryCursors = new Map<string, string>();
 
+/** What the stream dispatches: one handler per server frame type. */
 export interface StreamHandlers {
+  connected(open: boolean): void;
   nudge(payload: NudgePayload): void;
-  token(text: string): void;
-  done(citations: Citation[]): void;
+  token(messageId: string, text: string): void;
+  done(messageId: string, text: string | undefined, citations: Citation[]): void;
   action(payload: ActionPayload): void;
+}
+
+/** The caller's grip on one stream: close it, or ask whether it can deliver. */
+export interface StreamHandle {
+  close(): void;
+  /** True when the socket is open, so a sent question's answer can arrive. */
+  isOpen(): boolean;
 }
 
 /**
@@ -28,7 +38,7 @@ export function connectStream(
   config: Config,
   endUserHash: string,
   handlers: StreamHandlers,
-): () => void {
+): StreamHandle {
   let source: EventSource | undefined;
   let retryTimer: number | undefined;
   let retries = 0;
@@ -36,9 +46,10 @@ export function connectStream(
   let lastEventId = loadCursor(config.key, endUserHash) || CURSOR_EARLIEST;
   const seenNudges = new Set<string>();
 
-  const open = async () => {
-    // the signature binds the hash, so one signed url cannot subscribe another
-    // user, and an empty sig means signing is unavailable so the stream stays shut
+  /** Opens one EventSource behind a fresh signed URL. */
+  const openSource = async () => {
+    // The signature binds the hash, so one signed URL cannot subscribe another
+    // user. An empty signature means signing is unavailable, so the stream stays shut.
     const timestamp = new Date().toISOString();
     const signature = await sign(config.secret, timestamp, endUserHash).catch(() => "");
     if (closed || !signature) return;
@@ -50,6 +61,7 @@ export function connectStream(
         `&last_event_id=${encodeURIComponent(lastEventId)}`,
     );
 
+    /** Subscribes one frame handler, advancing the stored cursor first. */
     const on = (name: string, handle: (data: string) => void) => {
       source?.addEventListener(name, (e) => {
         const message = e as MessageEvent<string>;
@@ -60,7 +72,7 @@ export function connectStream(
         try {
           handle(message.data);
         } catch {
-          // a malformed frame never breaks the host app
+          // A malformed frame never breaks the host app.
         }
       });
     };
@@ -71,53 +83,46 @@ export function connectStream(
       seenNudges.add(payload.id);
       handlers.nudge(payload);
     });
-    on("token", (data) => handlers.token((JSON.parse(data) as { text: string }).text));
-    on("done", (data) => handlers.done((JSON.parse(data) as { citations?: Citation[] }).citations ?? []));
+    on("token", (data) => {
+      const frame = JSON.parse(data) as TokenFrame;
+      handlers.token(frame.message_id, frame.text);
+    });
+    on("done", (data) => {
+      const frame = JSON.parse(data) as DoneFrame;
+      handlers.done(frame.message_id, frame.text, frame.citations ?? []);
+    });
     on("action", (data) => handlers.action(JSON.parse(data) as ActionPayload));
 
     source.addEventListener("open", () => {
       retries = 0;
+      handlers.connected(true);
     });
     source.addEventListener("error", () => {
-      // CONNECTING means the browser is already retrying on its own
+      handlers.connected(false);
+      // CONNECTING means the browser is already retrying on its own.
       if (closed || source?.readyState !== EventSource.CLOSED) return;
-      retryTimer = setTimeout(open, RETRY_MS * Math.min(++retries, MAX_BACKOFF_STEPS));
+      retryTimer = setTimeout(openSource, RETRY_MS * Math.min(++retries, MAX_BACKOFF_STEPS));
     });
+    // A retired stream shuts without an error event, so it reports the loss itself.
     source.addEventListener("retired", () => {
       closed = true;
       clearTimeout(retryTimer);
       source?.close();
+      handlers.connected(false);
     });
   };
 
-  void open();
+  void openSource();
 
-  return () => {
-    closed = true;
-    clearTimeout(retryTimer);
-    source?.close();
+  return {
+    close() {
+      closed = true;
+      clearTimeout(retryTimer);
+      source?.close();
+    },
+    // Answer frames are live-only, so delivery needs the socket open right now.
+    isOpen: () => !closed && source?.readyState === EventSource.OPEN,
   };
-}
-
-/**
- * Names the slot for one app and end user's cursor: apps on one origin
- * share storage, and an account switch in one tab must not displace the
- * previous user's position.
- */
-function cursorKey(key: string, endUserHash: string): string {
-  return `${CURSOR_KEY_PREFIX}${key}:${endUserHash}`;
-}
-
-/** Reads the cursor stored for this app and end user. */
-function loadCursor(key: string, endUserHash: string): string {
-  const storageKey = cursorKey(key, endUserHash);
-  let cursor = memoryCursors.get(storageKey) ?? "";
-  try {
-    cursor = sessionStorage.getItem(storageKey) ?? cursor;
-  } catch {
-    // storage is blocked, use the in-memory copy
-  }
-  return cursor;
 }
 
 /** Records the cursor, so the next page's stream resumes where this one stopped. */
@@ -127,6 +132,27 @@ function storeCursor(key: string, endUserHash: string, lastEventId: string): voi
   try {
     sessionStorage.setItem(storageKey, lastEventId);
   } catch {
-    // best effort
+    // Best effort. The in-memory copy already advanced.
   }
+}
+
+/** Reads the cursor stored for this app and end user. */
+function loadCursor(key: string, endUserHash: string): string {
+  const storageKey = cursorKey(key, endUserHash);
+  let cursor = memoryCursors.get(storageKey) ?? "";
+  try {
+    cursor = sessionStorage.getItem(storageKey) ?? cursor;
+  } catch {
+    // Storage is blocked. The in-memory copy stands in.
+  }
+  return cursor;
+}
+
+/**
+ * Names the slot for one app and end user's cursor: apps on one origin
+ * share storage, and an account switch in one tab must not displace the
+ * previous user's position.
+ */
+function cursorKey(key: string, endUserHash: string): string {
+  return `${CURSOR_KEY_PREFIX}${key}:${endUserHash}`;
 }

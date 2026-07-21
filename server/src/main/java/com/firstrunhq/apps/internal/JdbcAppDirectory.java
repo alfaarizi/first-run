@@ -12,6 +12,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+/** Postgres-backed app lookup, released row by row through the SDK-key RLS policy. */
 @Repository
 class JdbcAppDirectory implements AppDirectory {
 
@@ -42,6 +43,7 @@ class JdbcAppDirectory implements AppDirectory {
         .optional();
   }
 
+  /** Maps one app row, copying its array columns into immutable sets. */
   private static SdkApp toSdkApp(ResultSet row, int rowNumber) throws SQLException {
     return new SdkApp(
         row.getObject("id", UUID.class),

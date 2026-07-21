@@ -1,25 +1,37 @@
 import { el } from "./dom";
 import { COMPOSER_LINE_HEIGHT_PX, COMPOSER_MAX_HEIGHT_PX } from "./nudge.css";
 
+// The messages contract's cap. Enforced here so an oversized paste stays
+// editable instead of bouncing off the server after send.
+const MESSAGE_MAX_CHARS = 2000;
+
 /** The message input row, an autogrowing textarea beside a send button. */
 export interface Composer {
   root: HTMLElement;
-  /** The trimmed draft. */
+  /** The trimmed draft, ready to send. */
   text(): string;
-  clear(): void;
+  /** The raw draft, kept verbatim so a reload restores it exactly. */
+  draft(): string;
+  setDraft(value: string): void;
+  clearDraft(): void;
+  /** Opens or blocks the input and its send button. */
+  setEnabled(enabled: boolean): void;
+  /** Holds the caret. */
   focus(): void;
+  focused(): boolean;
 }
 
 /** Builds the composer. Enter and the send button submit, Shift+Enter breaks the line. */
 export function createComposer(onSubmit: () => void): Composer {
   const input = el("textarea", "fr-input");
   input.rows = 1;
+  input.maxLength = MESSAGE_MAX_CHARS;
   input.placeholder = "Ask about this product...";
   input.setAttribute("aria-label", "Ask about this product");
-  input.oninput = sync;
+  input.oninput = syncToDraft;
   input.onkeydown = (e) => {
-    // an Enter that commits IME composition keeps composing, and Safari fires
-    // it after compositionend with isComposing already false, so 229 gates it
+    // An Enter that commits IME composition keeps composing. Safari fires it
+    // after compositionend with isComposing already false, so 229 gates it.
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
       e.preventDefault();
       onSubmit();
@@ -30,13 +42,14 @@ export function createComposer(onSubmit: () => void): Composer {
   };
 
   const send = el("button", "fr-send");
-  send.append(sendIcon());
+  send.append(buildSendIcon());
   send.setAttribute("aria-label", "Send");
   send.onclick = onSubmit;
 
   const root = el("div", "fr-composer");
   root.append(input, send);
 
+  /** Caps caret-driven scroll jumps at one line, so arrow keys pan smoothly. */
   function clampScroll(): void {
     const before = input.scrollTop;
     requestAnimationFrame(() => {
@@ -47,31 +60,44 @@ export function createComposer(onSubmit: () => void): Composer {
     });
   }
 
-  // grows the composer with its content, hands overflow to a scrollbar at the
-  // cap, and arms the send button only for a draft submit would accept
-  function sync(): void {
+  /**
+   * Grows the composer with its content, handing overflow to a scrollbar at
+   * the cap, and arms the send button only for a draft submit would accept.
+   */
+  function syncToDraft(): void {
     input.style.height = "auto";
-    input.style.height = `${Math.min(input.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
-    input.style.overflowY = input.scrollHeight > COMPOSER_MAX_HEIGHT_PX ? "auto" : "hidden";
+    // Read the content height once. Measuring it again after setting height reflows twice.
+    const contentHeight = input.scrollHeight;
+    input.style.height = `${Math.min(contentHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
+    input.style.overflowY = contentHeight > COMPOSER_MAX_HEIGHT_PX ? "auto" : "hidden";
     send.classList.toggle("fr-send-ready", /\S/.test(input.value));
+  }
+
+  /** Sets the draft and grows the input to fit it. */
+  function setDraft(value: string): void {
+    input.value = value;
+    syncToDraft();
   }
 
   return {
     root,
     text: () => input.value.trim(),
-    clear() {
-      input.value = "";
-      sync();
+    draft: () => input.value,
+    setDraft,
+    clearDraft: () => setDraft(""),
+    setEnabled(enabled) {
+      input.disabled = send.disabled = !enabled;
     },
     focus() {
-      // scroll-on-focus would drag the shell's content while it is mid-morph
+      // Scroll-on-focus would drag the shell's content while it is mid-morph.
       input.focus({ preventScroll: true });
     },
+    focused: () => (input.getRootNode() as ShadowRoot).activeElement === input,
   };
 }
 
 /** Builds the send arrow with DOM calls alone, so no markup parser or injection sink exists. */
-function sendIcon(): SVGSVGElement {
+function buildSendIcon(): SVGSVGElement {
   const NS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(NS, "svg");
   svg.setAttribute("viewBox", "0 0 16 16");

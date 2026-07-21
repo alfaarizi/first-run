@@ -21,6 +21,7 @@ class TenantHeaderInterceptor implements WebGraphQlInterceptor {
 
   private static final String TENANT_HEADER = "X-FirstRun-Tenant";
 
+  /** Copies a parseable tenant header into the GraphQL context, ignoring the rest. */
   @Override
   public Mono<WebGraphQlResponse> intercept(WebGraphQlRequest request, Chain chain) {
     String header = request.getHeaders().getFirst(TENANT_HEADER);

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.firstrunhq.apps.AppDirectory;
 import com.firstrunhq.apps.SdkApp;
 import com.firstrunhq.apps.SignatureVerifier;
+import com.firstrunhq.apps.WidgetContract;
 import com.firstrunhq.ingestion.EventEnvelope;
 import com.firstrunhq.ingestion.EventTopics;
 import jakarta.servlet.http.HttpServletRequest;
@@ -39,14 +40,16 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * The event gateway: authenticates widget batches, dedupes and minimizes them, and produces them to
+ * the event stream. Plain REST and allocation-light, because every SDK event in every tenant's
+ * every page load lands here.
+ */
 @RestController
 class IngestController {
 
   // Endpoint contract from api/openapi/ingest.yaml, read here and mirrored by the CORS policy.
   static final String PATH = "/v1/e";
-  static final String HEADER_SDK_KEY = "X-FirstRun-Key";
-  static final String HEADER_TIMESTAMP = "X-FirstRun-Timestamp";
-  static final String HEADER_SIGNATURE = "X-FirstRun-Signature";
 
   private static final int MAX_BODY_BYTES = 64 * 1024;
   private static final int MAX_BATCH_EVENTS = 50;
@@ -86,9 +89,12 @@ class IngestController {
    */
   @PostMapping(path = PATH, consumes = MediaType.APPLICATION_JSON_VALUE)
   ResponseEntity<Object> ingestEvents(
-      @RequestHeader(value = HEADER_SDK_KEY, required = false) @Nullable String sdkKey,
-      @RequestHeader(value = HEADER_TIMESTAMP, required = false) @Nullable String timestamp,
-      @RequestHeader(value = HEADER_SIGNATURE, required = false) @Nullable String signature,
+      @RequestHeader(value = WidgetContract.SDK_KEY_HEADER, required = false)
+          @Nullable String sdkKey,
+      @RequestHeader(value = WidgetContract.TIMESTAMP_HEADER, required = false)
+          @Nullable String timestamp,
+      @RequestHeader(value = WidgetContract.SIGNATURE_HEADER, required = false)
+          @Nullable String signature,
       @RequestHeader(value = HttpHeaders.ORIGIN, required = false) @Nullable String origin,
       HttpServletRequest request)
       throws IOException {
@@ -116,10 +122,8 @@ class IngestController {
           "The signature is invalid or the timestamp is outside the accepted window.");
     }
 
-    EventBatch batch;
-    try {
-      batch = objectMapper.readValue(body, EventBatch.class);
-    } catch (IOException malformed) {
+    EventBatch batch = readBatch(body);
+    if (batch == null) {
       return problem(HttpStatus.BAD_REQUEST, "The body is not a valid event batch.");
     }
     if (batch.events().size() > MAX_BATCH_EVENTS) {
@@ -134,22 +138,27 @@ class IngestController {
 
     long retryAfter = rateLimiter.retryAfterSeconds(app.tenantId(), batch.events().size());
     if (retryAfter > 0) {
-      return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-          .header(HttpHeaders.RETRY_AFTER, Long.toString(retryAfter))
-          .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-          .body(
-              ProblemDetail.forStatusAndDetail(
-                  HttpStatus.TOO_MANY_REQUESTS, "The tenant's event rate limit is exhausted."));
+      return tooManyEvents(retryAfter);
     }
     return produce(app, batch, IpTruncator.truncate(clientAddress(request)));
   }
 
+  /** Parses the body against the batch schema, a malformed body as null. */
+  private @Nullable EventBatch readBatch(byte[] body) {
+    try {
+      return objectMapper.readValue(body, EventBatch.class);
+    } catch (IOException malformed) {
+      return null;
+    }
+  }
+
+  /** Dedupes and produces the batch, answering 202 only for a broker-acknowledged batch. */
   private ResponseEntity<Object> produce(SdkApp app, EventBatch batch, @Nullable String ip)
       throws JsonProcessingException {
     Instant receivedAt = Instant.now();
 
-    // sent_at against the gateway clock measures the client's clock skew, and each event time
-    // shifts by it (Segment's recipe for the same fields).
+    // sent_at against the gateway clock measures the client's clock skew.
+    // Each event time shifts by it (Segment's recipe for the same fields).
     Duration skew =
         batch.sentAt() == null ? Duration.ZERO : Duration.between(batch.sentAt(), receivedAt);
 
@@ -160,34 +169,16 @@ class IngestController {
         continue;
       }
       claimed.add(event.id());
-
-      // Correction still trusts the client's own event time, and nothing occurs after arrival,
-      // so any residue past received_at is clock error and clamps to it.
-      Instant corrected = event.timestamp().plus(skew);
-
-      EventEnvelope envelope =
-          new EventEnvelope(
-              app.tenantId(),
-              app.id(),
-              receivedAt,
-              ip,
-              event.id(),
-              event.event(),
-              event.endUserHash(),
-              event.sessionId(),
-              event.ref(),
-              corrected.isAfter(receivedAt) ? receivedAt : corrected,
-              allowlisted(event.properties(), app.allowedProperties()));
       deliveries.add(
           kafkaTemplate.send(
               EventTopics.EVENTS_RAW,
               partitionKey(app.tenantId(), event.endUserHash()),
-              objectMapper.writeValueAsString(envelope)));
+              objectMapper.writeValueAsString(envelope(app, event, receivedAt, skew, ip))));
     }
 
     // A 202 promises the batch reached the event stream, so wait for the broker's
-    // acknowledgement and turn an outage into a retryable 503 instead of silent loss.
-    // Releasing the claims lets that retry pass the dedupe.
+    // acknowledgement. An outage answers as a retryable 503, and releasing the
+    // claims lets that retry pass the dedupe.
     try {
       CompletableFuture.allOf(deliveries.toArray(CompletableFuture[]::new))
           .get(properties.produceTimeout().toMillis(), TimeUnit.MILLISECONDS);
@@ -200,6 +191,26 @@ class IngestController {
       return problem(HttpStatus.SERVICE_UNAVAILABLE, "The event stream is unavailable.");
     }
     return ResponseEntity.accepted().build();
+  }
+
+  /** Builds the enriched stream record for one event, skew-corrected and allowlisted. */
+  private static EventEnvelope envelope(
+      SdkApp app, Event event, Instant receivedAt, Duration skew, @Nullable String ip) {
+    // Correction still trusts the client's event time. Nothing occurs after
+    // arrival, so any residue past received_at is clock error and clamps to it.
+    Instant corrected = event.timestamp().plus(skew);
+    return new EventEnvelope(
+        app.tenantId(),
+        app.id(),
+        receivedAt,
+        ip,
+        event.id(),
+        event.event(),
+        event.endUserHash(),
+        event.sessionId(),
+        event.ref(),
+        corrected.isAfter(receivedAt) ? receivedAt : corrected,
+        allowlisted(event.properties(), app.allowedProperties()));
   }
 
   /** Keeps only founder-allowlisted property keys, so unlisted ones never reach the stream. */
@@ -240,9 +251,20 @@ class IngestController {
     return forwarded.substring(forwarded.lastIndexOf(',') + 1).trim();
   }
 
+  /** Builds the RFC 9457 problem body every rejection answers with. */
   private static ResponseEntity<Object> problem(HttpStatus status, String detail) {
     return ResponseEntity.status(status)
         .contentType(MediaType.APPLICATION_PROBLEM_JSON)
         .body(ProblemDetail.forStatusAndDetail(status, detail));
+  }
+
+  /** Builds the 429 problem with its Retry-After hint, the one rejection carrying a header. */
+  private static ResponseEntity<Object> tooManyEvents(long retryAfterSeconds) {
+    return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+        .header(HttpHeaders.RETRY_AFTER, Long.toString(retryAfterSeconds))
+        .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+        .body(
+            ProblemDetail.forStatusAndDetail(
+                HttpStatus.TOO_MANY_REQUESTS, "The tenant's event rate limit is exhausted."));
   }
 }

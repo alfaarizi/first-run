@@ -8,13 +8,14 @@ const MAX_BATCH = 50;
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = 2000;
 
-// margin under the ingest contract's 64 KB body cap
+// Margin under the ingest contract's 64 KB body cap.
 const MAX_BODY_BYTES = 60 * 1024;
-// the Segment per-message cap, an event past it can never be delivered
+// Matches Segment's per-message cap. An event past it can never be delivered.
 const MAX_EVENT_BYTES = 32 * 1024;
 
 const encoder = new TextEncoder();
 
+/** One queued event with its encoded size, measured once at enqueue. */
 interface QueuedEvent {
   event: CapturedEvent;
   bytes: number;
@@ -40,26 +41,28 @@ export class RequestQueue {
     });
   }
 
+  /** Queues one event, flushing at the batch size or on the timer. */
   enqueue(event: CapturedEvent): void {
     const bytes = encoder.encode(JSON.stringify(event)).length;
     if (bytes > MAX_EVENT_BYTES) return;
 
     this.queue.push({ event, bytes });
 
-    // a scheduled retry owns the queue while backing off
+    // A scheduled retry owns the queue while backing off.
     if (this.queue.length >= FLUSH_AT && this.attempts === 0) void this.flush();
     else this.timer ??= setTimeout(() => void this.flush(), FLUSH_INTERVAL_MS);
   }
 
+  /** Sends the head batch, backing off on retryable failures up to the cap. */
   private async flush(): Promise<void> {
     clearTimeout(this.timer);
     this.timer = undefined;
     if (this.inFlightCount > 0 || this.queue.length === 0) return;
 
-    const batch = this.nextBatch();
+    const batch = this.collectNextBatch();
     this.inFlightCount = batch.length;
 
-    const result = await post(this.config, INGEST_PATH, batchBody(batch));
+    const result = await post(this.config, INGEST_PATH, buildBatchBody(batch));
     this.inFlightCount = 0;
 
     if (result.ok || !result.retryable || ++this.attempts >= MAX_ATTEMPTS) {
@@ -73,7 +76,8 @@ export class RequestQueue {
     }
   }
 
-  private nextBatch(offset = 0): CapturedEvent[] {
+  /** Collects the next batch under the count and byte caps, from offset on. */
+  private collectNextBatch(offset = 0): CapturedEvent[] {
     const batch: CapturedEvent[] = [];
     let bytes = 0;
     for (let i = offset; i < this.queue.length; i++) {
@@ -86,19 +90,21 @@ export class RequestQueue {
     return batch;
   }
 
-  // The unsent tail goes out once over keepalive, because a tail left queued
-  // would resend on the timer and burn quota the gateway meters before deduping
+  /**
+   * Flushes the unsent tail once over keepalive. A tail left queued would
+   * resend on the timer and burn quota the gateway meters before deduping.
+   */
   private flushOnHide(): void {
     clearTimeout(this.timer);
     this.timer = undefined;
     for (let offset = this.inFlightCount; offset < this.queue.length; ) {
-      const batch = this.nextBatch(offset);
+      const batch = this.collectNextBatch(offset);
       if (batch.length === 0) break;
 
       const queuedBatch = this.queue.slice(offset, offset + batch.length);
 
-      void post(this.config, INGEST_PATH, batchBody(batch)).then((result) => {
-        // a batch the network refused returns to the queue, so a tab that survives retries it
+      void post(this.config, INGEST_PATH, buildBatchBody(batch)).then((result) => {
+          // A batch the network refused returns to the queue, so a tab that survives retries it.
         if (!result.ok && result.retryable) {
           this.queue.push(...queuedBatch);
           this.timer ??= setTimeout(() => void this.flush(), FLUSH_INTERVAL_MS);
@@ -107,13 +113,14 @@ export class RequestQueue {
       offset += batch.length;
     }
 
-    // an in-flight batch stays for its own flush to settle, and a dropped
-    // backing-off head retires its attempt count with it
+    // An in-flight batch stays for its own flush to settle. A dropped
+    // backing-off head retires its attempt count with it.
     this.queue.length = this.inFlightCount;
     if (this.inFlightCount === 0) this.attempts = 0;
   }
 }
 
-function batchBody(events: CapturedEvent[]): string {
+/** Wraps the events with sent_at, the gateway's clock-skew reference. */
+function buildBatchBody(events: CapturedEvent[]): string {
   return JSON.stringify({ sent_at: new Date().toISOString(), events });
 }

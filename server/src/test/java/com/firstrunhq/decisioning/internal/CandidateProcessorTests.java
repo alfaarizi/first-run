@@ -1,5 +1,6 @@
 package com.firstrunhq.decisioning.internal;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -11,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.firstrunhq.funnel.CandidateEnvelope;
 import com.firstrunhq.funnel.CandidateTopics;
 import java.time.Instant;
@@ -32,8 +34,9 @@ class CandidateProcessorTests {
   private final CandidateDeduper deduper = mock(CandidateDeduper.class);
   private final MilestoneTitles milestoneTitles = mock(MilestoneTitles.class);
   private final NudgeStreams streams = mock(NudgeStreams.class);
+  private final NudgeContexts contexts = new NudgeContexts();
   private final CandidateProcessor processor =
-      new CandidateProcessor(objectMapper, holdouts, deduper, milestoneTitles, streams);
+      new CandidateProcessor(objectMapper, holdouts, deduper, milestoneTitles, streams, contexts);
 
   @Test
   void acksTheRecordWhenTheClaimWriteFailsAfterADeliveredPush() throws Exception {
@@ -47,6 +50,22 @@ class CandidateProcessorTests {
   }
 
   @Test
+  void recordsTheNudgeContextSoALaterRefResolvesIt() throws Exception {
+    when(milestoneTitles.find(any(), any())).thenReturn(Optional.empty());
+    when(streams.pushNudge(any(), any(), any(), any())).thenReturn(true);
+
+    ConsumerRecord<String, String> record = candidateRecord();
+    CandidateEnvelope candidate = objectMapper.readValue(record.value(), CandidateEnvelope.class);
+    processor.onCandidate(record);
+
+    // Recorded under the nudge id the widget echoes back as the message ref.
+    assertThat(contexts.find(candidate.appId(), candidate.endUserHash(), candidate.id()))
+        .contains(
+            new NudgeContexts.NudgeContext(
+                candidate.id(), candidate.milestoneId(), candidate.milestoneName()));
+  }
+
+  @Test
   void failsTheRecordWhenTheClaimCheckFailsBeforeAnyPush() {
     when(deduper.isClaimed(any(), any()))
         .thenThrow(new RedisConnectionFailureException("redis unavailable"));
@@ -54,6 +73,19 @@ class CandidateProcessorTests {
     // No push has happened yet, so the record keeps the retry-then-dead-letter path.
     assertThatThrownBy(() -> processor.onCandidate(candidateRecord()))
         .isInstanceOf(RedisConnectionFailureException.class);
+  }
+
+  @Test
+  void failsTheRecordWhenTheCandidateOmitsTheMilestoneName() throws Exception {
+    ObjectNode candidate = (ObjectNode) objectMapper.readTree(candidateRecord().value());
+    candidate.remove("milestone_name");
+
+    // The agent's context frame carries the name, so an envelope missing it
+    // dead-letters here instead of failing the user's first question later.
+    assertThatThrownBy(() -> processor.onCandidate(topicRecord(candidate.toString())))
+        .isInstanceOf(IllegalArgumentException.class);
+
+    verifyNoInteractions(deduper, streams);
   }
 
   @Test
@@ -79,11 +111,10 @@ class CandidateProcessorTests {
             CandidateEnvelope.Rule.ERRORS,
             new CandidateEnvelope.SessionFeatures(120, 0, 0, 3, "/"),
             Instant.now());
-    return new ConsumerRecord<>(
-        CandidateTopics.INTERVENTION_CANDIDATES,
-        0,
-        0,
-        "user-1",
-        objectMapper.writeValueAsString(candidate));
+    return topicRecord(objectMapper.writeValueAsString(candidate));
+  }
+
+  private static ConsumerRecord<String, String> topicRecord(String value) {
+    return new ConsumerRecord<>(CandidateTopics.INTERVENTION_CANDIDATES, 0, 0, "user-1", value);
   }
 }

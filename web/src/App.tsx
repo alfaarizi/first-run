@@ -5,6 +5,7 @@ import { createApolloClient, demoAppId } from '@/lib/apollo'
 
 const client = createApolloClient()
 
+/** The dashboard shell: one Apollo provider around the funnel view. */
 function App() {
   return (
     <ApolloProvider client={client}>

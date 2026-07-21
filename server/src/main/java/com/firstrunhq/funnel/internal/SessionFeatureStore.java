@@ -44,6 +44,7 @@ class SessionFeatureStore {
 
   private final StringRedisTemplate redis;
 
+  /** Keeps the features in Redis so any instance can pick up a session mid-stream. */
   SessionFeatureStore(StringRedisTemplate redis) {
     this.redis = redis;
   }
@@ -56,8 +57,8 @@ class SessionFeatureStore {
       EventEnvelope envelope, MilestoneProgressTracker.@Nullable CurrentStep currentStep) {
     Instant eventAt = envelope.timestamp();
 
-    // An event older than the idle window is not live activity, so it opens no session and an
-    // offline flush or earliest-offset replay cannot fabricate a stuck user from old records.
+    // An event older than the idle window is not live activity, so it opens no session.
+    // An offline flush or an earliest-offset replay must not fabricate a stuck user.
     if (Duration.between(eventAt, Instant.now()).compareTo(IDLE_EXPIRY) >= 0) {
       return null;
     }
@@ -66,16 +67,16 @@ class SessionFeatureStore {
     HashOperations<String, String, String> features = redis.opsForHash();
     Map<String, String> session = features.entries(key);
 
-    // A crash between this apply and the dedupe claim redelivers the event, so the stored id
-    // turns the replay into a no-op instead of a double count.
+    // A crash between this apply and the dedupe claim redelivers the event.
+    // The stored id turns the replay into a no-op instead of a double count.
     if (envelope.id().toString().equals(session.get(LAST_EVENT_ID))) {
       // The crash can also cut off the expiry below, leaving the key immortal, so restore it.
       redis.expire(key, IDLE_EXPIRY);
       return session;
     }
 
-    // Event times can interleave, so a new step anchors at the session's newest recorded time, and
-    // an event older than that (a backfill) drives no path transition.
+    // Event times can interleave, so a new step anchors at the session's newest
+    // recorded time, and an event older than that drives no path transition.
     Instant newestAt = latest(eventAt, session.get(NEWEST_EVENT_AT));
     boolean advancesTime = !eventAt.isBefore(newestAt);
 
@@ -87,57 +88,18 @@ class SessionFeatureStore {
       updates.put(STARTED_AT, eventAt.toString());
     }
 
-    // A retry is an exact repeat of the previous event, same name and same page.
-    if (envelope.event().equals(session.get(LAST_EVENT))
-        && storedPath.equals(session.getOrDefault(LAST_EVENT_PATH, ""))) {
-      increment(session, updates, RETRIES);
-    }
-
+    countRetry(envelope, storedPath, session, updates);
     if (ERROR.equals(envelope.event())) {
       increment(session, updates, ERRORS);
     }
-
-    String lastPath = session.get(LAST_PATH);
-    if (advancesTime && path != null && !path.equals(lastPath)) {
-      // Returning to the page before the last distinct one is the abandonment loop.
-      if (path.equals(session.get(PREV_PATH))) {
-        increment(session, updates, BACKTRACKS);
-      }
-      if (lastPath != null) {
-        updates.put(PREV_PATH, lastPath);
-      }
-      updates.put(LAST_PATH, path);
+    if (advancesTime) {
+      trackPathTransition(path, session, updates);
     }
+    boolean stepPositionChanged = trackStep(key, currentStep, newestAt, session, updates);
+    updates.put(
+        DWELL_SECONDS,
+        String.valueOf(dwellSeconds(eventAt, stepPositionChanged, session, updates)));
 
-    String stepPosition = currentStep == null ? null : String.valueOf(currentStep.position());
-    boolean stepPositionChanged = !Objects.equals(stepPosition, session.get(STEP_POSITION));
-    if (stepPositionChanged) {
-      if (stepPosition == null) {
-        features.delete(key, STEP_POSITION, STEP_STARTED_AT);
-        session.remove(STEP_POSITION);
-        session.remove(STEP_STARTED_AT);
-      } else {
-        updates.put(STEP_POSITION, stepPosition);
-        updates.put(STEP_STARTED_AT, newestAt.toString());
-      }
-    }
-
-    // Dwell runs from the step's opening, or from the session's start when no step is open.
-    String dwellAnchor =
-        stepPosition == null
-            ? session.get(STARTED_AT)
-            : stepPositionChanged ? updates.get(STEP_STARTED_AT) : session.get(STEP_STARTED_AT);
-    Instant dwellFrom = dwellAnchor == null ? eventAt : Instant.parse(dwellAnchor);
-
-    // Event times can arrive out of order, so dwell never reads negative and, on an unchanged
-    // step, never shrinks below what a newer event already recorded.
-    long dwellSeconds = Math.max(0, Duration.between(dwellFrom, eventAt).toSeconds());
-    if (!stepPositionChanged) {
-      dwellSeconds =
-          Math.max(dwellSeconds, Long.parseLong(session.getOrDefault(DWELL_SECONDS, "0")));
-    }
-
-    updates.put(DWELL_SECONDS, String.valueOf(dwellSeconds));
     updates.put(NEWEST_EVENT_AT, newestAt.toString());
     updates.put(LAST_EVENT_ID, envelope.id().toString());
     updates.put(LAST_EVENT, envelope.event());
@@ -150,6 +112,83 @@ class SessionFeatureStore {
 
     session.putAll(updates);
     return session;
+  }
+
+  /** A retry is an exact repeat of the previous event, same name and same page. */
+  private static void countRetry(
+      EventEnvelope envelope,
+      String storedPath,
+      Map<String, String> session,
+      Map<String, String> updates) {
+    if (envelope.event().equals(session.get(LAST_EVENT))
+        && storedPath.equals(session.getOrDefault(LAST_EVENT_PATH, ""))) {
+      increment(session, updates, RETRIES);
+    }
+  }
+
+  /** A page change moves the path pair along, counting the abandonment loop as a backtrack. */
+  private static void trackPathTransition(
+      @Nullable String path, Map<String, String> session, Map<String, String> updates) {
+    String lastPath = session.get(LAST_PATH);
+    if (path == null || path.equals(lastPath)) {
+      return;
+    }
+    // Returning to the page before the last distinct one is the abandonment loop.
+    if (path.equals(session.get(PREV_PATH))) {
+      increment(session, updates, BACKTRACKS);
+    }
+    if (lastPath != null) {
+      updates.put(PREV_PATH, lastPath);
+    }
+    updates.put(LAST_PATH, path);
+  }
+
+  /**
+   * Records a step change, anchoring a new step at the newest recorded time. Leaving the funnel
+   * deletes the step fields at once, because the batched write can only add.
+   */
+  private boolean trackStep(
+      String key,
+      MilestoneProgressTracker.@Nullable CurrentStep currentStep,
+      Instant newestAt,
+      Map<String, String> session,
+      Map<String, String> updates) {
+    String stepPosition = currentStep == null ? null : String.valueOf(currentStep.position());
+    if (Objects.equals(stepPosition, session.get(STEP_POSITION))) {
+      return false;
+    }
+    if (stepPosition == null) {
+      redis.<String, String>opsForHash().delete(key, STEP_POSITION, STEP_STARTED_AT);
+      session.remove(STEP_POSITION);
+      session.remove(STEP_STARTED_AT);
+    } else {
+      updates.put(STEP_POSITION, stepPosition);
+      updates.put(STEP_STARTED_AT, newestAt.toString());
+    }
+    return true;
+  }
+
+  /**
+   * Dwell runs from the step's opening, or from the session's start when no step is open. Event
+   * times can arrive out of order, so dwell never reads negative and, on an unchanged step, never
+   * shrinks below what a newer event already recorded.
+   */
+  private static long dwellSeconds(
+      Instant eventAt,
+      boolean stepPositionChanged,
+      Map<String, String> session,
+      Map<String, String> updates) {
+    String stepStartedAt = updates.getOrDefault(STEP_STARTED_AT, session.get(STEP_STARTED_AT));
+    boolean stepOpen = updates.getOrDefault(STEP_POSITION, session.get(STEP_POSITION)) != null;
+    String dwellAnchor = stepOpen ? stepStartedAt : session.get(STARTED_AT);
+    Instant dwellFrom = dwellAnchor == null ? eventAt : Instant.parse(dwellAnchor);
+
+    long dwellSeconds = Math.max(0, Duration.between(dwellFrom, eventAt).toSeconds());
+    if (!stepPositionChanged) {
+      dwellSeconds =
+          Math.max(dwellSeconds, Long.parseLong(session.getOrDefault(DWELL_SECONDS, "0")));
+    }
+    return dwellSeconds;
   }
 
   /**
@@ -173,6 +212,7 @@ class SessionFeatureStore {
         : "session:%s:user:%s".formatted(envelope.appId(), envelope.endUserHash());
   }
 
+  /** Returns the later of the event's time and the session's recorded newest. */
   private static Instant latest(Instant eventAt, @Nullable String recorded) {
     if (recorded == null) {
       return eventAt;
@@ -181,6 +221,7 @@ class SessionFeatureStore {
     return recordedAt.isAfter(eventAt) ? recordedAt : eventAt;
   }
 
+  /** Reads the page path off a page-view event, null for every other event. */
   private static @Nullable String pagePath(EventEnvelope envelope) {
     Map<String, Object> properties = envelope.properties();
     if (!PAGE_VIEW.equals(envelope.event()) || properties == null) {

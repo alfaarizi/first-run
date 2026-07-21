@@ -7,6 +7,9 @@ export default defineConfig({
   envDir: '../',
   server: {
     port: 5174,
+    // Vite's DNS-rebinding guard admits only localhost by default; the
+    // agent's docs crawler reaches this server by its compose hostname.
+    allowedHosts: ['tasklet'],
     proxy: {
       '/v1': {
         target: process.env.FIRSTRUN_SERVER_URL ?? 'http://localhost:8080',

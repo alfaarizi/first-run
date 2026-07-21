@@ -43,7 +43,7 @@ jobs:
             its JSON payloads. Use `gh pr comment` only for the no-issues summary.
           # The code-review skill fans out to subagents (Task) that read the PR
           # through gh and GitHub MCP read tools, then post through MCP. MCP names
-          # match github-mcp-server v0.17.1 image the pinned action ships. Bash entries
+          # match the github-mcp-server v0.17.1 image the pinned action ships. Bash entries
           # are read-only except `gh pr comment`, which posts the no-issues summary.
           # delete_pending clears the draft a cancelled run leaves.
           claude_args: >-
