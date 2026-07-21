@@ -458,6 +458,21 @@ test("a pending answer shows the typing indicator until the first token", async 
   expect(ui.query(".fr-message-agent .fr-body")?.textContent).toBe("Here");
 });
 
+test("the answer's timestamp waits for the done frame, not the first token", async () => {
+  const ui = createUi();
+  const messageId = await send(ui);
+
+  expect(ui.query(".fr-message-agent .fr-body.fr-pending")).not.toBeNull();
+
+  // a half-written answer is not a finished message, so it stays unstamped
+  ui.ui.appendAnswerToken(messageId, "Half");
+  expect(ui.query(".fr-message-agent .fr-body.fr-pending")).not.toBeNull();
+
+  ui.ui.finishAnswer(messageId, "Half of it.", []);
+  expect(ui.query(".fr-message-agent .fr-body.fr-pending")).toBeNull();
+  expect(ui.query(".fr-message-agent .fr-time")?.textContent).toMatch(/^\d{1,2}:\d{2}/);
+});
+
 test("the done frame heals text that a dropped token left behind", async () => {
   const ui = createUi();
   const messageId = await send(ui);

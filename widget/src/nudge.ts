@@ -251,6 +251,8 @@ export class NudgeUi {
   private openAnswer(messageId: string, animate = true): HTMLElement {
     if (this.answer) return this.answer;
     const { model, body } = this.appendMessage("agent", "", animate);
+    // Holds the timestamp back until the answer closes.
+    body.classList.add("fr-pending");
     this.answer = body;
     this.answerModel = model;
     this.answerMessageId = messageId;
@@ -295,6 +297,7 @@ export class NudgeUi {
   private dropAnswer(): void {
     clearTimeout(this.answerTimer);
     this.hideTyping();
+    this.answer?.classList.remove("fr-pending");
     this.answer = this.answerModel = this.answerMessageId = undefined;
   }
 

@@ -335,8 +335,8 @@ button:focus-visible {
   background: var(--muted-foreground);
   opacity: 0.4;
 }
-/* The timestamp waits until the answer has content, so the typing bubble is bare. */
-.fr-message:has(.fr-typing) .fr-time {
+/* The timestamp waits for the answer to settle */
+.fr-pending + .fr-time {
   display: none;
 }
 .fr-citations {
