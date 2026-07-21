@@ -67,7 +67,7 @@ class ChunkStore:
         crawl_id: str,
         rows: Sequence[ChunkRow],
     ) -> None:
-        """Insert one page's chunks, searchable as soon as they commit."""
+        """Insert one page's chunks, which stay unsearchable until the crawl completes."""
         async with self._db.tenant_transaction(tenant_id) as connection:
             await connection.executemany(
                 """

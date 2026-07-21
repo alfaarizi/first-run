@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.firstrunhq.funnel.CandidateEnvelope;
 import com.firstrunhq.funnel.CandidateTopics;
 import java.time.Instant;
@@ -58,6 +59,19 @@ class CandidateProcessorTests {
   }
 
   @Test
+  void failsTheRecordWhenTheCandidateOmitsTheMilestoneName() throws Exception {
+    ObjectNode candidate = (ObjectNode) objectMapper.readTree(candidateRecord().value());
+    candidate.remove("milestone_name");
+
+    // The agent's context frame carries the name, so an envelope missing it
+    // dead-letters here instead of failing the user's first question later.
+    assertThatThrownBy(() -> processor.onCandidate(topicRecord(candidate.toString())))
+        .isInstanceOf(IllegalArgumentException.class);
+
+    verifyNoInteractions(deduper, streams);
+  }
+
+  @Test
   void dropsAHoldoutCandidateBeforeAnyClaimOrPush() throws Exception {
     when(holdouts.contains(any(), any())).thenReturn(true);
 
@@ -80,11 +94,10 @@ class CandidateProcessorTests {
             CandidateEnvelope.Rule.ERRORS,
             new CandidateEnvelope.SessionFeatures(120, 0, 0, 3, "/"),
             Instant.now());
-    return new ConsumerRecord<>(
-        CandidateTopics.INTERVENTION_CANDIDATES,
-        0,
-        0,
-        "user-1",
-        objectMapper.writeValueAsString(candidate));
+    return topicRecord(objectMapper.writeValueAsString(candidate));
+  }
+
+  private static ConsumerRecord<String, String> topicRecord(String value) {
+    return new ConsumerRecord<>(CandidateTopics.INTERVENTION_CANDIDATES, 0, 0, "user-1", value);
   }
 }

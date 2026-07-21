@@ -94,7 +94,8 @@ class CandidateProcessor {
         || candidate.appId() == null
         || candidate.endUserHash() == null
         || candidate.eventId() == null
-        || candidate.milestoneId() == null) {
+        || candidate.milestoneId() == null
+        || candidate.milestoneName() == null) {
       throw new IllegalArgumentException("intervention.candidates envelope is missing a field");
     }
   }
