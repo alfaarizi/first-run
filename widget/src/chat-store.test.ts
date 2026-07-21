@@ -26,6 +26,25 @@ test("round-trips the composer draft and scroll offset", () => {
   expect(loadChat("key_1", "user-1")).toEqual(withView);
 });
 
+test("round-trips the unresolved nudges so a reload keeps their outcomes", () => {
+  const withNudges: ChatSnapshot = {
+    ...snapshot,
+    previewNudge: { id: "n1", text: "Stuck on setup?" },
+    awaitingNudgeIds: ["n2", "n3"],
+  };
+  storeChat("key_1", "user-1", withNudges);
+  expect(loadChat("key_1", "user-1")).toEqual(withNudges);
+});
+
+test("rejects a malformed preview nudge rather than restoring it", () => {
+  sessionStorage.setItem(
+    "fr_chat:key_1:user-1",
+    JSON.stringify({ v: 1, open: true, messages: [], previewNudge: { id: 7 } }),
+  );
+
+  expect(loadChat("key_1", "user-1")).toBeUndefined();
+});
+
 test("clearChat drops a stored chat", () => {
   storeChat("key_1", "user-1", snapshot);
   clearChat("key_1", "user-1");

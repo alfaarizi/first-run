@@ -124,6 +124,12 @@ export class NudgeUi {
     // A prior page left mid-answer, so reopen it. The buffered done frame fills
     // it when the stream reopens.
     if (snapshot.pendingId) this.openAnswer(snapshot.pendingId, false);
+
+    // The stream cursor advanced past these nudges when they arrived, so the
+    // server never resends them. Only the snapshot brings them back on a reload.
+    if (snapshot.previewNudge) this.restorePreview(snapshot.previewNudge);
+    for (const id of snapshot.awaitingNudgeIds ?? []) this.nudgesAwaitingReply.add(id);
+
     this.composer.setDraft(snapshot.composerDraft ?? "");
 
     if (snapshot.open) {
@@ -290,8 +296,12 @@ export class NudgeUi {
   private keepAnswerAlive(): void {
     clearTimeout(this.answerTimer);
     this.answerTimer = setTimeout(() => {
-      // The retry line joins any partial text, so a half answer never reads as done.
-      const partial = this.answer?.textContent;
+      const id = this.answerMessageId;
+      if (!id) return;
+      // A send still pending at the deadline never opened the answer, so open it
+      // now, or the question keeps no retry line at all. The retry joins any
+      // partial text, so a half answer never reads as done.
+      const partial = this.openAnswer(id).textContent;
       this.closeAnswer(partial ? `${partial} ${TRY_AGAIN_TEXT}` : TRY_AGAIN_TEXT);
     }, ANSWER_IDLE_MS);
   }
@@ -367,6 +377,14 @@ export class NudgeUi {
     this.bubble = this.pendingNudge = undefined;
   }
 
+  /** Rebuilds a previewed nudge's bubble on restore, without the chime a live nudge rings. */
+  private restorePreview(nudge: NudgePayload): void {
+    this.pendingNudge = nudge;
+    this.bubble = this.buildBubble(nudge);
+    this.root.prepend(this.bubble);
+    this.shell.classList.add("fr-unread");
+  }
+
   /** Appends one message to the transcript and the log, returning its model and body. */
   private appendMessage(
     who: "user" | "agent",
@@ -418,6 +436,8 @@ export class NudgeUi {
       messages: settled,
       pendingId: this.answerMessageId,
       engagedNudgeId: this.lastEngagedNudge,
+      previewNudge: this.pendingNudge,
+      awaitingNudgeIds: this.nudgesAwaitingReply.size ? [...this.nudgesAwaitingReply] : undefined,
       composerDraft: this.composer.draft(),
       scrollTop: this.expanded ? this.messages.scrollTop : undefined,
     });

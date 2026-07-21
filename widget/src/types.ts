@@ -74,6 +74,10 @@ export interface ChatSnapshot {
   pendingId?: string;
   /** The nudge the conversation opened from, so a reload keeps the reply's ref. */
   engagedNudgeId?: string;
+  /** The previewed nudge the user has not acted on, so a reload keeps its bubble. */
+  previewNudge?: NudgePayload;
+  /** The open-panel nudges awaiting a reply, so a reload keeps their engagement. */
+  awaitingNudgeIds?: string[];
   /** The unsent composer text, so a reload keeps a half-typed question. */
   composerDraft?: string;
   /** The message log's scroll offset while open, so a reload keeps the view. */

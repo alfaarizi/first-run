@@ -21,6 +21,8 @@ export function storeChat(key: string, endUserHash: string, snapshot: ChatSnapsh
         messages: snapshot.messages.slice(-MAX_STORED_MESSAGES),
         pendingId: snapshot.pendingId,
         engagedNudgeId: snapshot.engagedNudgeId,
+        previewNudge: snapshot.previewNudge,
+        awaitingNudgeIds: snapshot.awaitingNudgeIds,
         composerDraft: snapshot.composerDraft,
         scrollTop: snapshot.scrollTop,
       }),
@@ -40,9 +42,8 @@ export function loadChat(key: string, endUserHash: string): ChatSnapshot | undef
     if (!isSnapshot(parsed)) return undefined;
 
     // Drop the storage-only version marker, so callers get a clean snapshot.
-    const { open, messages, pendingId, engagedNudgeId, composerDraft, scrollTop } = parsed;
-
-    return { open, messages, pendingId, engagedNudgeId, composerDraft, scrollTop };
+    const { v: _version, ...snapshot } = parsed;
+    return snapshot;
   } catch {
     // Storage is blocked or the entry is corrupt. Starting fresh beats throwing.
     return undefined;
@@ -69,9 +70,23 @@ function isSnapshot(value: unknown): value is ChatSnapshot & { v: number } {
     snapshot.messages.every(isMessage) &&
     (snapshot.pendingId === undefined || typeof snapshot.pendingId === "string") &&
     (snapshot.engagedNudgeId === undefined || typeof snapshot.engagedNudgeId === "string") &&
+    (snapshot.previewNudge === undefined || isNudgePayload(snapshot.previewNudge)) &&
+    (snapshot.awaitingNudgeIds === undefined || isStringArray(snapshot.awaitingNudgeIds)) &&
     (snapshot.composerDraft === undefined || typeof snapshot.composerDraft === "string") &&
     (snapshot.scrollTop === undefined || typeof snapshot.scrollTop === "number")
   );
+}
+
+/** Checks one stored nudge payload: an id and the text the widget renders. */
+function isNudgePayload(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const nudge = value as Record<string, unknown>;
+  return typeof nudge.id === "string" && typeof nudge.text === "string";
+}
+
+/** Checks a stored list of nudge ids. */
+function isStringArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((id) => typeof id === "string");
 }
 
 /** Checks one stored message: renderable text with a real timestamp. */

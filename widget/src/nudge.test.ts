@@ -405,6 +405,31 @@ test("an answer idle past its window appends the retry line to partial text", as
   }
 });
 
+test("a send still pending past the idle window releases the retry line", () => {
+  vi.useFakeTimers();
+  try {
+    const { callbacks, query } = createUi();
+    // a stalled network request: the send never settles
+    callbacks.onSend.mockReturnValueOnce(new Promise<boolean>(() => {}));
+    query<HTMLButtonElement>(".fr-launcher")?.click();
+
+    const input = query<HTMLTextAreaElement>(".fr-input");
+    input!.value = "help";
+    input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    // the send has not landed, so no answer bubble has opened yet
+    expect(query(".fr-message-agent")).toBeNull();
+
+    vi.advanceTimersByTime(35_000);
+
+    // the watchdog opens the answer itself so the question still gets the retry line
+    expect(query(".fr-message-agent .fr-body")?.textContent).toBe(TRY_AGAIN_TEXT);
+    expect(query(".fr-typing")).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("frames for another conversation's message never reach the answer", async () => {
   const { ui, callbacks, query } = createUi();
   query<HTMLButtonElement>(".fr-launcher")?.click();
@@ -541,6 +566,47 @@ test("a reload keeps the opening nudge as the reply's ref, even once a newer one
   await second.callbacks.onSend.mock.results[0]?.value;
 
   expect(second.callbacks.onSend.mock.calls[0]![2]).toBe("nudge-a");
+});
+
+test("a previewed nudge survives a reload and still reports its outcome", () => {
+  let snapshot: ChatSnapshot | undefined;
+  const first = createUi((s) => (snapshot = structuredClone(s)));
+  first.ui.showNudge({ id: "n1", text: "Stuck on setup?" });
+
+  // the server acked the nudge and advanced its cursor, so a reload will not
+  // resend it: only the persisted snapshot can bring it back
+  dispatchEvent(new Event("pagehide"));
+  const second = createUi();
+  second.ui.restore(snapshot);
+
+  expect(second.query(".fr-bubble-text")?.textContent).toBe("Stuck on setup?");
+  expect(second.query(".fr-shell")?.classList.contains("fr-unread")).toBe(true);
+
+  // opening it after the reload still reports the engagement
+  second.query<HTMLButtonElement>(".fr-bubble-text")?.click();
+  expect(second.callbacks.onEngage).toHaveBeenCalledWith("n1");
+});
+
+test("an open-panel nudge still reports engaged when the reply lands after a reload", async () => {
+  let snapshot: ChatSnapshot | undefined;
+  const first = createUi((s) => (snapshot = structuredClone(s)));
+  first.query<HTMLButtonElement>(".fr-launcher")?.click();
+  first.ui.showNudge({ id: "n2", text: "Need a hand?" });
+
+  dispatchEvent(new Event("pagehide"));
+  const second = createUi();
+  second.ui.restore(snapshot);
+
+  // the nudge text is restored from the transcript
+  expect(second.query(".fr-message-agent .fr-body")?.textContent).toBe("Need a hand?");
+
+  // replying to it after the reload still reports it engaged
+  const input = second.query<HTMLTextAreaElement>(".fr-input")!;
+  input.value = "yes please";
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  await second.callbacks.onSend.mock.results[0]?.value;
+
+  expect(second.callbacks.onEngage).toHaveBeenCalledWith("n2");
 });
 
 test("a completed answer restores as plain text without a typing indicator", async () => {
