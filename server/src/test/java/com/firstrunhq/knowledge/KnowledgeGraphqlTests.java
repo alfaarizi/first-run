@@ -25,6 +25,8 @@ class KnowledgeGraphqlTests {
   private static final String APP_A = "019813f2-0000-7000-8000-0000000000d2";
   private static final String TENANT_B = "019813f2-0000-7000-8000-0000000000d3";
   private static final String APP_B = "019813f2-0000-7000-8000-0000000000d4";
+  private static final String CHUNK_LIVE = "019813f2-0000-7000-8000-0000000000d5";
+  private static final String CHUNK_STAGED = "019813f2-0000-7000-8000-0000000000d6";
 
   private static final String ADD_DOC_SOURCE =
       """
@@ -99,6 +101,31 @@ class KnowledgeGraphqlTests {
             .get();
 
     assertThat(second).isEqualTo(first);
+  }
+
+  @Test
+  void countsOnlyThePublishedCrawlsChunks() throws SQLException {
+    String url = "https://docs.example.com/counted";
+    String sourceId =
+        add(asTenant(TENANT_A), APP_A, url)
+            .path("addDocSource.docSource.id")
+            .entity(String.class)
+            .get();
+    String published = "019813f2-0000-7000-8000-0000000000e1";
+    TestSeeder.docChunk(dataSource, CHUNK_LIVE, TENANT_A, sourceId, published, url, "live");
+    TestSeeder.liveCrawl(dataSource, sourceId, published);
+
+    // A reindex stages its chunks beside the live generation until it publishes.
+    String staging = "019813f2-0000-7000-8000-0000000000e2";
+    TestSeeder.docChunk(dataSource, CHUNK_STAGED, TENANT_A, sourceId, staging, url, "staged");
+
+    asTenant(TENANT_A)
+        .document(APP_DOC_SOURCES)
+        .variable("id", APP_A)
+        .execute()
+        .path("app.docSources[?(@.url == '%s')].chunkCount".formatted(url))
+        .entityList(Integer.class)
+        .containsExactly(1);
   }
 
   @Test

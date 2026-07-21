@@ -13,18 +13,16 @@ import grpc from '@grpc/grpc-js'
 import protoLoader from '@grpc/proto-loader'
 
 import { BASELINES, resolveDatasetUrl } from './lib/baselines.mjs'
+import { DEMO_APP_ID, DEMO_TENANT_ID } from './lib/demo.mjs'
 
-const AGENT_ADDRESS = process.env.AGENT_GRPC_ADDRESS ?? 'localhost:50051'
-// The default must match the judge_model pinned in evals/baselines.json, or
-// a rerun's numbers stop being comparable to the recorded baseline.
-const JUDGE_MODEL = process.env.QA_JUDGE_MODEL ?? 'claude-sonnet-5'
+// Matches the host port compose publishes for the agent's gRPC. A default the
+// stack does not expose would report every run skipped instead of replaying.
+const AGENT_ADDRESS = process.env.AGENT_GRPC_ADDRESS ?? 'localhost:50052'
+// The judge that measured the recorded baseline. A rerun under another judge
+// produces numbers that cannot be compared to it.
+const JUDGE_MODEL = process.env.QA_JUDGE_MODEL ?? BASELINES.baselines.qa.judge_model
 // Caps a run for smoke tests and the per-run budget. The full set runs by default.
 const SAMPLE = Number(process.env.QA_SAMPLE ?? Infinity)
-
-// The seeded demo tenant and app (scripts/seed.sql), whose index holds
-// Tasklet's docs.
-const TENANT_ID = '019813f2-0000-7000-8000-000000000001'
-const APP_ID = '019813f2-0000-7000-8000-000000000002'
 
 const ANSWER_TIMEOUT_MS = 60_000
 
@@ -55,13 +53,7 @@ async function main() {
   const results = []
   for (const row of rows) {
     const answer = await converse(client, row.question)
-    // A failed or empty answer is an unanswered request, scored ungrounded so a
-    // partial that never completed cannot inflate the groundedness rate.
-    const verdict =
-      answer.failed || answer.text.length === 0
-        ? { verdict: 'ungrounded', reason: answer.text.length === 0 ? 'the answer failed to stream' : 'the answer failed mid-stream' }
-        : await judgeAnswer(judge, rubric, row, answer)
-    results.push({ row, answer, ...verdict })
+    results.push({ row, answer, ...(await scoreAnswer(judge, rubric, row, answer)) })
   }
   report(results)
 }
@@ -123,14 +115,29 @@ function converse(client, question) {
     call.write({
       context: {
         conversation_id: crypto.randomUUID(),
-        tenant_id: TENANT_ID,
-        app_id: APP_ID,
+        tenant_id: DEMO_TENANT_ID,
+        app_id: DEMO_APP_ID,
         end_user_hash: 'qa-harness',
         session_id: crypto.randomUUID(),
       },
     })
     call.write({ user_message: { message_id: messageId, text: question } })
   })
+}
+
+/**
+ * Scores one replayed answer. An answer that never streamed or died mid-stream
+ * is ungrounded without spending a judge call, so a partial that never
+ * completed cannot inflate the groundedness rate.
+ */
+async function scoreAnswer(judge, rubric, row, answer) {
+  if (answer.text.length === 0) {
+    return { verdict: 'ungrounded', reason: 'the answer failed to stream' }
+  }
+  if (answer.failed) {
+    return { verdict: 'ungrounded', reason: 'the answer failed mid-stream' }
+  }
+  return judgeAnswer(judge, rubric, row, answer)
 }
 
 async function judgeAnswer(judge, rubric, row, answer) {
@@ -182,8 +189,14 @@ function report(results) {
   for (const r of judged.filter((r) => r.verdict === 'ungrounded')) {
     console.log(`ungrounded ${r.row.id}: ${r.reason}`)
   }
-  console.log(`questions ${results.length}, judged ${judged.length}, judge errors ${results.length - judged.length}`)
-  console.log(`groundedness ${(grounded.length / judged.length).toFixed(3)} (floor 0.90 once the judge is calibrated)`)
+  console.log(
+    `questions ${results.length}, judged ${judged.length}, ` +
+      `judge errors ${results.length - judged.length}`
+  )
+  console.log(
+    `groundedness ${(grounded.length / judged.length).toFixed(3)} ` +
+      '(floor 0.90 once the judge is calibrated)'
+  )
   console.log(`unanswerable honesty ${honest.length}/${unanswerable.length}`)
   console.log(
     `first token p95 ${p95 === undefined ? 'n/a, no questions ran' : (p95 / 1000).toFixed(2) + 's'} ` +

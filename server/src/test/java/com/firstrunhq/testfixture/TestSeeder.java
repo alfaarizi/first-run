@@ -92,6 +92,14 @@ public final class TestSeeder {
             .formatted(chunkId, tenantId, sourceId, crawlId, sourceUrl, content, zeroVector));
   }
 
+  /** Publishes one crawl generation, the pointer a completed crawl moves. */
+  public static void liveCrawl(DataSource dataSource, String sourceId, String crawlId)
+      throws SQLException {
+    execute(
+        dataSource,
+        "UPDATE doc_source SET live_crawl_id = '%s' WHERE id = '%s'".formatted(crawlId, sourceId));
+  }
+
   /** Seeds an end user known only by the customer-supplied hash. */
   public static void endUser(
       DataSource dataSource,

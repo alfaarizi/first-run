@@ -28,9 +28,8 @@ class MessagesController {
   // Endpoint contract from api/openapi/messages.yaml, read here and mirrored by the CORS policy.
   static final String PATH = "/v1/messages";
 
-  // The contract caps text at 2000 characters. This bounds the whole body.
+  // Bounds the whole body, well above the contract's text cap.
   private static final int MAX_BODY_BYTES = 16 * 1024;
-  private static final int MAX_TEXT_CHARS = 2_000;
 
   private final AppDirectory appDirectory;
   private final SignatureVerifier signatureVerifier;
@@ -103,9 +102,10 @@ class MessagesController {
           HttpStatus.BAD_REQUEST,
           "end_user_hash must be 1 to " + WidgetContract.END_USER_HASH_MAX_CHARS + " characters.");
     }
-    if (text == null || text.isBlank() || text.length() > MAX_TEXT_CHARS) {
+    if (text == null || text.isBlank() || text.length() > WidgetContract.MESSAGE_TEXT_MAX_CHARS) {
       return problem(
-          HttpStatus.BAD_REQUEST, "text must be 1 to " + MAX_TEXT_CHARS + " characters.");
+          HttpStatus.BAD_REQUEST,
+          "text must be 1 to " + WidgetContract.MESSAGE_TEXT_MAX_CHARS + " characters.");
     }
 
     // Holdout users are not gated here: the holdout suppresses the proactive

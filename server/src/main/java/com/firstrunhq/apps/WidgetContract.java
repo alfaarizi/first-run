@@ -10,6 +10,7 @@ public final class WidgetContract {
   public static final String TIMESTAMP_HEADER = "X-FirstRun-Timestamp";
   public static final String SIGNATURE_HEADER = "X-FirstRun-Signature";
   public static final int END_USER_HASH_MAX_CHARS = 128;
+  public static final int MESSAGE_TEXT_MAX_CHARS = 2_000;
 
   private WidgetContract() {}
 }

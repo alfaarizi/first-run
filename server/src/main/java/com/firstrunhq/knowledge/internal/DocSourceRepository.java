@@ -71,7 +71,14 @@ class DocSourceRepository {
   @Transactional(readOnly = true)
   int chunkCount(UUID tenantId, UUID sourceId) {
     tenantContext.scopeTo(tenantId);
-    return jdbc.sql("SELECT count(*) FROM doc_chunk WHERE source_id = :source_id")
+    // A reindex stages the next generation beside the live one, so counting
+    // both would inflate the number until the crawl publishes.
+    return jdbc.sql(
+            """
+            SELECT count(*) FROM doc_chunk c
+            JOIN doc_source s ON s.id = c.source_id
+            WHERE c.source_id = :source_id AND c.crawl_id = s.live_crawl_id
+            """)
         .param("source_id", sourceId)
         .query(Integer.class)
         .single();
