@@ -521,6 +521,28 @@ test("restore rebuilds the conversation and re-arms a pending answer", async () 
   expect(second.query(".fr-message-agent .fr-body")?.textContent).toBe("Open Settings.");
 });
 
+test("a reload keeps the opening nudge as the reply's ref, even once a newer one lands", async () => {
+  let snapshot: ChatSnapshot | undefined;
+  const first = createUi((s) => (snapshot = structuredClone(s)));
+  first.ui.showNudge({ id: "nudge-a", text: "Stuck on setup?" });
+  first.query<HTMLButtonElement>(".fr-launcher")?.click();
+  dispatchEvent(new Event("pagehide"));
+
+  // the reload lands with the panel still open, then a newer nudge arrives
+  // before the question is asked
+  const second = createUi();
+  second.ui.restore(snapshot);
+  second.ui.showNudge({ id: "nudge-b", text: "Stuck on billing?" });
+
+  // typed into the restored panel, so the newer nudge is still awaiting a reply
+  const input = second.query<HTMLTextAreaElement>(".fr-input")!;
+  input.value = "how do I connect?";
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  await second.callbacks.onSend.mock.results[0]?.value;
+
+  expect(second.callbacks.onSend.mock.calls[0]![2]).toBe("nudge-a");
+});
+
 test("a completed answer restores as plain text without a typing indicator", async () => {
   let snapshot: ChatSnapshot | undefined;
   const first = createUi((s) => (snapshot = structuredClone(s)));

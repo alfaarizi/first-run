@@ -72,6 +72,8 @@ export interface ChatSnapshot {
   messages: ChatMessage[];
   /** The in-flight answer's id, so a reload restores its typing indicator. */
   pendingId?: string;
+  /** The nudge the conversation opened from, so a reload keeps the reply's ref. */
+  engagedNudgeId?: string;
   /** The unsent composer text, so a reload keeps a half-typed question. */
   composerDraft?: string;
   /** The message log's scroll offset while open, so a reload keeps the view. */

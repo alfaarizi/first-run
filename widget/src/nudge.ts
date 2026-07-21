@@ -110,6 +110,9 @@ export class NudgeUi {
    */
   restore(snapshot: ChatSnapshot | undefined): void {
     if (!snapshot) return;
+    // The reply still answers the nudge that opened the panel, so its ref
+    // survives the reload rather than falling to whichever nudge lands next.
+    this.lastEngagedNudge = snapshot.engagedNudgeId;
     this.transcript = snapshot.messages.map((model) => ({
       ...model,
       citations: model.citations && [...model.citations],
@@ -414,6 +417,7 @@ export class NudgeUi {
       open: this.expanded,
       messages: settled,
       pendingId: this.answerMessageId,
+      engagedNudgeId: this.lastEngagedNudge,
       composerDraft: this.composer.draft(),
       scrollTop: this.expanded ? this.messages.scrollTop : undefined,
     });

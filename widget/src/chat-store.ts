@@ -20,6 +20,7 @@ export function storeChat(key: string, endUserHash: string, snapshot: ChatSnapsh
         open: snapshot.open,
         messages: snapshot.messages.slice(-MAX_STORED_MESSAGES),
         pendingId: snapshot.pendingId,
+        engagedNudgeId: snapshot.engagedNudgeId,
         composerDraft: snapshot.composerDraft,
         scrollTop: snapshot.scrollTop,
       }),
@@ -39,9 +40,9 @@ export function loadChat(key: string, endUserHash: string): ChatSnapshot | undef
     if (!isSnapshot(parsed)) return undefined;
 
     // Drop the storage-only version marker, so callers get a clean snapshot.
-    const { open, messages, pendingId, composerDraft, scrollTop } = parsed;
+    const { open, messages, pendingId, engagedNudgeId, composerDraft, scrollTop } = parsed;
 
-    return { open, messages, pendingId, composerDraft, scrollTop };
+    return { open, messages, pendingId, engagedNudgeId, composerDraft, scrollTop };
   } catch {
     // Storage is blocked or the entry is corrupt. Starting fresh beats throwing.
     return undefined;
@@ -67,6 +68,7 @@ function isSnapshot(value: unknown): value is ChatSnapshot & { v: number } {
     Array.isArray(snapshot.messages) &&
     snapshot.messages.every(isMessage) &&
     (snapshot.pendingId === undefined || typeof snapshot.pendingId === "string") &&
+    (snapshot.engagedNudgeId === undefined || typeof snapshot.engagedNudgeId === "string") &&
     (snapshot.composerDraft === undefined || typeof snapshot.composerDraft === "string") &&
     (snapshot.scrollTop === undefined || typeof snapshot.scrollTop === "number")
   );
