@@ -99,8 +99,19 @@ function isMessage(value: unknown): boolean {
     (message.who === "user" || message.who === "agent") &&
     typeof message.text === "string" &&
     typeof message.at === "number" &&
-    (message.citations === undefined || Array.isArray(message.citations))
+    (message.citations === undefined ||
+      (Array.isArray(message.citations) && message.citations.every(isCitation)))
   );
+}
+
+/**
+ * Checks one stored citation: the title and link the transcript renders. One the renderer cannot
+ * read throws before the stream opens, and survives in storage to throw again on the next reload.
+ */
+function isCitation(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const citation = value as Record<string, unknown>;
+  return typeof citation.title === "string" && typeof citation.url === "string";
 }
 
 /** Names the slot for one app and end user's chat, beside their stream cursor. */

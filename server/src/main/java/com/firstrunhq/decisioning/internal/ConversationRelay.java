@@ -47,8 +47,10 @@ class ConversationRelay {
   // Retry-with-backoff fits unary calls like Reindex, not a held-open stream.
   private static final Duration ANSWER_TIMEOUT = Duration.ofSeconds(30);
 
-  // Matches the session idle window, so a conversation dies with its session.
-  private static final Duration IDLE_TIMEOUT = Duration.ofMinutes(30);
+  // Reaps abandoned conversations, and nothing more. Any captured event refreshes the session id
+  // this conversation is keyed by, so a window narrow enough to track the session cuts live ones,
+  // and the question that reopens one loses the history the widget still shows.
+  private static final Duration IDLE_TIMEOUT = Duration.ofHours(4);
   private static final Duration SWEEP_INTERVAL = Duration.ofMinutes(5);
 
   // The signing key ships in the page, so anyone can mint valid messages. The

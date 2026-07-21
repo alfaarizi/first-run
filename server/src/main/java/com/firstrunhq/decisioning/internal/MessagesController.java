@@ -33,16 +33,19 @@ class MessagesController {
 
   private final AppDirectory appDirectory;
   private final SignatureVerifier signatureVerifier;
+  private final MessageRateLimiter rateLimiter;
   private final ConversationRelay relay;
   private final ObjectMapper objectMapper;
 
   MessagesController(
       AppDirectory appDirectory,
       SignatureVerifier signatureVerifier,
+      MessageRateLimiter rateLimiter,
       ConversationRelay relay,
       ObjectMapper objectMapper) {
     this.appDirectory = appDirectory;
     this.signatureVerifier = signatureVerifier;
+    this.rateLimiter = rateLimiter;
     this.relay = relay;
     this.objectMapper = objectMapper;
   }
@@ -108,6 +111,12 @@ class MessagesController {
           "text must be 1 to " + WidgetContract.MESSAGE_TEXT_MAX_CHARS + " characters.");
     }
 
+    // After validation, so a malformed request never spends an honest message's token.
+    long retryAfter = rateLimiter.retryAfterSeconds(app.id());
+    if (retryAfter > 0) {
+      return tooManyMessages(retryAfter);
+    }
+
     // Holdout users are not gated here: the holdout suppresses the proactive
     // nudges that carry the lift signal, and answering a question the user
     // asked first only makes measured lift more conservative. The leak to
@@ -132,5 +141,15 @@ class MessagesController {
     return ResponseEntity.status(status)
         .contentType(MediaType.APPLICATION_PROBLEM_JSON)
         .body(ProblemDetail.forStatusAndDetail(status, detail));
+  }
+
+  /** Builds the 429 problem with its Retry-After hint, the one rejection carrying a header. */
+  private static ResponseEntity<Object> tooManyMessages(long retryAfterSeconds) {
+    return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+        .header(HttpHeaders.RETRY_AFTER, Long.toString(retryAfterSeconds))
+        .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+        .body(
+            ProblemDetail.forStatusAndDetail(
+                HttpStatus.TOO_MANY_REQUESTS, "The app's message rate limit is exhausted."));
   }
 }

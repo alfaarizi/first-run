@@ -50,6 +50,19 @@ test("rejects a malformed preview nudge rather than restoring it", () => {
   expect(loadChat("key_1", "user-1")).toBeUndefined();
 });
 
+test("rejects a message whose citations the transcript could not render", () => {
+  sessionStorage.setItem(
+    "fr_chat:key_1:user-1",
+    JSON.stringify({
+      v: 1,
+      open: true,
+      messages: [{ who: "agent", text: "hi", at: 1, citations: [null] }],
+    }),
+  );
+
+  expect(loadChat("key_1", "user-1")).toBeUndefined();
+});
+
 test("clearChat drops a stored chat", () => {
   storeChat("key_1", "user-1", snapshot);
   clearChat("key_1", "user-1");

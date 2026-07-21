@@ -22,6 +22,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -37,10 +38,12 @@ class MessagesControllerTests {
 
   private final AppDirectory appDirectory = mock(AppDirectory.class);
   private final ConversationRelay relay = mock(ConversationRelay.class);
+  private final MessageRateLimiter rateLimiter = new MessageRateLimiter();
   private final MessagesController controller =
       new MessagesController(
           appDirectory,
           new SignatureVerifier(),
+          rateLimiter,
           relay,
           JsonMapper.builder().findAndAddModules().build());
 
@@ -132,6 +135,25 @@ class MessagesControllerTests {
 
     verify(relay)
         .relay(any(), argThat(message -> message.text().equals("hi") && ref.equals(message.ref())));
+  }
+
+  @Test
+  void metersMessagesSoFreshIdsCannotOutrunTheConversationBudget() {
+    // One conversation, fresh ids: the conversation cap never sees this flood,
+    // and every message it lets through is a model call.
+    when(appDirectory.findBySdkKey("pk_test")).thenReturn(Optional.of(SDK_APP));
+    when(relay.relay(any(), any())).thenReturn(true);
+
+    ResponseEntity<Object> lastAccepted = null;
+    for (int message = 0; message < 60; message++) {
+      lastAccepted = post(body("hi"), true, null);
+    }
+    ResponseEntity<Object> throttled = post(body("hi"), true, null);
+
+    assertThat(lastAccepted).isNotNull();
+    assertThat(lastAccepted.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+    assertThat(throttled.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    assertThat(throttled.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo("1");
   }
 
   @Test
