@@ -63,14 +63,18 @@ class CandidateProcessor {
       return;
     }
 
+    // Record the context before the frame can leave, so a question that refs
+    // this nudge always resolves it. An undelivered nudge's context is
+    // unreachable: it never sends the ref that finds it.
+    contexts.record(
+        candidate.appId(),
+        candidate.endUserHash(),
+        new NudgeContexts.NudgeContext(
+            candidate.id(), candidate.milestoneId(), candidate.milestoneName()));
+
     // A nudge neither delivered nor buffered stays unclaimed, so a candidate copy can retry it.
     if (streams.pushNudge(
         candidate.appId(), candidate.endUserHash(), candidate.id(), nudgeText(candidate))) {
-      contexts.record(
-          candidate.appId(),
-          candidate.endUserHash(),
-          new NudgeContexts.NudgeContext(
-              candidate.id(), candidate.milestoneId(), candidate.milestoneName()));
       try {
         deduper.claim(candidate.appId(), candidate.eventId());
       } catch (DataAccessException claimLost) {

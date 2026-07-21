@@ -116,7 +116,10 @@ function start(config: Config): void {
                 text,
                 ...(ref && { ref }),
               }),
-            ).then((result) => result.ok),
+              // A retryable failure may have reached the server, whose accepted
+              // answer then rides the stream. Only a definite rejection should
+              // settle the question, never discards a live answer.
+            ).then((result) => result.ok || result.retryable),
     },
     // Persisted under the current identity, so a reload restores this user's
     // conversation and never another's. A no-op until identify sets the hash.

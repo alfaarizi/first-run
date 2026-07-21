@@ -104,13 +104,14 @@ class ConversationRelayTests {
   }
 
   @Test
-  void opensTheConversationWithTheLatestNudgeContext() {
-    UUID nudgeId = UUID.randomUUID();
-    UUID milestoneId = UUID.randomUUID();
+  void opensAnUnreferencedConversationWithoutNudgeContext() {
+    // A nudge is on file, but a message with no ref opened the chat organically,
+    // so it carries the base context and no intervention or milestone hint.
     contexts.record(
         APP,
         END_USER,
-        new NudgeContexts.NudgeContext(nudgeId, milestoneId, "data_source_connected"));
+        new NudgeContexts.NudgeContext(
+            UUID.randomUUID(), UUID.randomUUID(), "data_source_connected"));
 
     relay.relay(SDK_APP, message(UUID.randomUUID(), "answer", null));
 
@@ -119,9 +120,9 @@ class ConversationRelayTests {
     assertThat(context.getTenantId()).isEqualTo(TENANT.toString());
     assertThat(context.getAppId()).isEqualTo(APP.toString());
     assertThat(context.getSessionId()).isEqualTo(SESSION.toString());
-    assertThat(context.getInterventionId()).isEqualTo(nudgeId.toString());
-    assertThat(context.getMilestoneName()).isEqualTo("data_source_connected");
     assertThat(context.getConversationId()).isNotEmpty();
+    assertThat(context.getInterventionId()).isEmpty();
+    assertThat(context.getMilestoneName()).isEmpty();
   }
 
   @Test

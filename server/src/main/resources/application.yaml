@@ -10,6 +10,9 @@ spring:
       host: localhost
       port: 6379
       password: ${REDIS_PASSWORD}
+      # Bound every Redis command so a stalled broker degrades to a
+      # fast failure the replay buffers absorb.
+      timeout: 2s
   kafka:
     bootstrap-servers: localhost:19092
     consumer:

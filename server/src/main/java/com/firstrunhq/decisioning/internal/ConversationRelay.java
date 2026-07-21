@@ -138,14 +138,13 @@ class ConversationRelay {
   }
 
   private Conversation open(String key, SdkApp app, EndUserMessage message) {
-    // The ref names the nudge that opened the chat. An unknown ref yields no
-    // context, because a guessed milestone hint corrupts attribution.
+    // The ref names the nudge that opened the chat. Without a ref the chat is
+    // organic, and an unknown ref names no nudge on file, so neither carries a
+    // context: crediting an intervention that did not open the conversation, or
+    // feeding a guessed milestone hint, corrupts attribution against the holdout.
     UUID ref = message.ref();
     NudgeContexts.NudgeContext nudge =
-        (ref != null
-                ? contexts.find(app.id(), message.endUserHash(), ref)
-                : contexts.latest(app.id(), message.endUserHash()))
-            .orElse(null);
+        ref == null ? null : contexts.find(app.id(), message.endUserHash(), ref).orElse(null);
     ConversationContext.Builder context =
         ConversationContext.newBuilder()
             .setConversationId(UUID_V7.generate().toString())

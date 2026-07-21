@@ -25,9 +25,10 @@ export interface NudgeCallbacks {
   /** Reports the nudge engaged, by opening the panel or by replying. */
   onEngage(nudgeId: string): void;
   /**
-   * Sends one user message. `id` ties the answer's stream frames back to
-   * this message, and `ref` names the nudge this message answers, when the
-   * panel opened from one.
+   * Sends one user message. `id` ties the answer's stream frames back to this
+   * message, and `ref` names the nudge this message answers, when the panel
+   * opened from one. Resolves false only on a definite rejection, so an
+   * uncertain send keeps its answer open for the frames it may still receive.
    */
   onSend(id: string, text: string, ref?: string): Promise<boolean>;
 }

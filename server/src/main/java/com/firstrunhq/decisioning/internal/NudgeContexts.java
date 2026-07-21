@@ -16,18 +16,11 @@ class NudgeContexts {
 
   private static final int MAX_ENTRIES = 10_000;
 
-  private final Map<String, NudgeContext> latestByUser = boundedLru();
   private final Map<String, NudgeContext> byNudge = boundedLru();
 
-  /** Remembers the nudge as the user's latest and by its id. */
+  /** Remembers the nudge by its id, so a message's ref recovers what it answers. */
   synchronized void record(UUID appId, String endUserHash, NudgeContext context) {
-    latestByUser.put(userKey(appId, endUserHash), context);
     byNudge.put(nudgeKey(appId, endUserHash, context.nudgeId()), context);
-  }
-
-  /** The user's most recent nudge, for a conversation opened without a ref. */
-  synchronized Optional<NudgeContext> latest(UUID appId, String endUserHash) {
-    return Optional.ofNullable(latestByUser.get(userKey(appId, endUserHash)));
   }
 
   /** The nudge a message's ref names, scoped to its user so a ref cannot borrow another's nudge. */
@@ -43,11 +36,6 @@ class NudgeContexts {
         return size() > MAX_ENTRIES;
       }
     };
-  }
-
-  /** Builds the key holding one user's latest nudge. */
-  private static String userKey(UUID appId, String endUserHash) {
-    return appId + ":" + endUserHash;
   }
 
   /** Builds the key holding one specific nudge, scoped to its user. */

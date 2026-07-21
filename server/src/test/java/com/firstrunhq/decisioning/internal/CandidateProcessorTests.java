@@ -1,5 +1,6 @@
 package com.firstrunhq.decisioning.internal;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -46,6 +47,22 @@ class CandidateProcessorTests {
         .claim(any(), any());
 
     assertThatCode(() -> processor.onCandidate(candidateRecord())).doesNotThrowAnyException();
+  }
+
+  @Test
+  void recordsTheNudgeContextSoALaterRefResolvesIt() throws Exception {
+    when(milestoneTitles.find(any(), any())).thenReturn(Optional.empty());
+    when(streams.pushNudge(any(), any(), any(), any())).thenReturn(true);
+
+    ConsumerRecord<String, String> record = candidateRecord();
+    CandidateEnvelope candidate = objectMapper.readValue(record.value(), CandidateEnvelope.class);
+    processor.onCandidate(record);
+
+    // Recorded under the nudge id the widget echoes back as the message ref.
+    assertThat(contexts.find(candidate.appId(), candidate.endUserHash(), candidate.id()))
+        .contains(
+            new NudgeContexts.NudgeContext(
+                candidate.id(), candidate.milestoneId(), candidate.milestoneName()));
   }
 
   @Test
