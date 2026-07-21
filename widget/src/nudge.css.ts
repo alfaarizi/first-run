@@ -395,8 +395,13 @@ button:focus-visible {
 .fr-send-ready {
   background: var(--send-ready-background);
 }
-.fr-send:hover {
+.fr-send:hover:not(:disabled) {
   filter: var(--interactive-filter);
+}
+/* Outranks the ready color, so a blocked send never looks armed. */
+.fr-send:disabled {
+  background: var(--send-background);
+  cursor: default;
 }
 .fr-send svg {
   width: 14px;

@@ -1,6 +1,6 @@
 import { createChime, type Chime } from "./chime";
 import { createComposer, type Composer } from "./composer";
-import { TRY_AGAIN_TEXT } from "./constants";
+import { CONNECTING_TEXT, HERE_TO_HELP_TEXT, TRY_AGAIN_TEXT } from "./constants";
 import { el } from "./dom";
 import { buildFace } from "./face";
 import { FACE_CSS } from "./face.css";
@@ -48,6 +48,7 @@ export class NudgeUi {
   private readonly shell: HTMLElement;
   private readonly launcher: HTMLButtonElement;
   private readonly panel: HTMLElement;
+  private readonly subtitle: HTMLElement;
   private readonly messages: HTMLElement;
   private readonly composer: Composer;
   private bubble: HTMLElement | undefined;
@@ -70,11 +71,14 @@ export class NudgeUi {
     this.persist = persist;
     this.chime = createChime();
     this.launcher = this.buildLauncher();
+    this.subtitle = el("p", "fr-subtitle");
     this.messages = this.buildMessages();
     this.composer = createComposer(() => this.sendDraft());
     this.panel = this.buildPanel();
     this.shell = this.buildShell();
     this.root = this.buildRoot();
+    // No channel is open until the stream reports one.
+    this.setConnected(false);
     this.mount();
     // Persist once, as the page hides.
     // A refresh fires pagehide with the surface's final state intact.
@@ -95,6 +99,7 @@ export class NudgeUi {
     this.messages.replaceChildren();
     this.panel.querySelector(".fr-confirm")?.remove();
     this.composer.clearDraft();
+    this.setConnected(false);
     this.shell.classList.remove("fr-unread");
     this.collapsePanel(false);
   }
@@ -160,6 +165,16 @@ export class NudgeUi {
     if (this.expanded) return;
     this.shell.classList.add("fr-unread");
     this.chime.nudge();
+  }
+
+  /**
+   * Follows the push channel. Answers ride it live, so the composer waits
+   * instead of taking a question that would only earn the retry line.
+   */
+  setConnected(connected: boolean): void {
+    this.subtitle.textContent = connected ? HERE_TO_HELP_TEXT : CONNECTING_TEXT;
+    this.composer.setEnabled(connected);
+    if (connected && this.expanded) this.composer.focus();
   }
 
   /** Streams one answer span into the answer awaiting its message id. */
@@ -440,7 +455,7 @@ export class NudgeUi {
   /** Builds the expanded panel: header, message log, then the composer. */
   private buildPanel(): HTMLElement {
     const heading = el("div", "");
-    heading.append(el("h2", "fr-title", "FirstRun"), el("p", "fr-subtitle", "Here to help"));
+    heading.append(el("h2", "fr-title", "FirstRun"), this.subtitle);
 
     const close = el("button", "fr-close", "×");
     close.setAttribute("aria-label", "Close");

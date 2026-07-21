@@ -28,7 +28,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function createUi(persist: (snapshot: ChatSnapshot) => void = () => {}) {
+function createUi(persist: (snapshot: ChatSnapshot) => void = () => {}, connected = true) {
   const callbacks = {
     onDismiss: vi.fn(),
     onEngage: vi.fn(),
@@ -37,6 +37,9 @@ function createUi(persist: (snapshot: ChatSnapshot) => void = () => {}) {
       .mockResolvedValue(true),
   };
   const ui = new NudgeUi(callbacks, persist);
+  // The steady state most tests exercise: the push channel is up, so the
+  // composer accepts a question. The surface itself boots blocked.
+  if (connected) ui.setConnected(true);
   const query = <T extends HTMLElement>(selector: string) =>
     shadow.querySelector<T>(selector);
   return { ui, callbacks, query };
@@ -419,6 +422,29 @@ test("frames for another conversation's message never reach the answer", async (
   ui.appendAnswerToken(messageId, "Mine.");
 
   expect(query(".fr-message-agent .fr-body")?.textContent).toBe("Mine.");
+});
+
+test("the surface boots on no channel, so the composer waits and the header says so", () => {
+  const { query } = createUi(() => {}, false);
+
+  expect(query<HTMLTextAreaElement>(".fr-input")?.disabled).toBe(true);
+  expect(query(".fr-subtitle")?.textContent).toBe("Connecting...");
+});
+
+test("a panel opened on a lost channel blocks, then takes the caret once it returns", () => {
+  const { ui, query } = createUi();
+  ui.setConnected(false);
+  query<HTMLButtonElement>(".fr-launcher")?.click();
+  const input = query<HTMLTextAreaElement>(".fr-input")!;
+
+  // answers ride the channel, so opening while it is down cannot invite a question
+  expect(input.disabled).toBe(true);
+  expect(shadow.activeElement).not.toBe(input);
+
+  ui.setConnected(true);
+  expect(input.disabled).toBe(false);
+  expect(query(".fr-subtitle")?.textContent).toBe("Here to help");
+  expect(shadow.activeElement).toBe(input);
 });
 
 test("a pending answer shows the typing indicator until the first token", async () => {

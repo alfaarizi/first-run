@@ -46,7 +46,7 @@ const config: Config = {
 };
 
 function handlers() {
-  return { nudge: vi.fn(), token: vi.fn(), done: vi.fn(), action: vi.fn() };
+  return { nudge: vi.fn(), token: vi.fn(), done: vi.fn(), action: vi.fn(), connected: vi.fn() };
 }
 
 beforeEach(() => {
@@ -184,6 +184,26 @@ test("the stream reports open only while its socket is open", async () => {
   source.readyState = FakeEventSource.CLOSED;
   source.emit("error");
   expect(stream.isOpen()).toBe(false);
+});
+
+test("the channel reports itself open, then lost on a drop and on a retirement", async () => {
+  const handle = handlers();
+  connectStream(config, "user-channel", handle);
+  await vi.advanceTimersByTimeAsync(0);
+
+  const source = FakeEventSource.instances[0]!;
+  source.readyState = FakeEventSource.OPEN;
+  source.emit("open");
+  expect(handle.connected).toHaveBeenLastCalledWith(true);
+
+  source.readyState = FakeEventSource.CLOSED;
+  source.emit("error");
+  expect(handle.connected).toHaveBeenLastCalledWith(false);
+
+  // a retirement shuts the socket without an error event, so it reports the loss itself
+  source.emit("open");
+  source.emit("retired");
+  expect(handle.connected).toHaveBeenLastCalledWith(false);
 });
 
 test("a closed stream never reports open again", async () => {

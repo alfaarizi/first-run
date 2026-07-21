@@ -15,6 +15,8 @@ export interface Composer {
   /** Seeds the draft, growing the input to fit, used when a reload restores it. */
   setDraft(value: string): void;
   clearDraft(): void;
+  /** Opens or blocks the input and its send button. */
+  setEnabled(enabled: boolean): void;
   focus(): void;
 }
 
@@ -82,6 +84,9 @@ export function createComposer(onSubmit: () => void): Composer {
     draft: () => input.value,
     setDraft,
     clearDraft: () => setDraft(""),
+    setEnabled(enabled) {
+      input.disabled = send.disabled = !enabled;
+    },
     focus() {
       // Scroll-on-focus would drag the shell's content while it is mid-morph.
       input.focus({ preventScroll: true });

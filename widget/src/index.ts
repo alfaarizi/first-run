@@ -172,6 +172,7 @@ function start(config: Config): void {
           ),
         });
       }),
+      connected: failSilent((open) => ui.setConnected(open)),
     });
   });
 

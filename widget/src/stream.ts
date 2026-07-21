@@ -12,6 +12,7 @@ const memoryCursors = new Map<string, string>();
 
 /** What the stream dispatches: one handler per server frame type. */
 export interface StreamHandlers {
+  connected(open: boolean): void;
   nudge(payload: NudgePayload): void;
   token(messageId: string, text: string): void;
   done(messageId: string, text: string | undefined, citations: Citation[]): void;
@@ -94,16 +95,20 @@ export function connectStream(
 
     source.addEventListener("open", () => {
       retries = 0;
+      handlers.connected(true);
     });
     source.addEventListener("error", () => {
+      handlers.connected(false);
       // CONNECTING means the browser is already retrying on its own.
       if (closed || source?.readyState !== EventSource.CLOSED) return;
       retryTimer = setTimeout(openSource, RETRY_MS * Math.min(++retries, MAX_BACKOFF_STEPS));
     });
+    // A retired stream shuts without an error event, so it reports the loss itself.
     source.addEventListener("retired", () => {
       closed = true;
       clearTimeout(retryTimer);
       source?.close();
+      handlers.connected(false);
     });
   };
 
