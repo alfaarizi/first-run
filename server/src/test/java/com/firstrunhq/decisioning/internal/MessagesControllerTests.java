@@ -145,7 +145,7 @@ class MessagesControllerTests {
     when(relay.relay(any(), any())).thenReturn(true);
 
     ResponseEntity<Object> lastAccepted = null;
-    for (int message = 0; message < 60; message++) {
+    for (int message = 0; message < MessageRateLimiter.CAPACITY; message++) {
       lastAccepted = post(body("hi"), true, null);
     }
     ResponseEntity<Object> throttled = post(body("hi"), true, null);

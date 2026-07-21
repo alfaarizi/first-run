@@ -13,7 +13,7 @@ class MessageRateLimiter {
 
   // Every message costs a retrieval and a model call, and one caller can send forever inside a
   // single conversation, so counting conversations bounds no spend.
-  private static final long CAPACITY = 60;
+  static final long CAPACITY = 60;
   private static final long REFILL_PER_MINUTE = 60;
 
   private final ConcurrentHashMap<UUID, Bucket> buckets = new ConcurrentHashMap<>();
