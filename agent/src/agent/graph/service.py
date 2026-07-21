@@ -50,14 +50,16 @@ class ConversationService(ConversationServiceServicer):  # type: ignore[misc]
             answer_text: list[str] = []
             failed = False
 
+            # Ids and sizes only. An end user's question, and the answer built from
+            # it, are free text, and free text never leaves the process.
             with self._langfuse.start_as_current_observation(
                 name="converse",
                 as_type="span",
-                input={"question": message.text},
                 metadata={
                     "conversation_id": conversation.conversation_id,
                     "message_id": message.message_id,
                     "tenant_id": conversation.tenant_id,
+                    "question_chars": len(message.text),
                 },
             ) as span:
                 state = _initial_state(conversation, message.text, history)
@@ -78,7 +80,9 @@ class ConversationService(ConversationServiceServicer):  # type: ignore[misc]
                     failed = True
                     log.exception("answer failed for message %s", message.message_id)
                     span.update(level="ERROR", status_message="answer failed")
-                span.update(output={"answer": "".join(answer_text)})
+                span.update(
+                    metadata={"answer_chars": sum(len(token) for token in answer_text)}
+                )
 
             yield conversation_pb2.ConverseResponse(
                 answer_done=conversation_pb2.AnswerDone(

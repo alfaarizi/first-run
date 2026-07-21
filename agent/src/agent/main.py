@@ -6,7 +6,6 @@ from contextlib import asynccontextmanager
 
 import grpc
 from fastapi import FastAPI
-from langfuse import Langfuse
 
 from agent.config import get_settings
 from agent.graph.build import build_graph
@@ -17,6 +16,7 @@ from agent.indexing.service import KnowledgeService
 from agent.indexing.store import ChunkStore
 from agent.llm.client import ChatClient, EmbeddingClient
 from agent.retrieval.search import ChunkSearcher
+from agent.tracing import build_tracer
 from firstrun.v1 import conversation_pb2_grpc, knowledge_pb2_grpc
 
 logging.basicConfig(
@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         chunk_max_chars=settings.chunk_max_chars,
         crawl_max_concurrent=settings.crawl_max_concurrent,
     )
-    langfuse = Langfuse(
+    langfuse = build_tracer(
         public_key=settings.langfuse_public_key,
         secret_key=settings.langfuse_secret_key,
         host=settings.langfuse_host,

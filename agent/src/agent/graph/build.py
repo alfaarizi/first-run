@@ -65,7 +65,7 @@ def build_graph(
     async def retrieve(state: ConversationState) -> dict[str, object]:
         """Embed the question and pull the nearest chunks into state."""
         with langfuse.start_as_current_observation(
-            name="retrieve", as_type="retriever", input={"question": state["question"]}
+            name="retrieve", as_type="retriever"
         ) as span:
             embedding = await embedder.embed_query(state["question"])
             chunks = await searcher.search(
@@ -74,7 +74,11 @@ def build_graph(
                 embedding=embedding,
                 limit=top_k,
             )
-            span.update(output={"chunks": len(chunks)})
+            # The docs a grounding incident is read against. The question that
+            # found them is the end user's free text and stays out of the trace.
+            span.update(
+                metadata={"sources": [chunk.source_url for chunk in chunks]},
+            )
         return {"chunks": chunks}
 
     async def answer(state: ConversationState) -> dict[str, object]:
