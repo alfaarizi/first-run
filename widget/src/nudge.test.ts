@@ -713,6 +713,23 @@ test("reset returns the surface to a fresh collapsed launcher", () => {
   expect(query(".fr-messages")?.childElementCount).toBe(0);
 });
 
+test("an account switch leaves no nudge for the next user's question to answer", () => {
+  const { ui, callbacks, query } = createUi();
+  query<HTMLButtonElement>(".fr-launcher")?.click();
+  ui.showNudge({ id: "n1", text: "Stuck?" });
+
+  ui.reset();
+  query<HTMLButtonElement>(".fr-launcher")?.click();
+  const input = query<HTMLTextAreaElement>(".fr-input");
+  input!.value = "how do I connect?";
+  input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+  // Crediting one identity's nudge to another's question would corrupt the
+  // holdout it is measured against.
+  expect(callbacks.onSend).toHaveBeenCalledWith(expect.any(String), "how do I connect?", undefined);
+  expect(callbacks.onEngage).not.toHaveBeenCalledWith("n1");
+});
+
 test("the bot's typing bubble opens only once the send lands", async () => {
   const { callbacks, query } = createUi();
   let land!: (delivered: boolean) => void;
