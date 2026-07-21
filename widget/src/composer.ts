@@ -12,12 +12,13 @@ export interface Composer {
   text(): string;
   /** The raw draft, kept verbatim so a reload restores it exactly. */
   draft(): string;
-  /** Seeds the draft, growing the input to fit, used when a reload restores it. */
   setDraft(value: string): void;
   clearDraft(): void;
   /** Opens or blocks the input and its send button. */
   setEnabled(enabled: boolean): void;
+  /** Holds the caret. */
   focus(): void;
+  focused(): boolean;
 }
 
 /** Builds the composer. Enter and the send button submit, Shift+Enter breaks the line. */
@@ -91,6 +92,7 @@ export function createComposer(onSubmit: () => void): Composer {
       // Scroll-on-focus would drag the shell's content while it is mid-morph.
       input.focus({ preventScroll: true });
     },
+    focused: () => (input.getRootNode() as ShadowRoot).activeElement === input,
   };
 }
 

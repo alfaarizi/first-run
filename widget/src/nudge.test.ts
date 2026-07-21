@@ -733,10 +733,34 @@ test("the bot's typing bubble opens only once the send lands", async () => {
   expect(query(".fr-typing")).not.toBeNull();
 });
 
-test("a reload returns the cursor to the composer", async () => {
+test("a reload returns the cursor to the composer when it held it before", async () => {
   const { ui, query } = createUi();
-  ui.restore({ open: true, messages: [{ who: "user", text: "hi", at: 1 }], scrollTop: 0 });
+  ui.restore({
+    open: true,
+    messages: [{ who: "user", text: "hi", at: 1 }],
+    scrollTop: 0,
+    composerFocused: true,
+  });
 
   await new Promise((resolve) => requestAnimationFrame(resolve));
   expect(shadow.activeElement).toBe(query(".fr-input"));
+});
+
+test("a reload leaves the caret alone when the composer did not hold it", async () => {
+  const { ui, query } = createUi();
+  // the caret sat in the host page's own input, so composerFocused is absent
+  ui.restore({ open: true, messages: [{ who: "user", text: "hi", at: 1 }], scrollTop: 0 });
+
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  expect(shadow.activeElement).not.toBe(query(".fr-input"));
+});
+
+test("a focused composer persists that the caret was in it", () => {
+  let snapshot: ChatSnapshot | undefined;
+  const { query } = createUi((s) => (snapshot = structuredClone(s)));
+  query<HTMLButtonElement>(".fr-launcher")?.click();
+  query<HTMLTextAreaElement>(".fr-input")?.focus();
+
+  dispatchEvent(new Event("pagehide"));
+  expect(snapshot?.composerFocused).toBe(true);
 });

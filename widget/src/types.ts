@@ -80,6 +80,8 @@ export interface ChatSnapshot {
   awaitingNudgeIds?: string[];
   /** The unsent composer text, so a reload keeps a half-typed question. */
   composerDraft?: string;
+  /** Whether the composer held the caret. */
+  composerFocused?: boolean;
   /** The message log's scroll offset while open, so a reload keeps the view. */
   scrollTop?: number;
 }

@@ -20,8 +20,13 @@ test("round-trips a snapshot for one app and end user", () => {
   expect(loadChat("key_1", "user-1")).toEqual(snapshot);
 });
 
-test("round-trips the composer draft and scroll offset", () => {
-  const withView: ChatSnapshot = { ...snapshot, composerDraft: "half a question", scrollTop: 240 };
+test("round-trips the composer draft, focus, and scroll offset", () => {
+  const withView: ChatSnapshot = {
+    ...snapshot,
+    composerDraft: "half a question",
+    composerFocused: true,
+    scrollTop: 240,
+  };
   storeChat("key_1", "user-1", withView);
   expect(loadChat("key_1", "user-1")).toEqual(withView);
 });

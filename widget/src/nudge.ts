@@ -64,6 +64,9 @@ export class NudgeUi {
   private answerTimer: number | undefined;
   private morphTimer: number | undefined;
   private expanded = false;
+  // The composer takes the caret only when the user opened the panel or held it
+  // there before a reload, never on a reload that leaves the host page focused.
+  private wantsFocus = false;
 
   /** Builds the collapsed surface and mounts it in a closed shadow root. */
   constructor(callbacks: NudgeCallbacks, persist: PersistChat = () => {}) {
@@ -134,13 +137,14 @@ export class NudgeUi {
 
     if (snapshot.open) {
       this.expanded = true;
+      this.wantsFocus = snapshot.composerFocused ?? false;
       this.shell.classList.add("fr-expanded");
       this.launcher.setAttribute("aria-expanded", "true");
       // One frame for the panel to lay out: a log with no height yet clamps
       // scrollTop to zero and the view jumps to the top.
       requestAnimationFrame(() => {
         this.messages.scrollTop = snapshot.scrollTop ?? this.messages.scrollHeight;
-        this.composer.focus();
+        if (this.wantsFocus) this.composer.focus();
       });
     }
   }
@@ -183,7 +187,7 @@ export class NudgeUi {
   setConnected(connected: boolean): void {
     this.subtitle.textContent = connected ? HERE_TO_HELP_TEXT : CONNECTING_TEXT;
     this.composer.setEnabled(connected);
-    if (connected && this.expanded) this.composer.focus();
+    if (connected && this.expanded && this.wantsFocus) this.composer.focus();
   }
 
   /** Streams one answer span into the answer awaiting its message id. */
@@ -338,6 +342,7 @@ export class NudgeUi {
     }
     this.morph();
     this.expanded = true;
+    this.wantsFocus = true;
     this.shell.classList.add("fr-expanded");
     this.shell.classList.remove("fr-unread");
     this.launcher.setAttribute("aria-expanded", "true");
@@ -354,6 +359,7 @@ export class NudgeUi {
       this.shell.classList.remove("fr-morph");
     }
     this.expanded = false;
+    this.wantsFocus = false;
     this.shell.classList.remove("fr-expanded");
     this.launcher.setAttribute("aria-expanded", "false");
     // Closing without a reply leaves the nudges to the ignored outcome.
@@ -439,6 +445,7 @@ export class NudgeUi {
       previewNudge: this.pendingNudge,
       awaitingNudgeIds: this.nudgesAwaitingReply.size ? [...this.nudgesAwaitingReply] : undefined,
       composerDraft: this.composer.draft(),
+      composerFocused: this.composer.focused(),
       scrollTop: this.expanded ? this.messages.scrollTop : undefined,
     });
   }

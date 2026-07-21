@@ -24,6 +24,7 @@ export function storeChat(key: string, endUserHash: string, snapshot: ChatSnapsh
         previewNudge: snapshot.previewNudge,
         awaitingNudgeIds: snapshot.awaitingNudgeIds,
         composerDraft: snapshot.composerDraft,
+        composerFocused: snapshot.composerFocused,
         scrollTop: snapshot.scrollTop,
       }),
     );
@@ -73,6 +74,7 @@ function isSnapshot(value: unknown): value is ChatSnapshot & { v: number } {
     (snapshot.previewNudge === undefined || isNudgePayload(snapshot.previewNudge)) &&
     (snapshot.awaitingNudgeIds === undefined || isStringArray(snapshot.awaitingNudgeIds)) &&
     (snapshot.composerDraft === undefined || typeof snapshot.composerDraft === "string") &&
+    (snapshot.composerFocused === undefined || typeof snapshot.composerFocused === "boolean") &&
     (snapshot.scrollTop === undefined || typeof snapshot.scrollTop === "number")
   );
 }
