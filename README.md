@@ -6,6 +6,8 @@
 [![Widget](https://img.shields.io/badge/widget-MIT-blue.svg)](widget/LICENSE)
 [![Status](https://img.shields.io/badge/status-building%20v1-orange.svg)](docs/architecture.md)
 
+<img src="docs/assets/firstrun-demo.gif" alt="A user asks the FirstRun widget a question and gets an answer cited from the product's own docs" width="760">
+
 </div>
 
 FirstRun is an open source activation agent for small B2B SaaS. A founder drops a
