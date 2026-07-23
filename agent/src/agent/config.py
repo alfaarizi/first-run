@@ -37,6 +37,11 @@ class Settings(BaseSettings):
 
     grpc_port: int = 50051
 
+    # The tenant and app the MCP tool surface is pinned to, because an MCP
+    # client never names a tenant. Leaving both unset keeps /mcp unmounted.
+    mcp_tenant_id: str = ""
+    mcp_app_id: str = ""
+
     crawl_max_pages: int = 200
     crawl_max_concurrent: int = 4
     crawl_timeout_seconds: float = 10.0

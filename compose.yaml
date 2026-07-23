@@ -234,6 +234,10 @@ services:
       # A payment-methodless Voyage key allows 3 requests a minute, so the
       # local crawl embeds serially and leans on the client's backoff.
       CRAWL_MAX_CONCURRENT: "1"
+      # Pins the MCP tool surface at /mcp to the seeded demo tenant
+      # (scripts/seed.sql). Unset, the endpoint does not mount.
+      MCP_TENANT_ID: "019813f2-0000-7000-8000-000000000001"
+      MCP_APP_ID: "019813f2-0000-7000-8000-000000000002"
     ports:
       - "8000:8000"
       # gRPC, so the offline eval harness can replay the golden set from the

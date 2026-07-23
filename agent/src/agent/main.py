@@ -2,10 +2,11 @@
 
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 import grpc
 from fastapi import FastAPI
+from starlette.routing import Mount
 
 from agent.config import get_settings
 from agent.graph.build import build_graph
@@ -15,6 +16,8 @@ from agent.indexing.indexer import Indexer
 from agent.indexing.service import KnowledgeService
 from agent.indexing.store import ChunkStore
 from agent.llm.client import ChatClient, EmbeddingClient
+from agent.mcp.server import build_mcp_server
+from agent.mcp.timeline import TimelineReader
 from agent.retrieval.search import ChunkSearcher
 from agent.tracing import build_tracer
 from firstrun.v1 import conversation_pb2_grpc, knowledge_pb2_grpc
@@ -52,6 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         host=settings.langfuse_host,
     )
     searcher = ChunkSearcher(settings.database_url)
+    timeline = TimelineReader(settings.database_url)
     graph = build_graph(
         embedder=embedder,
         searcher=searcher,
@@ -60,6 +64,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         answer_model=settings.answer_model,
         top_k=settings.retrieval_top_k,
     )
+
+    mcp = None
+    # One pin set without the other must fail loudly in build_mcp_server
+    # rather than silently leave /mcp unmounted.
+    if settings.mcp_tenant_id or settings.mcp_app_id:
+        mcp = build_mcp_server(
+            tenant_id=settings.mcp_tenant_id,
+            app_id=settings.mcp_app_id,
+            embedder=embedder,
+            searcher=searcher,
+            timeline=timeline,
+            langfuse=langfuse,
+            top_k=settings.retrieval_top_k,
+        )
 
     server = grpc.aio.server()
     knowledge_pb2_grpc.add_KnowledgeServiceServicer_to_server(
@@ -73,12 +91,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if server.add_insecure_port(f"[::]:{settings.grpc_port}") == 0:
         raise RuntimeError(f"gRPC port {settings.grpc_port} did not bind")
     await server.start()
-    yield
+
+    # The MCP app closes over clients built in this lifespan, so its route
+    # mounts here and leaves with it, serving /mcp beside /health. Shutdown
+    # unwinds in reverse: the route unmounts before its session manager stops.
+    async with AsyncExitStack() as stack:
+        if mcp is not None:
+            mcp_route = Mount("/", mcp.streamable_http_app())
+            await stack.enter_async_context(mcp.session_manager.run())
+            app.router.routes.append(mcp_route)
+            stack.callback(app.router.routes.remove, mcp_route)
+        yield
     await server.stop(grace=_STOP_GRACE_SECONDS)
 
     # Crawls outlive their RPCs. Clean up before the store closes.
     await indexer.close()
     await searcher.close()
+    await timeline.close()
     await store.close()
     langfuse.shutdown()
 
