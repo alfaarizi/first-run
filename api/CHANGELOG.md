@@ -3,6 +3,30 @@
 Each entry records the date, the change, the rationale, and whether it is
 additive or breaking.
 
+## 2026-07-23
+
+### Added
+
+- The agent serves MCP over streamable HTTP at `/mcp` on its HTTP port,
+  exposing `docs_search`, `user_timeline`, and `propose_action` with typed
+  results, so an external client can drive the tool surface in demos. The
+  endpoint mounts only when `MCP_TENANT_ID` and `MCP_APP_ID` pin it to one
+  tenant and app, and every read runs under that pinned scope plus the same
+  row-level security as the internal path. An MCP client never names a
+  tenant, the rule the ingest path fixed for client-supplied identity, and
+  tool inputs carry the caps the message and ingest contracts already fix
+  (2000 characters for a query, 128 for an end-user hash).
+  `propose_action` never executes: it validates the name against
+  `registered_action_names` supplied per call, the registry contract the
+  conversation context frame fixed, and an empty registry proposes nothing.
+
+Additive. Two shapes are provisional until their owning stories land: the
+caller supplies the registry list until the action registry becomes
+server-resolved, and `user_timeline` reads milestone progress only until
+the ledger exists. Both changes extend the tools without breaking them.
+The endpoint accepts localhost hosts only (the SDK's DNS-rebinding
+default), matching the demo scope.
+
 ## 2026-07-20
 
 ### Changed
