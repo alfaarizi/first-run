@@ -14,6 +14,8 @@ dependencies = [
     "httpx>=0.28",
     "langfuse>=3",
     "langgraph>=1.0",
+    # Floor set by structured tool output, which typed tool results need.
+    "mcp>=1.10",
     "pgvector>=0.4",
     "protego>=0.3",
     "protobuf>=6.33.5",
